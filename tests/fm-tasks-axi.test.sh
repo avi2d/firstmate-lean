@@ -341,61 +341,65 @@ test_wrapper_does_not_reuse_numbers_from_the_configured_markdown_archive() {
   pass "the markdown wrapper counts in-flight work and honors the configured archive"
 }
 
+backlog_md_lifecycle_steps() {  # <home>, with FM_HOME naming the same home
+  local home=$1 out
+  . "$ROOT/bin/fm-tasks-axi-lib.sh"
+  . "$ROOT/bin/fm-backlog-transition-lib.sh"
+  printf '%s\n' 'spawn_gen=s1.1.1' > "$home/state/transition-task.meta"
+  fm_backlog_transition_applies "$home/config" "$home/data" ship || exit 1
+  fm_backlog_atomic_transition dispatch "$home/state/transition-task.meta" "$home/data" transition-task "$home/state" || exit 1
+  out=$(bash "$WRAPPER" list --state in_flight) || exit 1
+  printf '%s\n' "$out" | grep -q 'transition-task,in_flight,' || exit 1
+  bash "$ROOT/bin/fm-captain-hold.sh" hold transition-task --reason "Decision needed" >/dev/null || exit 1
+  fm_backlog_retain "$home/data" transition-task || exit 1
+  out=$(bash "$WRAPPER" show transition-task) || exit 1
+  printf '%s\n' "$out" | grep -q '^  state: queued$' || exit 1
+  printf '%s\n' "$out" | grep -q '^  held: yes$' || exit 1
+  printf '%s\n' approved > "$home/decision"
+  bash "$ROOT/bin/fm-captain-hold.sh" answer transition-task --decision-file "$home/decision" --release >/dev/null || exit 1
+  fm_backlog_atomic_transition dispatch "$home/state/transition-task.meta" "$home/data" transition-task "$home/state" || exit 1
+  : > "$home/state/transition-task.backlog-close"
+  fm_backlog_atomic_transition close "$home/state/transition-task.meta" "$home/state/transition-task.backlog-close" "$home/data" transition-task "$home/state" || exit 1
+  out=$(bash "$WRAPPER" show transition-task) || exit 1
+  printf '%s\n' "$out" | grep -q '^  state: done$' || exit 1
+}
+
 test_backlog_md_lifecycle_preserves_a_running_slug_id() {
-  local home="$TMP_ROOT/backlog-md-lifecycle" out
+  local home="$TMP_ROOT/backlog-md-lifecycle"
   make_backlog_md_home "$home"
   write_backlog_md_ticket "$home/data/backlog/tasks/task-existing.md" transition-task Queued
-  (
-    export FM_HOME="$home"
-    . "$ROOT/bin/fm-tasks-axi-lib.sh"
-    . "$ROOT/bin/fm-backlog-transition-lib.sh"
-    printf '%s\n' 'spawn_gen=s1.1.1' > "$home/state/transition-task.meta"
-    fm_backlog_transition_applies "$home/config" "$home/data" ship || exit 1
-    fm_backlog_atomic_transition dispatch "$home/state/transition-task.meta" "$home/data" transition-task "$home/state" || exit 1
-    out=$(bash "$WRAPPER" list --state in_flight) || exit 1
-    printf '%s\n' "$out" | grep -q 'transition-task,in_flight,' || exit 1
-    bash "$ROOT/bin/fm-captain-hold.sh" hold transition-task --reason "Decision needed" >/dev/null || exit 1
-    fm_backlog_retain "$home/data" transition-task || exit 1
-    out=$(bash "$WRAPPER" show transition-task) || exit 1
-    printf '%s\n' "$out" | grep -q '^  state: queued$' || exit 1
-    printf '%s\n' "$out" | grep -q '^  held: yes$' || exit 1
-    printf '%s\n' approved > "$home/decision"
-    bash "$ROOT/bin/fm-captain-hold.sh" answer transition-task --decision-file "$home/decision" --release >/dev/null || exit 1
-    fm_backlog_atomic_transition dispatch "$home/state/transition-task.meta" "$home/data" transition-task "$home/state" || exit 1
-    : > "$home/state/transition-task.backlog-close"
-    fm_backlog_atomic_transition close "$home/state/transition-task.meta" "$home/state/transition-task.backlog-close" "$home/data" transition-task "$home/state" || exit 1
-    out=$(bash "$WRAPPER" show transition-task) || exit 1
-    printf '%s\n' "$out" | grep -q '^  state: done$' || exit 1
-  ) || fail "Backlog.md lifecycle did not retain and complete the task"
+  ( FM_HOME="$home" backlog_md_lifecycle_steps "$home" ) || fail "Backlog.md lifecycle did not retain and complete the task"
   pass "Backlog.md lifecycle retains a held task as queued and completes it"
 }
 
+numbered_followup_replay_steps() {  # <home>, with FM_HOME naming the same home
+  local home=$1 out line
+  . "$ROOT/bin/fm-classify-lib.sh"
+  . "$ROOT/bin/fm-tasks-axi-lib.sh"
+  . "$ROOT/bin/fm-backlog-transition-lib.sh"
+  bash "$WRAPPER" add workflows-1 "Parent task" --repo workflows >/dev/null || exit 1
+  bash "$WRAPPER" start workflows-1 >/dev/null || exit 1
+  line='followup [at=1795194318]: Correct the stale queue notes'
+  fm_backlog_file_followup "$home/config" "$home/data" workflows-1 "$line" || exit 1
+  [ "$FM_BACKLOG_FOLLOWUP_ID $FM_BACKLOG_FOLLOWUP_CREATED" = "workflows-2 1" ] || exit 1
+  [ -z "$FM_BACKLOG_FOLLOWUP_LOG_ERROR" ] || exit 1
+  bash "$WRAPPER" "done" workflows-2 --keep 0 >/dev/null || exit 1
+  fm_backlog_file_followup "$home/config" "$home/data" workflows-1 "$line" || exit 1
+  [ "$FM_BACKLOG_FOLLOWUP_ID $FM_BACKLOG_FOLLOWUP_CREATED" = "workflows-2 0" ] || exit 1
+  out=$(bash "$WRAPPER" add "Separate task" --mint --prefix workflows) || exit 1
+  printf '%s\n' "$out" | grep -Fxq '  id: workflows-3' || exit 1
+}
+
 test_numbered_followup_replay_does_not_allocate_another_id_after_archiving() {
-  local backend=$1 home="$TMP_ROOT/followup-$1"
-  if [ "$backend" = backlog-md ]; then
+  local store=$1 home="$TMP_ROOT/followup-$1"
+  if [ "$store" = backlog-md ]; then
     make_backlog_md_home "$home"
   else
     mkdir -p "$home/data" "$home/config"
     empty_backlog "$home/data/backlog.md"
   fi
-  (
-    export FM_HOME="$home"
-    . "$ROOT/bin/fm-classify-lib.sh"
-    . "$ROOT/bin/fm-tasks-axi-lib.sh"
-    . "$ROOT/bin/fm-backlog-transition-lib.sh"
-    bash "$WRAPPER" add workflows-1 "Parent task" --repo workflows >/dev/null || exit 1
-    bash "$WRAPPER" start workflows-1 >/dev/null || exit 1
-    line='followup [at=1795194318]: Correct the stale queue notes'
-    fm_backlog_file_followup "$home/config" "$home/data" workflows-1 "$line" || exit 1
-    [ "$FM_BACKLOG_FOLLOWUP_ID $FM_BACKLOG_FOLLOWUP_CREATED" = "workflows-2 1" ] || exit 1
-    [ -z "$FM_BACKLOG_FOLLOWUP_LOG_ERROR" ] || exit 1
-    bash "$WRAPPER" done workflows-2 --keep 0 >/dev/null || exit 1
-    fm_backlog_file_followup "$home/config" "$home/data" workflows-1 "$line" || exit 1
-    [ "$FM_BACKLOG_FOLLOWUP_ID $FM_BACKLOG_FOLLOWUP_CREATED" = "workflows-2 0" ] || exit 1
-    out=$(bash "$WRAPPER" add "Separate task" --mint --prefix workflows) || exit 1
-    printf '%s\n' "$out" | grep -Fxq '  id: workflows-3' || exit 1
-  ) || fail "$backend allocated an incorrect follow-up ID or duplicated an archived follow-up"
-  pass "$backend files a numbered follow-up once even after it is archived"
+  ( FM_HOME="$home" numbered_followup_replay_steps "$home" ) || fail "$store allocated an incorrect follow-up ID or duplicated an archived follow-up"
+  pass "$store files a numbered follow-up once even after it is archived"
 }
 
 test_decisions_reject_duplicate_active_topics_and_hide_superseded_entries() {

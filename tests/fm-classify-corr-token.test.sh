@@ -1,22 +1,6 @@
 #!/usr/bin/env bash
-# tests/fm-classify-corr-token.test.sh - a status line may carry the correlation
-# token bin/fm-pending-reply-lib.sh embeds in a marked request and a secondmate
-# echoes back (bin/fm-brief.sh), between the verb and the rest of the line. Every
-# verb-driven classification must read straight through that token, in BOTH
-# directions: a verb parse that keeps the token glued on matches no arm of the
-# decision fold, so the opener never opens, the closer never closes, and a
-# decision the captain is owed never reaches him.
-#
-# The parse is deliberately strict, and these tests defend that strictness as
-# hard as they defend the fix: only the exact token a firstmate library writes is
-# read through. Prose, a malformed or wrong-length token, and an arbitrary
-# name=value word all keep their extra words and therefore stay non-transitions.
-#
-# Coverage is split by the interface each claim lives behind: the fold is driven
-# through the REAL bin/fm-wake-drain.sh, the classifier predicates through the
-# library's own sourced entry points (as tests/fm-watch-triage.test.sh does), and
-# the token grammar itself is pinned against the REAL writers so this library's
-# second statement of the shape cannot drift from the one that owns it.
+# Verb-driven status classification reads through the exact correlation token
+# between a status verb and its note, and through nothing looser.
 set -u
 
 # shellcheck source=tests/wake-helpers.sh
@@ -92,9 +76,8 @@ test_token_is_read_through_in_every_position_it_is_written_in() {
   state="$dir/state"
   out="$dir/drain.out"
 
-  # Before the key, after the key, with no key at all, twice on one line (a
-  # recovery turn re-embedding), and in the bracketed shape the optional
-  # bin/fm-secondmate-report.sh helper writes. Every one is a real observed shape.
+  # Before the key, after the key, with no key at all, twice on one line, and in
+  # the bracketed shape.
   printf 'needs-decision corr=%s [key=before]: token ahead of the key\n' "$CORR" > "$state/t1.status"
   printf 'needs-decision [key=after] corr=%s: token behind the key\n' "$CORR" > "$state/t2.status"
   printf 'blocked corr=%s: token and no key at all\n' "$CORR" > "$state/t3.status"
@@ -327,23 +310,13 @@ test_consumer_verdicts_read_through_the_token() {
   pass "captain-relevance, terminal-verb, pause and captain-held all read through the token"
 }
 
-test_daemon_and_crew_state_case_arms_read_through_the_token() {
-  # Two consumers switch on the verb STRING rather than on a helper, so they
-  # cannot be proven through status_is_*: bin/fm-supervise-daemon.sh matches
-  # working|resolved|captain-held to take the transient-stale path instead of
-  # the terminal one, and bin/fm-crew-state.sh's map_log_state maps each verb to
-  # a run state, falling through to "unknown" on anything else.
-  #
-  # Before this fix a correlated line matched no arm of either: a correlated
-  # working line was escalated as terminally stale, and every correlated line
-  # read as run state "unknown". Pin the exact strings those arms compare
-  # against, for both the tokened and untokened spellings.
+test_crew_state_case_arms_read_through_the_token() {
   local verb
   for verb in working resolved captain-held; do
     [ "$(status_line_verb "$verb corr=$CORR [key=k]: note")" = "$verb" ] \
-      || fail "the daemon transient-stale arm no longer matches a correlated $verb"
+      || fail "a keyed correlated $verb no longer reduces to its verb"
     [ "$(status_line_verb "$verb [key=k]: note")" = "$verb" ] \
-      || fail "the daemon transient-stale arm regressed for an untokened $verb"
+      || fail "a keyed untokened $verb no longer reduces to its verb"
   done
   for verb in working needs-decision blocked 'done' failed; do
     [ "$(status_line_verb "$verb corr=$CORR: note")" = "$verb" ] \
@@ -359,14 +332,11 @@ test_daemon_and_crew_state_case_arms_read_through_the_token() {
   [ "$(status_line_verb "working corr=deadbeef [key=k]: malformed")" = working ] \
     && fail "a malformed token reduced to a bare working verb"
 
-  pass "the daemon and crew-state verb case arms read through the token"
+  pass "the crew-state verb case arms read through the token"
 }
 
 test_pending_reply_escalation_matching_is_unaffected() {
-  # bin/fm-pending-reply-lib.sh filters a status file by verb when looking for
-  # the escalation IT published, then whole-line matches its own exact payload.
-  # Reading through the token widens the verb filter, so this pins that the exact
-  # match behind it still refuses everything that is not that library's own line.
+  # The reserved pending-reply key namespace stays closed to a correlated line.
   local dir state out view
   dir=$(make_case pending-reply-namespace)
   state="$dir/state"
@@ -540,7 +510,7 @@ test_optional_event_time() {
 
 test_captain_override_ignores_event_time() {
   local dir verb line event
-  local FM_CAPTAIN_RE='done:|needs-decision:|blocked:|failed:'
+  local -x FM_CAPTAIN_RE='done:|needs-decision:|blocked:|failed:'
   dir=$(make_case captain-override-time)
   for verb in 'done' needs-decision blocked failed; do
     for line in "$verb: audit complete" "$verb [at=1700000000]: audit complete" \
@@ -573,11 +543,10 @@ test_captain_override_ignores_event_time() {
     [ "$(last_status_line "$dir/state/task.status")" = "$line" ] \
       || fail "event scan skipped the stamped custom-verb event: $line"
   done
-  FM_CAPTAIN_RE="^done \\[corr=$CORR\\]: literal \\[at=1700000000\\]$"
   for line in "done [corr=$CORR]: literal [at=1700000000]" \
     "done [at=1700000000] [corr=$CORR]: literal [at=1700000000]" \
     "done [corr=$CORR] [at=1700000000]: literal [at=1700000000]"; do
-    status_is_captain_relevant "$line" || fail "normalization changed correlation metadata or note: $line"
+    FM_CAPTAIN_RE="^done \\[corr=$CORR\\]: literal \\[at=1700000000\\]$" status_is_captain_relevant "$line" || fail "normalization changed correlation metadata or note: $line"
   done
   pass "captain regex overrides preserve timed and legacy relevance and event bytes"
 }
@@ -616,11 +585,8 @@ test_malformed_event_time_is_ordinary_bytes() {
       FM_CAPTAIN_RE='done:|needs-decision:|blocked:|failed:' status_is_captain_relevant "$line" \
         || fail "override lost a terminal event to a malformed tag: $line"
       printf '%s\n' "$line" > "$dir/state/scan.status"
-      (
-        FM_CAPTAIN_RE='done:|needs-decision:|blocked:|failed:'
-        event=$(last_status_line "$dir/state/scan.status")
-        [ "$event" = "$line" ] || exit 1
-      ) || fail "event scan lost a terminal event to a malformed tag: $line"
+      event=$(FM_CAPTAIN_RE='done:|needs-decision:|blocked:|failed:' last_status_line "$dir/state/scan.status")
+      [ "$event" = "$line" ] || fail "event scan lost a terminal event to a malformed tag: $line"
     done
   done
   pass "malformed event times stay ordinary line bytes without hiding the event"
@@ -670,7 +636,7 @@ test_prose_and_malformed_tokens_never_become_transitions
 test_token_first_word_never_impersonates_a_transition
 test_captain_relevance_and_pause_are_unchanged_without_a_token
 test_consumer_verdicts_read_through_the_token
-test_daemon_and_crew_state_case_arms_read_through_the_token
+test_crew_state_case_arms_read_through_the_token
 test_pending_reply_escalation_matching_is_unaffected
 test_incremental_and_whole_file_folds_agree_over_correlated_lines
 test_a_cursor_written_before_this_change_is_rebuilt
