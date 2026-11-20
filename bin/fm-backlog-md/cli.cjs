@@ -1,5 +1,5 @@
 const fs = require('node:fs');
-const { assignTaskId } = require('./task-id.cjs');
+const { assignTaskId, followupMarker, hasFollowupMarker } = require('./task-id.cjs');
 const { board, draftTicket, PR, projectTask, holdRecord, saveHold, taskOrder, sectionBody, setSection } = require('./store.cjs');
 const { scalar, help, show, table, mutation, EXTRA, HOLD } = require('./output.cjs');
 
@@ -9,7 +9,7 @@ const baseFields = ['repo', 'kind'];
 const patchFields = [...baseFields, 'priority', 'body', 'body-file', 'pr', 'report'];
 const commands = {
   show: { args: '<id> [--full]', flags: [], switches: ['full'], count: 1 },
-  add: { args: '("<title>" --mint --prefix <project> | <project>-<number> "<title>") [flags]', flags: [...patchFields, 'blocked-by', 'prefix'], switches: ['queue', 'mint', 'json'], count: 2 },
+  add: { args: '("<title>" --mint --prefix <project> | <project>-<number> "<title>") [flags]', flags: [...patchFields, 'blocked-by', 'prefix', 'parent', 'followup-key'], switches: ['queue', 'mint', 'json'], count: 2 },
   list: { args: '[flags]', flags: [...baseFields, 'state', 'limit', 'fields'], switches: ['blocked'], count: 0 },
   ready: { args: '[--repo <name>] [--include-held]', flags: ['repo'], switches: ['include-held'], count: 0 },
   update: { args: '<id> [flags]', flags: ['title', ...patchFields], switches: ['archive-body', 'json'], count: 1 },
@@ -125,12 +125,21 @@ function add(book, positionals, options, now, project) {
   const title = (options.mint ? positionals[0] : positionals[1]).trim();
   if (!options.mint && options.prefix) reject('--prefix can only be used with --mint');
   const repo = options.repo ?? (options.mint ? options.prefix : undefined);
-  const activeIds = Array.from(book.tickets.values()).filter(ticket => !ticket.archived).map(ticket => ticket.fields.id);
-  const reservedIds = Array.from(book.tickets.values()).filter(ticket => ticket.archived).map(ticket => ticket.fields.id);
-  reservedIds.push(...book.draftIds());
+  const tickets = Array.from(book.tickets.values());
+  let marker;
+  let replay;
   let id;
   try {
-    id = assignTaskId({ id: options.mint ? undefined : positionals[0], repo, prefix: options.prefix }, activeIds, reservedIds);
+    const key = options['followup-key'];
+    marker = followupMarker(key, options.mint, options.json);
+    replay = marker && tickets.find(ticket =>
+      ticket.fields.id === key || hasFollowupMarker(sectionBody(ticket, 'description'), marker));
+    const activeIds = tickets.filter(ticket => !ticket.archived).map(ticket => ticket.fields.id);
+    const reservedIds = tickets.filter(ticket => ticket.archived).map(ticket => ticket.fields.id);
+    id = replay?.fields.id ?? assignTaskId(
+      { id: options.mint ? undefined : positionals[0], repo, prefix: options.prefix },
+      activeIds, reservedIds.concat(book.draftIds()),
+    );
   } catch (error) {
     reject(error.message);
   }
@@ -138,20 +147,27 @@ function add(book, positionals, options, now, project) {
   if (options.priority && !isCanonicalPriority(options.priority)) reject('--priority must be an integer from 0 to 4');
   const dependencies = unique(options['blocked-by'] ?? []);
   const existing = book.tickets.get(id);
-  const already = Boolean(existing && !existing.archived);
+  const already = Boolean(replay || (existing && !existing.archived));
   let ticket = existing;
   if (!already) {
     dependencies.forEach(by => checkBlocker(book.tickets, id, by));
+    const parent = options.parent ? book.tickets.get(options.parent) : null;
+    if (options.parent && (!parent || parent.archived)) {
+      reject(`parent "${options.parent}" not found`, 'Name an existing open task as the parent');
+    }
     const references = requestedReferences(options);
+    const body = requestedBody(options);
+    const description = marker ? [body, marker].filter(Boolean).join('\n\n') : body;
     ticket = book.add(draftTicket({
       id, title, status: 'Queued',
       ...(options.kind ? { type: options.kind } : {}),
       ...(repo ? { project: repo } : {}),
       ...(options.priority ? { priority: `p${options.priority}` } : {}),
       assignee: [], labels: [], dependencies,
+      ...(options.parent ? { parent_task_id: options.parent } : {}),
       ...(references.length > 0 ? { references } : {}),
       created_date: now,
-    }, requestedBody(options)));
+    }, description));
   }
 
   const task = project(ticket);

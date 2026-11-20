@@ -28,6 +28,10 @@ SCRIPT_DIR="$(d=${BASH_SOURCE[0]%/*}; [ "$d" != "${BASH_SOURCE[0]}" ] || d=.; cd
 . "$SCRIPT_DIR/fm-timeout-lib.sh"
 # shellcheck source=bin/fm-lease-lib.sh
 . "$SCRIPT_DIR/fm-lease-lib.sh"
+# shellcheck source=bin/fm-tasks-axi-lib.sh
+. "$SCRIPT_DIR/fm-tasks-axi-lib.sh"
+# shellcheck source=bin/fm-backlog-transition-lib.sh
+. "$SCRIPT_DIR/fm-backlog-transition-lib.sh"
 
 DRAIN_TMP=
 DRAIN_VIEW_TMP=
@@ -417,6 +421,30 @@ EOF
   fi
 }
 
+# Files a worker's followup: line as a backlog item linked to its task and
+# prints the outcome to append to the line. A home whose backlog does not own
+# the task files nothing.
+file_followup() {  # <task> <status-line>
+  local task=$1 line=$2 config="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}" data="${FM_DATA_OVERRIDE:-$FM_HOME/data}" gate=0 kind project
+  kind=$(sed -n 's/^kind=//p' "$STATE/$task.meta" 2>/dev/null | head -n 1)
+  fm_backlog_item_gate "$config" "$data" "$task" "$kind" || gate=$?
+  if [ "$gate" -ne 0 ]; then
+    printf ' -> NOT filed: %s; file it with bin/fm-tasks-axi.sh add' "$FM_BACKLOG_ITEM_ERROR"
+    return 0
+  fi
+  [ "$FM_BACKLOG_ITEM_TRACKED" = 1 ] || return 0
+  project=$(sed -n 's/^project=//p' "$STATE/$task.meta" 2>/dev/null | head -n 1)
+  if ! fm_backlog_file_followup "$config" "$data" "$task" "$line" "$project"; then
+    printf ' -> NOT filed as %s: %s; file it with bin/fm-tasks-axi.sh add' "${FM_BACKLOG_FOLLOWUP_ID:-a backlog item}" "$FM_BACKLOG_TRANSITION_ERROR"
+  elif [ "$FM_BACKLOG_FOLLOWUP_CREATED" = 1 ]; then
+    printf ' -> filed backlog item %s' "$FM_BACKLOG_FOLLOWUP_ID"
+    [ -z "$FM_BACKLOG_FOLLOWUP_LOG_ERROR" ] \
+      || printf ' (not logged on %s: %s)' "$task" "$FM_BACKLOG_FOLLOWUP_LOG_ERROR"
+  else
+    printf ' -> already filed as %s' "$FM_BACKLOG_FOLLOWUP_ID"
+  fi
+}
+
 # Print still-unread informational status lines (note: answers and pending-reply
 # resolutions) that the OPEN DECISIONS fold never carries. Uses the same
 # cursor-backed unread span as the annotation path, and runs on every drain -
@@ -436,6 +464,9 @@ print_unread_status_section() {
   while IFS=$(printf '\t') read -r task line; do
     [ -n "$task" ] || continue
     [ -n "$line" ] || continue
+    if [ "$(status_line_verb "$line")" = followup ]; then
+      line="$line$(file_followup "$task" "$line")"
+    fi
     line="$task $line"
     if [ "$shown" -eq 0 ]; then
       printf 'UNREAD STATUS (new since last drain, not re-printed after this presentation):\n' || return 1

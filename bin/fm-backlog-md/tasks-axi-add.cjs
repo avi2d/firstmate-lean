@@ -2,9 +2,9 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { assignTaskId } = require('./task-id.cjs');
+const { assignTaskId, followupMarker, hasFollowupMarker } = require('./task-id.cjs');
 
-const values = ['repo', 'kind', 'body', 'body-file', 'blocked-by', 'pr', 'report', 'priority', 'title', 'prefix'];
+const values = ['repo', 'kind', 'body', 'body-file', 'blocked-by', 'pr', 'report', 'priority', 'title', 'prefix', 'followup-key'];
 const switches = ['mint', 'queue', 'json'];
 
 function readOptionalFile(file) {
@@ -27,16 +27,43 @@ function configuredArchive(config) {
   return archive;
 }
 
-function markdownIds(file) {
-  const bullets = /^- (?:\[[ x]\] ([A-Za-z0-9._-]+)|\*\*([A-Za-z0-9._-]+)\*\*)(?= - |: )/gm;
-  return Array.from(readOptionalFile(file).matchAll(bullets), match => match[1] ?? match[2]);
+function markdownItems(file, key, marker) {
+  const bullet = /^- (?:\[[ x]\] ([A-Za-z0-9._-]+)|\*\*([A-Za-z0-9._-]+)\*\*)(?= - |: )/;
+  const ids = [];
+  let current;
+  let replay;
+  for (const line of readOptionalFile(file).split(/\r?\n/)) {
+    const match = bullet.exec(line);
+    if (match) {
+      current = match[1] ?? match[2];
+      ids.push(current);
+      if (current === key) replay = current;
+    } else if (current && marker && line === `  ${marker}`) {
+      replay = current;
+    } else if (line && !line.startsWith('  ')) {
+      current = undefined;
+    }
+  }
+  return { ids, replay };
+}
+
+function adapterOutput(args) {
+  const output = spawnSync('tasks-axi', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  if (output.error) throw output.error;
+  if (output.status !== 0) throw new Error(output.stderr.trim() || output.stdout.trim() || `tasks-axi ${args[0]} failed`);
+  return output.stdout;
+}
+
+function adapterFollowup(ids, marker) {
+  return ids.find(id => {
+    const shown = adapterOutput(['show', id, '--full']);
+    const body = /^  body: (.*)$/m.exec(shown)?.[1];
+    return body && hasFollowupMarker(body.startsWith('"') ? JSON.parse(body) : body, marker);
+  });
 }
 
 function activeAdapterIds() {
-  const output = spawnSync('tasks-axi', ['list'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-  if (output.error) throw output.error;
-  if (output.status !== 0) throw new Error(output.stderr.trim() || output.stdout.trim() || 'tasks-axi list failed');
-  const lines = output.stdout.split('\n');
+  const lines = adapterOutput(['list']).split('\n');
   if (lines.includes('count: 0')) return [];
   const start = lines.findIndex(line => /^tasks\[\d+\]\{id,/.test(line));
   if (start < 0) throw new Error('tasks-axi list did not return a task table');
@@ -72,7 +99,7 @@ function parseAdd(args) {
       if (flag === 'blocked-by') forwarded.push(`--${flag}=${value}`);
       else {
         if (Object.hasOwn(options, flag)) throw new Error(`Pass --${flag} only once`);
-        if (!['prefix', 'title'].includes(flag)) forwarded.push(`--${flag}=${value}`);
+        if (!['prefix', 'title', 'followup-key'].includes(flag)) forwarded.push(`--${flag}=${value}`);
         options[flag] = value;
       }
     } else {
@@ -88,6 +115,9 @@ function parseAdd(args) {
     title: options.title ?? positionals.at(-1),
     repo: options.repo ?? (options.mint ? options.prefix : undefined),
     prefix: options.prefix,
+    followupKey: options['followup-key'],
+    marker: followupMarker(options['followup-key'], options.mint, options.json),
+    body: options.body,
     forwarded,
   };
 }
@@ -100,13 +130,25 @@ function add(args) {
     return;
   }
   const request = parseAdd(args);
+  const { followupKey, marker } = request;
   const file = process.env.TASKS_AXI_FILE;
-  const active = file ? markdownIds(file) : activeAdapterIds();
+  const active = file ? markdownItems(file, followupKey, marker) : { ids: activeAdapterIds() };
   const archive = file && (configuredArchive('.tasks.toml') ??
     configuredArchive(path.join(os.homedir(), '.tasks-axi', 'config.toml')) ??
     path.join(path.dirname(file), 'done-archive.md'));
-  const id = assignTaskId(request, active, archive ? markdownIds(archive) : []);
-  const forwarded = [...request.forwarded];
+  const reserved = archive ? markdownItems(archive, followupKey, marker) : { ids: [] };
+  const replay = active.replay ?? reserved.replay ??
+    (!file && marker ? active.ids.find(id => id === followupKey) ?? adapterFollowup(active.ids, marker) : undefined);
+  if (replay) {
+    console.log(JSON.stringify({ ok: true, action: 'add', already: true, task: { id: replay } }));
+    return;
+  }
+  const id = assignTaskId(request, active.ids, reserved.ids);
+  const forwarded = request.forwarded.filter(arg => !marker || !arg.startsWith('--body='));
+  if (marker) {
+    if (forwarded.some(arg => arg.startsWith('--body-file='))) throw new Error('--followup-key does not accept --body-file');
+    forwarded.push(`--body=${[request.body, marker].filter(Boolean).join('\n\n')}`);
+  }
   if (request.prefix && !forwarded.some(arg => arg.startsWith('--repo='))) forwarded.push(`--repo=${request.repo}`);
   const result = spawnSync('tasks-axi', ['add', id, `--title=${request.title}`, ...forwarded], { stdio: 'inherit' });
   if (result.error) throw result.error;

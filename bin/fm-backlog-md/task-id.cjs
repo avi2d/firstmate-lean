@@ -31,4 +31,16 @@ function assignTaskId({ id, repo, prefix }, activeIds, reservedIds) {
   throw new Error(`Cannot add task "${id}"; use the next free task ID: ${next}`);
 }
 
-module.exports = { assignTaskId };
+function followupMarker(key, mint, json) {
+  if (key === undefined) return null;
+  if (!mint || !json || !/^[A-Za-z0-9._-]+$/.test(key)) {
+    throw new Error('--followup-key requires a slug key, --mint, and --json');
+  }
+  return `Follow-up key: ${key}`;
+}
+
+function hasFollowupMarker(body, marker) {
+  return body.split(/\r?\n/).includes(marker);
+}
+
+module.exports = { assignTaskId, followupMarker, hasFollowupMarker };

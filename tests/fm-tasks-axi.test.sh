@@ -370,6 +370,34 @@ test_backlog_md_lifecycle_preserves_a_running_slug_id() {
   pass "Backlog.md lifecycle retains a held task as queued and completes it"
 }
 
+test_numbered_followup_replay_does_not_allocate_another_id_after_archiving() {
+  local backend=$1 home="$TMP_ROOT/followup-$1"
+  if [ "$backend" = backlog-md ]; then
+    make_backlog_md_home "$home"
+  else
+    mkdir -p "$home/data" "$home/config"
+    empty_backlog "$home/data/backlog.md"
+  fi
+  (
+    export FM_HOME="$home"
+    . "$ROOT/bin/fm-classify-lib.sh"
+    . "$ROOT/bin/fm-tasks-axi-lib.sh"
+    . "$ROOT/bin/fm-backlog-transition-lib.sh"
+    bash "$WRAPPER" add workflows-1 "Parent task" --repo workflows >/dev/null || exit 1
+    bash "$WRAPPER" start workflows-1 >/dev/null || exit 1
+    line='followup [at=1795194318]: Correct the stale queue notes'
+    fm_backlog_file_followup "$home/config" "$home/data" workflows-1 "$line" || exit 1
+    [ "$FM_BACKLOG_FOLLOWUP_ID $FM_BACKLOG_FOLLOWUP_CREATED" = "workflows-2 1" ] || exit 1
+    [ -z "$FM_BACKLOG_FOLLOWUP_LOG_ERROR" ] || exit 1
+    bash "$WRAPPER" done workflows-2 --keep 0 >/dev/null || exit 1
+    fm_backlog_file_followup "$home/config" "$home/data" workflows-1 "$line" || exit 1
+    [ "$FM_BACKLOG_FOLLOWUP_ID $FM_BACKLOG_FOLLOWUP_CREATED" = "workflows-2 0" ] || exit 1
+    out=$(bash "$WRAPPER" add "Separate task" --mint --prefix workflows) || exit 1
+    printf '%s\n' "$out" | grep -Fxq '  id: workflows-3' || exit 1
+  ) || fail "$backend allocated an incorrect follow-up ID or duplicated an archived follow-up"
+  pass "$backend files a numbered follow-up once even after it is archived"
+}
+
 test_decisions_reject_duplicate_active_topics_and_hide_superseded_entries() {
   local dir="$TMP_ROOT/decision-memory" tool="$ROOT/bin/fm-backlog-md/decisions.cjs" output status=0
   mkdir -p "$dir/source"
@@ -422,6 +450,7 @@ NODE
 test_decisions_reject_duplicate_active_topics_and_hide_superseded_entries
 test_backlog_md_mint_counts_drafts_and_archive_without_reusing_ids
 test_backlog_md_lifecycle_preserves_a_running_slug_id
+test_numbered_followup_replay_does_not_allocate_another_id_after_archiving backlog-md
 test_guard_reports_regular_code_root_backlog
 test_guard_reports_foreign_link_and_archive
 test_guard_silent_for_single_home
@@ -429,6 +458,7 @@ if [ "$HAVE_TASKS_AXI" = 1 ]; then
   test_bare_tasks_axi_fork_is_detected
   test_wrapper_writes_through_to_home
   test_wrapper_does_not_reuse_numbers_from_the_configured_markdown_archive
+  test_numbered_followup_replay_does_not_allocate_another_id_after_archiving markdown
   test_wrapper_overrides_ambient_file
   test_wrapper_refusals
   test_wrapper_refuses_add_start
