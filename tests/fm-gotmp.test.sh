@@ -49,8 +49,7 @@ make_fake_root() {
   # Symlink the REAL teardown so the test exercises actual code, not a copy.
   ln -s "$TEARDOWN" "$fake/bin/fm-teardown.sh"
   # fm-backend.sh is real, while its adapter is stubbed so this temp-cleanup
-  # test cannot depend on or mutate a host tmux server. Teardown still refuses
-  # unless every sibling the real tmux adapter sources is present.
+  # The close must not reach the host session.
   ln -s "$ROOT/bin/fm-env-lib.sh" "$fake/bin/fm-env-lib.sh"
   ln -s "$ROOT/bin/fm-remote-registry-lib.sh" "$fake/bin/fm-remote-registry-lib.sh"
   ln -s "$ROOT/bin/fm-backend.sh" "$fake/bin/fm-backend.sh"

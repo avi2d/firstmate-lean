@@ -17,8 +17,7 @@ set -u
 BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
 TMP_ROOT=$(fm_test_tmproot fm-bootstrap-network-parallel)
 TMP_ROOT=$(cd "$TMP_ROOT" && pwd)
-export FM_BACKEND_CMUX_BUNDLE_BIN="$TMP_ROOT/no-bundled-cmux"
-unset TMUX TMUX_PANE HERDR_ENV HERDR_PANE_ID HERDR_SESSION HERDR_SOCKET_PATH \
+unset HERDR_ENV HERDR_PANE_ID HERDR_SESSION HERDR_SOCKET_PATH \
   CMUX_WORKSPACE_ID CMUX_SURFACE_ID CMUX_SOCKET_PATH CMUX_TAB_ID CMUX_PANEL_ID \
   2>/dev/null || true
 
@@ -189,7 +188,7 @@ test_remote_probe_scheduling_keeps_per_mate_lines() { # <parallel|fallback>
   git -C "$primary" add AGENTS.md bin
   git -C "$primary" commit -qm 'seed primary default branch'
   fakebin=$(fm_fakebin "$dir")
-  fm_fake_exit0 "$fakebin" gh treehouse tmux node
+  fm_fake_exit0 "$fakebin" gh treehouse herdr node
   log="$dir/probe.log"
   : > "$log"
   install_fake_ssh "$fakebin"
@@ -341,7 +340,7 @@ test_remote_inheritance_failure_names_its_own_error_not_an_unchanged_item() {
   git -C "$primary" add AGENTS.md bin
   git -C "$primary" commit -qm 'seed primary default branch'
   fakebin=$(fm_fakebin "$dir")
-  fm_fake_exit0 "$fakebin" gh treehouse tmux node
+  fm_fake_exit0 "$fakebin" gh treehouse herdr node
   log="$dir/probe.log"
   : > "$log"
   install_fake_ssh "$fakebin"
@@ -504,7 +503,7 @@ convergence_fixture() {
   git -C "$CF_PRIMARY" add AGENTS.md bin
   git -C "$CF_PRIMARY" commit -qm 'seed primary default branch'
   CF_FAKEBIN=$(fm_fakebin "$dir")
-  fm_fake_exit0 "$CF_FAKEBIN" gh treehouse tmux node
+  fm_fake_exit0 "$CF_FAKEBIN" gh treehouse herdr node
   CF_LOG="$dir/remote.log"
   : > "$CF_LOG"
   install_item_ssh "$CF_FAKEBIN"

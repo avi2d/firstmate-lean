@@ -877,9 +877,6 @@ test_extension_handoff_keeps_queued_wake_warning() {
   pass "fm-guard stale banner: queued-wake warning survives the extension hand-off tolerance"
 }
 
-# The tolerance is scoped to the extension model alone. Every persistent-watcher
-# primary (codex, opencode, grok, kimi, tmux, unknown) must keep alarming on the
-# same state, even when Pi extension markers happen to be present on disk.
 # The supervision branch runs guarded commands (fm-peek, fm-crew-state) while
 # handling the very rows that are queued. For that actor the drain warning is
 # not advice, it is the misreading that re-ran a previous acknowledgement in a

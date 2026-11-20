@@ -60,7 +60,7 @@ run_case_spawn() {
 emitted_bun() {
   local preamble
   preamble=$(grep '^ export ' "$PANE_LOG")
-  env -i HOME="$TMP_ROOT/pane-home" PATH="$FAKEBIN_DIR:/usr/bin:/bin" TERM=xterm TMUX=synthetic-pane \
+  env -i HOME="$TMP_ROOT/pane-home" PATH="$FAKEBIN_DIR:/usr/bin:/bin" TERM=xterm HERDR_ENV=synthetic-pane \
     /bin/sh -c "$preamble
 $(cat "$LAUNCH_LOG")"
 }

@@ -5,7 +5,7 @@
 # Covers the captain-approved redesign invariants: busy/idle/unknown/dead with
 # explicit source attribution; missing, malformed, stale (gen-mismatch), and
 # untrusted (source-mismatch) semantic data classify unknown - never idle;
-# adapter isolation (one adapter's writer or Grok's regex can never classify
+# adapter isolation (an untrusted writer can never classify
 # another adapter); endpoint death is the only process-level override and
 # yields dead, never busy; converted adapters never classify from rendered
 # footer text. All hermetic over temp dirs; no real agent session is invoked.

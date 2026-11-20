@@ -136,7 +136,7 @@ test_on_groups_by_project_and_sorts_by_status_rank() {
   add_task api-new ship /p/api-server w7
   add_task api-resolved ship /p/api-server w8 "$(printf 'needs-decision [key=a]: q\nresolved [key=a]: answered')"
   add_task mate secondmate /p/api-server w9 'working: go'
-  printf 'window=t:1\nproject=/p/api-server\nkind=ship\n' > "$HOME_DIR/state/tmux-task.meta"
+  printf 'window=t:1\nproject=/p/api-server\nkind=ship\n' > "$HOME_DIR/state/unknown-backend-task.meta"
   out=$(groups plan 2>&1) || fail "plan failed: $out"
   assert_contains "$out" $'web-ask\tstorefront\tneeds-captain\t000.storefront.1.web-ask\t000.storefront' "open decision"
   assert_contains "$out" $'web-fail\tstorefront\tproblem\t' "failed task"
@@ -146,7 +146,7 @@ test_on_groups_by_project_and_sorts_by_status_rank() {
   assert_contains "$out" $'api-new\tapi-server\trunning\t' "task without a status log"
   assert_contains "$out" $'api-resolved\tapi-server\trunning\t' "resolved decision"
   assert_not_contains "$out" "mate" "a secondmate pane is not a grouped task"
-  assert_not_contains "$out" "tmux-task" "a non-Herdr task is not grouped"
+  assert_not_contains "$out" "unknown-backend-task" "a non-Herdr task is not grouped"
   sorted=$(printf '%s\n' "$out" | sort -t $'\t' -k4,4 | cut -f1 | tr '\n' ' ')
   assert_equals "api-held api-new api-resolved web-ask web-fail web-run web-done " "$sorted" \
     "sort keys must order by group, then needs-captain, problem, running, done"

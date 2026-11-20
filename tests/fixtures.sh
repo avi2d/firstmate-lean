@@ -7,7 +7,7 @@
 #
 # Generic reporters, temp roots, git fixtures, and fail/pass/fm_test_cleanup
 # come from tests/lib.sh, pulled in below. This file owns the shared fake
-# no-mistakes, gh, gh-axi, tmux, ssh, and spawn-world helpers. Wake-queue mocks
+# no-mistakes, gh, gh-axi, Herdr, ssh, and spawn-world helpers. Wake-queue mocks
 # stay in wake-helpers.sh; secondmate-lifecycle mocks stay in
 # secondmate-helpers.sh.
 #

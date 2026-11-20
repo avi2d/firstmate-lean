@@ -141,7 +141,7 @@ make_case() {
   mkdir -p "$state" "$wt"
   git -C "$wt" init -q
   git -C "$wt" symbolic-ref HEAD "refs/heads/$branch"
-  printf 'kind=%s\nbackend=tmux\nwindow=test:0\nworktree=%s\n' "$kind" "$wt" > "$state/$task.meta"
+  printf 'kind=%s\nbackend=herdr\nwindow=test:w1:p1\nworktree=%s\n' "$kind" "$wt" > "$state/$task.meta"
   printf '%s\n' "$*" > "$state/$task.status"
 }
 

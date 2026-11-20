@@ -933,10 +933,10 @@ test_unmarked_main_honors_a_live_branch_lease() {
   fakebin="$TMP_ROOT/unmarked-main-bin"
   mkdir -p "$home/state" "$fakebin"
   printf '%s\n' "$$" > "$home/state/.lock"
-  fm_write_meta "$home/state/task-held.meta" "window=fm-task-held" "backend=tmux" "harness=claude"
-  # A delivery that got past the guard would reach tmux; record it instead.
-  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "%s"\nexit 1\n' "$home/tmux-calls" > "$fakebin/tmux"
-  chmod +x "$fakebin/tmux"
+  fm_write_meta "$home/state/task-held.meta" "window=branch-fixture:w1:p1" "backend=herdr" "harness=pi"
+  # A refused steer must not invoke the endpoint.
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "%s"\nexit 1\n' "$home/herdr-calls" > "$fakebin/herdr"
+  chmod +x "$fakebin/herdr"
 
   env -u PI_CODING_AGENT FM_HOME="$home" FM_SUPERVISION_ACTOR=branch FM_LEASE_HOLDER_PID=$$ \
     "$ROOT/bin/fm-lease.sh" claim task-held --actor branch || fail "the branch process could not claim its lease"
@@ -963,7 +963,7 @@ test_unmarked_main_honors_a_live_branch_lease() {
   status=$?
   [ "$status" -eq 6 ] || fail "an unmarked main steer through the live branch lease exited $status, not 6: $out"
   assert_contains "$out" "steer (fm-send) refused" "the fm-send refusal lost its action label"
-  [ ! -e "$home/tmux-calls" ] || fail "the refused steer still reached the endpoint: $(cat "$home/tmux-calls")"
+  [ ! -e "$home/herdr-calls" ] || fail "the refused steer still reached the endpoint: $(cat "$home/herdr-calls")"
   [ -z "$(find "$home/state" -path '*.inbox*' -name '*.msg' 2>/dev/null)" ] \
     || fail "the refused steer still wrote an inbox record"
 
@@ -1044,7 +1044,7 @@ test_unmarked_guard_with_a_lease_file_holds_exclusivity_through_mutation() {
 # task no one has leased yet, so its unmarked main must exclude that first
 # claim for the whole guarded mutation, while a home that does not run it
 # keeps taking no lock at all. A Claude home runs it by default and an off
-# file opts out; another primary needs the file (bin/fm-supervision-engine-lib.sh
+# file opts out; another primary needs the file (bin/fm-supervision-contract.sh
 # owns the gate, and FM_TEST_HARNESS pins the primary it judges).
 test_host_home_unmarked_guard_excludes_the_first_claim() {
   local home operation_pid claim_pid claim_status out harness line

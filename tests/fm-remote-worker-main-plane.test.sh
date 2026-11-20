@@ -38,7 +38,7 @@ case "$verb" in
   capabilities) printf 'fm-remote-worker-control.v2\n' ;;
   interrupt|exit|relaunch)
     case "${FM_TEST_HOP_MODE:-ok}" in
-      ok) printf 'interrupt delivered to %s on host\nschema=fm-remote-worker-control.v2\nbackend=tmux\ntarget=lab:fm-%s\nherdr_session=\nkind=ship\nharness=pi\n' "$task" "$task" ;;
+      ok) printf 'interrupt delivered to %s on host\nschema=fm-remote-worker-control.v2\nbackend=herdr\ntarget=lab:w1:p1\nherdr_session=lab\nkind=ship\nharness=pi\n' "$task" ;;
       old) printf "unknown remote worker command '%s'\n" "$verb"; exit 1 ;;
       lost) exit 255 ;;
     esac ;;
@@ -61,7 +61,7 @@ export FM_SSH_BIN="$TMP_ROOT/fakebin/fake-ssh"
 export FM_FAKE_REMOTE_ENTRYPOINT="$TMP_ROOT/fakebin/canned-entrypoint"
 out=$(FM_HOME="$HOME_DIR" bash "$ROOT/bin/fm-control.sh" w1 interrupt 2>&1) || fail "remote interrupt hop refused: $out"
 printf '%s\n' "$out" | grep -F 'interrupt delivered to w1' >/dev/null || fail "remote interrupt hid the host receipt: $out"
-assert_grep 'remote_target=lab:fm-w1' "$HOME_DIR/state/w1.meta" "remote interrupt did not record the host endpoint"
+assert_grep 'remote_target=lab:w1:p1' "$HOME_DIR/state/w1.meta" "remote interrupt did not record the host endpoint"
 pass "remote interrupt hops to the execution home and records its endpoint"
 out=$(FM_TEST_HOP_MODE=old FM_HOME="$HOME_DIR" bash "$ROOT/bin/fm-control.sh" w1 interrupt 2>&1) && fail "remote interrupt trusted an older remote code root"
 printf '%s\n' "$out" | grep -F 'older than this home' >/dev/null || fail "remote interrupt did not identify the older root: $out"
