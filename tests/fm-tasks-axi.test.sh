@@ -360,10 +360,14 @@ test_message_log_preserves_both_appends_without_the_flock_command() {
     fi
     assert_contains "$FM_BACKLOG_TRANSITION_ERROR" "stayed busy" "a held lock was not reported as contention"
     exec 8>&-
-    if PATH="$home/shims" fm_backlog_append_message "$home/data" demo-1 firstmate "Must not be appended"; then
-      exit 1
-    fi
-    assert_contains "$FM_BACKLOG_TRANSITION_ERROR" "python3 is required" "missing Python was reported as contention"
+    (
+      PATH="$home/shims"
+      hash -r
+      if fm_backlog_append_message "$home/data" demo-1 firstmate "Must not be appended"; then
+        exit 1
+      fi
+      assert_contains "$FM_BACKLOG_TRANSITION_ERROR" "python3 is required" "missing Python was reported as contention"
+    ) || exit 1
     fm_backlog_append_message "$home/data" demo-1 firstmate "First steer" &
     first=$!
     fm_backlog_append_message "$home/data" demo-1 firstmate "Second steer" &
