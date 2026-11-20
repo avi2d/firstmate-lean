@@ -93,8 +93,8 @@
 #     through <seq>; the target itself must be a currently unprocessed captain
 #     row at or below the read cursor.
 #   fm-branch-outcome.sh present
-#     A supervision-host drain's presentation off Pi (bin/fm-wake-drain.sh
-#     "BRANCH OUTCOMES", docs/supervision-host.md "Captain outcomes"): under
+#     A supervision drain presentation off Pi (bin/fm-wake-drain.sh
+#     "BRANCH OUTCOMES"): under
 #     the lock, print every unread record and every unprocessed captain record
 #     (JSONL, ascending seq, each with an added "unread" boolean, and each
 #     captain record also with "recordedAgo"). It moves nothing: off Pi that

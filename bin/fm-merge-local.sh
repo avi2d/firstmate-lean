@@ -34,6 +34,10 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 . "$SCRIPT_DIR/fm-backlog-transition-lib.sh"
 # shellcheck source=bin/fm-dod-lib.sh
 . "$SCRIPT_DIR/fm-dod-lib.sh"
+if [ "$#" -eq 1 ] && [ "$1" = "--help" ]; then
+  printf 'Usage: fm-merge-local.sh <task-id>\n'
+  exit 0
+fi
 if [ "$#" -ne 1 ] || ! fm_pr_task_id_valid "$1"; then
   echo "error: invalid local merge request" >&2
   exit 2

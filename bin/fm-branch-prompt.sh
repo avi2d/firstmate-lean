@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # fm-branch-prompt.sh - emit the supervision branch's system prompt
-# (docs/pi-supervision-branch.md; the same bytes run off Pi under the
-# supervision host, docs/supervision-host.md) to stdout.
+# (docs/pi-supervision-branch.md) to stdout.
 #
 # PREFIX-STABILITY CONTRACT (this header is the one owner). The branch's
 # provider prompt cache only pays off while the request prefix stays
