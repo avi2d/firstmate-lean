@@ -263,9 +263,7 @@ run_shim() {  # <home> <command args...>
 write_task_meta() {  # <meta-file> <id> <key=val>...
   local file=$1 id=$2
   shift 2
-  fm_write_meta "$file" "window=captain-fixture:w1:$id" "backend=herdr" \
-    "endpoint_task_id=$id" "herdr_session=captain-fixture" "herdr_workspace_id=w1" \
-    "herdr_tab_id=w1:t-$id" "herdr_pane_id=w1:$id" "$@"
+  fm_write_herdr_meta "$file" "captain-fixture:w1:$id" "$@"
 }
 
 write_origin_meta() {  # <home> <id> [kind]

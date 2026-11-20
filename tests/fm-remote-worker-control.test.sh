@@ -65,7 +65,7 @@ if [ -f "$FM_HOME/config/crew-dispatch.json" ] && [ ! -f "$FM_HOME/data/$id/disp
 kind=ship
 for arg in "$@"; do [ "$arg" != --scout ] || kind=scout; done
 printf '%s\n' "$@" > "$FM_HOME/state/$id.args"
-printf 'window=lab:fm-%s\nworktree=/tmp/worktree\nproject=/tmp/project\nkind=%s\nharness=pi\n' "$id" "$kind" > "$FM_HOME/state/$id.meta"
+printf 'window=lab:w1:fm-%s\nbackend=herdr\nendpoint_task_id=%s\nherdr_session=lab\nherdr_workspace_id=w1\nherdr_tab_id=w1:t1\nherdr_pane_id=w1:fm-%s\nworktree=/tmp/worktree\nproject=/tmp/project\nkind=%s\nharness=pi\n' "$id" "$id" "$id" "$kind" > "$FM_HOME/state/$id.meta"
 printf 'working: reading brief\n' > "$FM_HOME/state/$id.status"
 SH
 chmod +x "$FAKE_ROOT/bin/fm-spawn.sh"
@@ -75,7 +75,7 @@ assert_grep 'Independent request.' "$HOME_DIR/data/scout-c/brief.md" "remote sca
 assert_grep 'Exact constraints.' "$HOME_DIR/data/scout-c/brief.md" "remote scaffold dropped specification"
 assert_grep '--local' "$HOME_DIR/state/scout-c.args" "host spawn did not override remote placement"
 assert_grep "$HOME_DIR/state/scout-c.status" "$HOME_DIR/data/scout-c/brief.md" "remote scaffold retained main paths"
-printf '%s\n' "$out" | grep -Fx 'target=lab:fm-scout-c' >/dev/null || fail "launch omitted route"
+printf '%s\n' "$out" | grep -Fx 'target=lab:w1:fm-scout-c' >/dev/null || fail "launch omitted route"
 pass "remote launch rebuilds the brief and returns the host endpoint"
 { printf '# Task\n'; sleep 0.2; printf '## Captain\x27s intent\nComplete request.\n\n## Firstmate spec\nComplete constraints.\n'; } | \
   FM_ROOT_OVERRIDE="$FAKE_ROOT" FM_HOME="$HOME_DIR" bash "$FAKE_ROOT/bin/fm-remote-worker-control.sh" launch scout-d alpha scout - - fm/ - pi - - herdr >/dev/null \

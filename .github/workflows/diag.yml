@@ -31,13 +31,13 @@ jobs:
         env:
           SHARD: ${{ matrix.shard }}
         run: |
-          set -u
+          set +e -u
           i=0
           while IFS= read -r f; do
             i=$((i + 1))
             [ $((i % 12)) -eq "$SHARD" ] || continue
             copy="tests/.diag-$(basename "$f")"
-            names=$(python3 -I .github/diag/split.py "$f" "$copy")
+            names=$(python3 -I .github/diag/split.py "$f" "$copy") || echo "DIAG $f SPLIT-FAILED"
             if [ -z "$names" ]; then
               timeout 600 bash "$f" > "$RUNNER_TEMP/out" 2>&1; rc=$?
               echo "DIAG $f WHOLE rc=$rc"
