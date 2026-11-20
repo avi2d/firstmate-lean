@@ -156,7 +156,7 @@ run_spawn() {
   local home=$1 id=$2 proj=$3 pane=$4 fakebin=$5
   fm_test_spawn_brief "$home" "$id" brief
   fm_test_run_spawn "$home" "$pane" "$fakebin" \
-    "$id" "$proj" codex --mode no-mistakes --yolo off
+    "$id" "$proj" pi --mode no-mistakes --yolo off
 }
 
 test_spawn_isolation_abort() {
@@ -209,7 +209,7 @@ test_spawn_isolation_abort() {
 
 # The prevention guard also depends on fm-spawn building robust tmux commands
 # under a non-default tmux config (base-index 1, automatic-rename on). A RECORDING
-# fake tmux logs every invocation and returns a sentinel window id, so these
+# fake Herdr logs every invocation and returns a sentinel window id, so these
 # assertions pin the command construction deterministically, with no live tmux:
 #   - window creation targets the session with a trailing colon (append form), so
 #     tmux appends at the next free index instead of the active window index, which
@@ -227,7 +227,7 @@ make_spawn_record_fakebin() {
 #!/usr/bin/env bash
 set -u
 [ -n "${FM_TMUX_REC:-}" ] && printf 'tmux %s\n' "$*" >> "$FM_TMUX_REC"
-window_file="$(dirname "$0")/.spawn-window"
+window_file="$(dirname "$0")/tab-index"
 case "$*" in
   *"#{pane_current_path}"*) printf '%s\n' "${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
 esac
@@ -254,7 +254,7 @@ esac
 exit 0
 SH
   chmod +x "$fakebin/tmux"
-  fm_fake_exit0 "$fakebin" treehouse claude codex opencode grok gemini
+  fm_fake_exit0 "$fakebin" treehouse pi pi pi pi pi
   printf '%s\n' "$fakebin"
 }
 
@@ -263,7 +263,7 @@ run_spawn_record() {
   fm_test_spawn_brief "$home" "$id" brief
   FM_TMUX_REC="$rec" \
     fm_test_run_spawn "$home" "$pane" "$fakebin" \
-    "$id" "$proj" codex --mode no-mistakes --yolo off
+    "$id" "$proj" pi --mode no-mistakes --yolo off
 }
 
 test_spawn_tmux_window_construction() {

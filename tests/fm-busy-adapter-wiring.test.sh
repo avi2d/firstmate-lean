@@ -15,7 +15,7 @@ make_spawn_case() {
   home="$case_dir/home"
   proj="$case_dir/project"
   wt="$case_dir/wt"
-  fakebin=$(fm_test_make_single_herdr_spawn_fakebin "$case_dir/fake")
+  fakebin=$(fm_test_make_spawn_fakebin "$case_dir/fake")
   fm_test_spawn_home "$home" pi
   fm_git_worktree "$proj" "$wt" "wt-$name"
   fm_test_spawn_brief "$home" "$id"
@@ -28,7 +28,7 @@ run_spawn() {  # <home> <wt> <fakebin> <spawn-args...>
   # fixed valid one.
   local home=$1 wt=$2 fakebin=$3
   shift 3
-  fm_test_run_single_herdr_spawn "$home" "$wt" "$fakebin" "$@" --harness pi --mode no-mistakes --yolo off
+  fm_test_run_spawn "$home" "$wt" "$fakebin" "$@" --harness pi --mode no-mistakes --yolo off
 }
 
 read_case_record() {

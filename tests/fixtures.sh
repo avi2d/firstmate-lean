@@ -89,212 +89,6 @@ fm_test_fake_gh_axi() {
   fm_fake_version_tool "$fakebin" gh-axi FM_FAKE_GH_AXI_VERSION "$FM_TEST_GH_AXI_VERSION"
 }
 
-# --- fake tmux / ssh / sleep ------------------------------------------------
-
-# fm_test_fake_tmux_spawn <fakebin>
-# Spawn-world tmux: pane_current_path from FM_FAKE_PANE_PATH, session named
-# firstmate, window ops succeed, send-keys succeed. When FM_FAKE_LAUNCH_LOG is
-# set, each send-keys -l payload is appended one per line. When FM_FAKE_PANE_LOG
-# is set, each send-keys TEXT-LINE payload (the pre-launch pane exports, which
-# carry no -l) is appended there instead, one per line in send order. Optional
-# FM_FAKE_DUPLICATE_WINDOW is printed from list-windows. With
-# FM_FAKE_PANE_PATH_ROOT set, window <session>:<name> reports <root>/<name>.
-# A staged OpenCode 2 launch simulates its busy-state plugin per
-# FM_FAKE_OPENCODE_TURN (see below), and FM_FAKE_ENTER_LOG records each bare
-# Enter key.
-#
-# The pane path defaults to empty when FM_FAKE_PANE_PATH is unset. Window
-# cleanup and option operations are no-ops. Launch logging is env-gated, so
-# suites that do not set FM_FAKE_LAUNCH_LOG keep a silent send-keys.
-fm_test_fake_tmux_spawn() {
-  local fakebin=$1
-  cat > "$fakebin/tmux" <<'SH'
-#!/usr/bin/env bash
-set -u
-# Simulate the OpenCode 2 worker's busy-state plugin reporting its turn start,
-# using the exact apply command fm-spawn generated into the worktree plugin.
-fake_opencode_plugin() {
-  printf '%s\n' "${FM_FAKE_PANE_PATH:-}/.opencode/plugins/fm-busy-state.js"
-}
-fake_opencode_turn_starts() {
-  local plugin bin state id gen
-  plugin=$(fake_opencode_plugin)
-  [ -f "$plugin" ] || return 0
-  bin=$(sed -n 's/.*execFile("\([^"]*fm-busy-event\.sh\)".*/\1/p' "$plugin" | head -1)
-  state=$(sed -n 's/.*"apply", "\([^"]*\)", "\([^"]*\)", state,.*/\1/p' "$plugin" | head -1)
-  id=$(sed -n 's/.*"apply", "\([^"]*\)", "\([^"]*\)", state,.*/\2/p' "$plugin" | head -1)
-  gen=$(sed -n 's/.*"--gen", "\([^"]*\)".*/\1/p' "$plugin" | head -1)
-  [ -n "$bin" ] && [ -n "$gen" ] || return 0
-  "$bin" apply "$state" "$id" busy --gen "$gen" --source opencode-plugin \
-    --event session-execution-started >/dev/null 2>&1 || true
-}
-# FM_FAKE_OPENCODE_TURN picks what a launched OpenCode 2 worker does with its
-# brief: auto (default) starts the turn on launch, enter waits for one Enter,
-# never leaves it unsent. The pending-Enter marker sits beside the plugin.
-# Each composer cursor read is counted beside the plugin; the composer reads
-# unknown (no numeric cursor row) unless FM_FAKE_OPENCODE_COMPOSER_UNKNOWN_READS
-# is set, in which case the reads past that count render a drawn composer that
-# holds the brief while the pending-Enter marker exists.
-fake_opencode_launched() {
-  case "${FM_FAKE_OPENCODE_TURN:-auto}" in
-    auto) fake_opencode_turn_starts ;;
-    enter)
-      : > "$(fake_opencode_plugin).fake-pending"
-      : > "$(fake_opencode_plugin).fake-launching"
-      ;;
-  esac
-}
-case "$*" in
-  *"#{pane_current_path}"*)
-    if [ -z "${FM_FAKE_PANE_PATH_ROOT:-}" ]; then
-      printf '%s\n' "${FM_FAKE_PANE_PATH:-}"
-      exit 0
-    fi
-    target= prev=
-    for a in "$@"; do
-      [ "$prev" != -t ] || target=$a
-      prev=$a
-    done
-    printf '%s/%s\n' "$FM_FAKE_PANE_PATH_ROOT" "${target##*:}"
-    exit 0
-    ;;
-esac
-fake_opencode_composer_drawn() {
-  local reads
-  reads=$(cat "$(fake_opencode_plugin).fake-composer-reads" 2>/dev/null) || reads=0
-  [ -n "${FM_FAKE_OPENCODE_COMPOSER_UNKNOWN_READS:-}" ] \
-    && [ "$reads" -gt "$FM_FAKE_OPENCODE_COMPOSER_UNKNOWN_READS" ]
-}
-window_file="$(dirname "$0")/.spawn-window"
-case "${1:-}" in
-  display-message)
-    case "$*" in
-      *"#{cursor_y}"*)
-        if [ -f "$(fake_opencode_plugin)" ]; then
-          reads=$(cat "$(fake_opencode_plugin).fake-composer-reads" 2>/dev/null) || reads=0
-          printf '%s\n' "$((reads + 1))" > "$(fake_opencode_plugin).fake-composer-reads"
-          if fake_opencode_composer_drawn; then printf '1\n'; exit 0; fi
-        fi
-        ;;
-    esac
-    printf 'firstmate\n'
-    exit 0
-    ;;
-  capture-pane)
-    if ! fake_opencode_composer_drawn; then
-      :
-    elif [ -f "$(fake_opencode_plugin).fake-pending" ]; then
-      printf '╭──────────────╮\n│ prefilled    │\n╰──────────────╯\n'
-    else
-      printf '╭────╮\n│    │\n╰────╯\n'
-    fi
-    exit 0
-    ;;
-  list-windows)
-    if [ -n "${FM_FAKE_DUPLICATE_WINDOW:-}" ]; then
-      printf '%s\n' "$FM_FAKE_DUPLICATE_WINDOW"
-    fi
-    [ ! -s "$window_file" ] || cat "$window_file"
-    exit 0
-    ;;
-  new-window)
-    name=
-    previous=
-    for arg in "$@"; do
-      [ "$previous" = -n ] && name=$arg
-      previous=$arg
-    done
-    printf '%s\n' "$name" > "$window_file"
-    exit 0
-    ;;
-  kill-window)
-    : > "$window_file"
-    exit 0
-    ;;
-  has-session|new-session|set-window-option) exit 0 ;;
-  send-keys)
-    prev=
-    for a in "$@"; do
-      if [ "$prev" = "-l" ]; then
-        case "$a" in
-          " . '"*"'")
-            staged=${a#" . '"}
-            staged=${staged%"'"}
-            if [ -f "$staged" ] && grep -q -- 'opencode.* --standalone --prompt' "$staged"; then
-              fake_opencode_launched
-            fi
-            ;;
-        esac
-      fi
-      prev=$a
-    done
-    if [ "$#" -eq 4 ] && [ "$4" = Enter ]; then
-      [ -z "${FM_FAKE_ENTER_LOG:-}" ] || printf 'enter\n' >> "$FM_FAKE_ENTER_LOG"
-      # The first Enter runs the staged launch line; only a later one reaches
-      # the OpenCode composer.
-      if [ -f "$(fake_opencode_plugin).fake-launching" ]; then
-        rm -f "$(fake_opencode_plugin).fake-launching"
-      elif [ -f "$(fake_opencode_plugin).fake-pending" ]; then
-        rm -f "$(fake_opencode_plugin).fake-pending"
-        fake_opencode_turn_starts
-      fi
-    fi
-    if [ -n "${FM_FAKE_LAUNCH_LOG:-}" ]; then
-      prev=
-      for a in "$@"; do
-        if [ "$prev" = "-l" ]; then
-          # A spawn types a short line sourcing its staged launch file; log
-          # the staged command itself so suites assert what the pane runs.
-          # Direct literals past the terminal line buffer are truncated, so a
-          # long launch only survives when it arrived through that short source.
-          case "$a" in
-            " . '"*"'")
-              staged=${a#" . '"}
-              staged=${staged%"'"}
-              if [ -f "$staged" ]; then
-                a=$(cat "$staged")
-              elif [ "${#a}" -gt 1024 ]; then
-                a=${a:0:1024}
-              fi
-              ;;
-            *)
-              if [ "${#a}" -gt 1024 ]; then
-                a=${a:0:1024}
-              fi
-              ;;
-          esac
-          printf '%s\n' "$a" >> "$FM_FAKE_LAUNCH_LOG"
-        fi
-        prev=$a
-      done
-    fi
-    # The pre-launch pane exports ride the text-line form
-    # (`send-keys -t <target> <text> Enter`), which carries no -l flag, so a
-    # suite that asserts on what the pane shell received opts in with its own
-    # log. Skip the flags, the target, and the trailing key so only the payload
-    # is recorded, one per line, in send order.
-    if [ -n "${FM_FAKE_PANE_LOG:-}" ]; then
-      shift
-      skip_next=
-      literal=
-      for a in "$@"; do
-        if [ -n "$skip_next" ]; then skip_next=; continue; fi
-        case "$a" in
-          -t) skip_next=1; continue ;;
-          -l) literal=1; continue ;;
-          Enter|C-m) continue ;;
-          *) [ -n "$literal" ] || printf '%s\n' "$a" >> "$FM_FAKE_PANE_LOG" ;;
-        esac
-      done
-    fi
-    exit 0
-    ;;
-esac
-exit 0
-SH
-  chmod +x "$fakebin/tmux"
-}
-
 fm_test_fake_herdr_send() {
   local fakebin=$1
   cat > "$fakebin/herdr" <<'SH'
@@ -389,58 +183,10 @@ Exercise the spawn behavior under test.
 EOF
 }
 
-# fm_test_make_spawn_fakebin <dir> [extra-exit0-tool...]
-# Creates <dir>/fakebin with the spawn tmux stub, a no-op treehouse, an orc
-# whose every command fails, and any extra exit-0 tools. Echoes the fakebin path.
 fm_test_make_spawn_fakebin() {
-  local dir=$1 fakebin
-  shift
-  fakebin=$(fm_fakebin "$dir")
-  fm_test_fake_tmux_spawn "$fakebin"
-  fm_fake_exit0 "$fakebin" treehouse claude codex opencode grok gemini "$@"
-  # A real orc would add a heavy queue to the developer's own pueue daemon.
-  printf '#!/bin/sh\nexit 1\n' > "$fakebin/orc"
-  chmod +x "$fakebin/orc"
-  printf '%s\n' "$fakebin"
-}
-
-# Drop-in name used by the spawn suites. Extra args are additional exit-0 tools
-# (gh, gh-axi, pi, ...).
-make_spawn_fakebin() {
-  fm_test_make_spawn_fakebin "$@"
-}
-
-# fm_test_run_spawn <home> <pane-path> <fakebin> [fm-spawn args...]
-# Common spawn env. Extra variables in the caller (GROK_HOME, FM_FAKE_LAUNCH_LOG,
-# CLAUDE_CONFIG_DIR, ...) are inherited. Does not add --mode/--yolo; ship tests
-# that need a delivery contract pass those flags themselves.
-fm_test_run_spawn() {
-  local home=$1 pane=$2 fakebin=$3
-  shift 3
-  # A claude spawn pre-registers workspace trust in the launching user's own
-  # store (bin/fm-claude-trust.sh), so every spawn here runs against a throwaway
-  # HOME; without it the suite would write the developer's real ~/.claude.json.
-  # CLAUDE_CONFIG_DIR must be pinned too, and pinned EMPTY: the script resolves
-  # the store as ${CLAUDE_CONFIG_DIR:-${HOME:-}}, so a value inherited from the
-  # developer's shell would beat the throwaway HOME and the sandbox would not
-  # hold, while an empty value falls through to it. Empty rather than a path
-  # because bin/fm-spawn.sh prefixes the launch only when the value is non-empty,
-  # so every launch-shape assertion in the suite keeps reading the same command.
-  # A test that needs the set case opts in through FM_TEST_CLAUDE_CONFIG_DIR.
-  local spawn_home=$home/user-home
-  mkdir -p "$spawn_home"
-  FM_ROOT_OVERRIDE='' FM_HOME="$home" HOME="$spawn_home" \
-    CLAUDE_CONFIG_DIR="${FM_TEST_CLAUDE_CONFIG_DIR:-}" \
-    FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
-    FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
-    FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$pane" TMUX="${TMUX:-fake,1,0}" \
-    PATH="$fakebin:$PATH" \
-    "$ROOT/bin/fm-spawn.sh" "$@" 2>&1
-}
-
-fm_test_make_single_herdr_spawn_fakebin() {
   local fakebin
   fakebin=$(fm_fakebin "$1")
+  shift
   cat > "$fakebin/herdr" <<'SH'
 #!/usr/bin/env bash
 set -eu
@@ -450,7 +196,9 @@ if [ "$#" -ge 2 ] && [ "${@: -2:1}" = --session ]; then
 else
   [ "$*" = 'status --json' ]
 fi
-cwd_file="$(dirname "$0")/pane-cwd"
+fixture="$(dirname "$0")"
+pane=${3:-}
+cwd_file="$fixture/cwd-$pane"
 case "$1 $2" in
   'status --json')
     printf '%s\n' '{"client":{"version":"0.9.5","protocol":22},"server":{"running":true,"version":"0.9.5","protocol":22}}'
@@ -462,20 +210,46 @@ case "$1 $2" in
     printf '%s\n' '{"result":{"tabs":[]}}'
     ;;
   'tab create')
-    printf '%s\n' '{"result":{"tab":{"tab_id":"w1:t2"},"root_pane":{"pane_id":"w1:p2"}}}'
+    index=$(cat "$fixture/tab-index" 2>/dev/null || printf '1')
+    index=$((index + 1))
+    printf '%s' "$index" > "$fixture/tab-index"
+    : > "$fixture/cwd-w1:p$index"
+    printf '{"result":{"tab":{"tab_id":"w1:t%s"},"root_pane":{"pane_id":"w1:p%s"}}}\n' "$index" "$index"
     ;;
   'pane run')
-    [ "$3" = w1:p2 ]
-    if [ "${4# }" = "cd -- '${FM_FAKE_PANE_PATH:?}'" ]; then
-      printf '%s' "$FM_FAKE_PANE_PATH" > "$cwd_file"
+    payload=${4# }
+    [ -z "${FM_FAKE_PANE_LOG:-}" ] || printf '%s\n' "$payload" >> "$FM_FAKE_PANE_LOG"
+    lease=$(cat "$fixture/lease")
+    if [ "$payload" = "cd -- '$lease'" ]; then
+      printf '%s' "$lease" > "$cwd_file"
     fi
     ;;
   'pane get')
-    [ "$3" = w1:p2 ]
-    jq -cn --arg cwd "$(cat "$cwd_file" 2>/dev/null || true)" '{result:{pane:{foreground_cwd:$cwd}}}'
+    if [ ! -f "$cwd_file" ]; then
+      printf '%s\n' '{"error":{"code":"pane_not_found"}}'
+      exit 1
+    fi
+    jq -cn --arg pane "$pane" --arg cwd "$(cat "$cwd_file")" '{result:{pane:{pane_id:$pane,foreground_cwd:$cwd}}}'
     ;;
-  'pane send-text'|'pane send-keys'|'pane close')
-    [ "$3" = w1:p2 ]
+  'pane send-text')
+    payload=${4# }
+    if [ -n "${FM_FAKE_LAUNCH_LOG:-}" ]; then
+      case "$payload" in
+        ". '"*"'")
+          staged=${payload#". '"}
+          staged=${staged%"'"}
+          cat -- "$staged" >> "$FM_FAKE_LAUNCH_LOG"
+          ;;
+        *) printf '%s\n' "$payload" >> "$FM_FAKE_LAUNCH_LOG" ;;
+      esac
+    fi
+    ;;
+  'pane send-keys')
+    [ -z "${FM_FAKE_ENTER_LOG:-}" ] || printf '%s\n' "$4" >> "$FM_FAKE_ENTER_LOG"
+    ;;
+  'pane close') rm -f -- "$cwd_file" ;;
+  'session list')
+    jq -cn --arg path "$fixture/herdr.sock" '{sessions:[{name:"spawn-fixture",running:true,socket_path:$path}]}'
     ;;
   *)
     printf 'unexpected fake Herdr command: %s %s\n' "$1" "$2" >&2
@@ -486,21 +260,29 @@ SH
   cat > "$fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
 case "${1:-} ${2:-}" in
-  'get --lease') printf '%s\n' "${FM_FAKE_PANE_PATH:?}" ;;
+  'get --lease')
+    if [ -n "${FM_FAKE_PANE_PATH_ROOT:-}" ]; then
+      slot="$FM_FAKE_PANE_PATH_ROOT/fm-${4:?}"
+    else
+      slot=${FM_FAKE_PANE_PATH:?}
+    fi
+    printf '%s' "$slot" > "$(dirname "$0")/lease"
+    printf '%s\n' "$slot"
+    ;;
   'return --force') : ;;
   *) exit 2 ;;
 esac
 SH
   printf '#!/bin/sh\nexit 1\n' > "$fakebin/orc"
   chmod +x "$fakebin/herdr" "$fakebin/treehouse" "$fakebin/orc"
-  fm_fake_exit0 "$fakebin" pi
+  fm_fake_exit0 "$fakebin" pi "$@"
   printf '%s\n' "$fakebin"
 }
 
-fm_test_run_single_herdr_spawn() {
+fm_test_run_spawn() {
   local home=$1 pane=$2 fakebin=$3
   shift 3
-  mkdir -p "$home/user-home"
+  mkdir -p "$home/user-home" "$home/config"
   printf 'off\n' > "$home/config/herdr-presentation-spaces"
   env -u HERDR_ENV -u HERDR_PANE_ID -u HERDR_WORKSPACE_ID -u HERDR_TAB_ID -u HERDR_SOCKET_PATH \
     FM_ROOT_OVERRIDE='' FM_HOME="$home" HOME="$home/user-home" \
@@ -508,6 +290,10 @@ fm_test_run_single_herdr_spawn() {
     FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
     FM_BACKEND=herdr HERDR_SESSION=spawn-fixture FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$pane" \
     PATH="$fakebin:$PATH" "$ROOT/bin/fm-spawn.sh" "$@" 2>&1
+}
+
+make_spawn_fakebin() {
+  fm_test_make_spawn_fakebin "$@"
 }
 
 # --- send-world stubs -------------------------------------------------------

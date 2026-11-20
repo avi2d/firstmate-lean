@@ -24,14 +24,14 @@ make_case() {
   PANE_LOG="$CASE_DIR/pane.log"
   ORC_LOG="$CASE_DIR/orc.log"
   FAKEBIN_DIR=$(fm_test_make_spawn_fakebin "$CASE_DIR/fake")
-  fm_test_spawn_home "$HOME_DIR" codex
+  fm_test_spawn_home "$HOME_DIR" pi
   fm_git_worktree "$PROJ_DIR" "$WT_DIR" "wt-$name"
   fm_test_spawn_brief "$HOME_DIR" "$id"
-  cat > "$FAKEBIN_DIR/codex" <<'SH'
+  cat > "$FAKEBIN_DIR/pi" <<'SH'
 #!/bin/sh
 command -v bun || echo no-bun
 SH
-  chmod +x "$FAKEBIN_DIR/codex"
+  chmod +x "$FAKEBIN_DIR/pi"
 }
 
 # The folder carries a space and a quote so the launch must quote it.

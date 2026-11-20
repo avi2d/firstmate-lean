@@ -79,7 +79,7 @@ test_board_answer_closes_matching_worker_key() {
   make_stubs "$home"
   tasks_in "$home" add site-build "Build the site" --kind ship --repo sample >/dev/null || fail "could not create the worker task"
   mkdir -p "$home/worktree-site-build"
-  fm_write_meta "$home/state/site-build.meta" "window=sess:fm-site-build" "worktree=$home/worktree-site-build" "project=sample" "kind=ship"
+  fm_write_meta "$home/state/site-build.meta" "window=sess:w1:p1" "worktree=$home/worktree-site-build" "project=sample" "kind=ship"
   printf 'needs-decision [key=website-details-native-lint]: pick the native lint rule\n' > "$home/state/site-build.status"
   printf 'working: building the site pages\n' >> "$home/state/site-build.status"
   run_captain "$home" hold website-details-native-lint --title "Captain call: native lint" --reason "captain lint choice pending" --repo sample >/dev/null || fail "could not hold the native-lint call"

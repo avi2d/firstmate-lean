@@ -24,7 +24,7 @@ make_proof_case() {
   home="$case_dir/home"
   proj="$case_dir/project"
   wt="$case_dir/wt"
-  fakebin=$(fm_test_make_single_herdr_spawn_fakebin "$case_dir/fake")
+  fakebin=$(fm_test_make_spawn_fakebin "$case_dir/fake")
   make_proof_pi_probe "$fakebin"
   cat > "$fakebin/quota-axi" <<'SH'
 #!/usr/bin/env bash
@@ -49,7 +49,7 @@ run_proof_ship_spawn() {
   local home=$1 wt=$2 fakebin=$3
   shift 3
     FM_FAKE_PI_VERSION="${FM_FAKE_PI_VERSION:-0.84.0}" \
-    fm_test_run_single_herdr_spawn "$home" "$wt" "$fakebin" "$@" --mode no-mistakes --yolo off
+    fm_test_run_spawn "$home" "$wt" "$fakebin" "$@" --mode no-mistakes --yolo off
 }
 
 write_resolve_out() {
