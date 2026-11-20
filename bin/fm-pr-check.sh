@@ -92,7 +92,7 @@ pr_check_pr_retired() {  # <id> <recorded-url>
 }
 
 pr_check_scan() {
-  local budget start meta id kind url recorded left marker err rc tmp candidates='' cursor_file cursor
+  local remote_only=${1:-} budget start meta id kind url recorded left marker err rc tmp candidates='' cursor_file cursor
   budget=${FM_CHECK_TIMEOUT:-30}
   case "$budget" in ''|*[!0-9]*) budget=30 ;; esac
   budget=$((budget - 5))
@@ -105,6 +105,9 @@ pr_check_scan() {
     fm_pr_task_id_valid "$id" || continue
     kind=$(sed -n 's/^kind=//p' "$meta" | tail -1)
     case "$kind" in scout) continue ;; esac
+    if [ "$remote_only" = --remote ]; then
+      [ -n "$(sed -n 's/^remote_host=//p' "$meta" | tail -1)" ] || continue
+    fi
     url=$(pr_check_reported_url "$STATE/$id.status") || continue
     recorded=$(grep '^pr=' "$meta" | tail -1 | cut -d= -f2- || true)
     pr_check_pr_retired "$id" "$recorded" && continue
@@ -142,8 +145,8 @@ $candidates
 EOF_SCAN
 }
 
-if [ "$#" -eq 1 ] && [ "$1" = scan ]; then
-  pr_check_scan
+if [ "$#" -ge 1 ] && [ "$1" = scan ] && { [ "$#" -eq 1 ] || { [ "$#" -eq 2 ] && [ "$2" = --remote ]; }; }; then
+  pr_check_scan "${2:-}"
   exit 0
 fi
 

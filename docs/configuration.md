@@ -622,7 +622,8 @@ With the flag present, the watcher's check sweep runs `bin/fm-pr-check.sh scan` 
 The scan reads each ship task's newest `done:` line that names a `PR <url>`, and records that PR through the ordinary registration path when the task has no `pr=`, or has that same `pr=` but no published merge poll.
 It skips persistent secondmate and scout records, a `pr=` that names another PR, and a PR whose merge was already reported or whose poll was retired.
 A refused registration, such as a draft, prints one `check: pr-register:` wake for each task and PR, and later sweeps retry without a new wake, so a PR marked ready later is recorded.
-With the file absent, the check sweep does not run the scan, and `pr=` and the merge poll come only from a manual `bin/fm-pr-check.sh <id> <PR url>` run.
+With the file absent, the check sweep scans remote workers only.
+Local workers need a manual `bin/fm-pr-check.sh <id> <PR url>` run.
 
 ## No-mistakes pipeline spend (config/pipeline-spend)
 
@@ -1284,7 +1285,8 @@ A line that is only `#`, or that begins with `#` followed by whitespace, is a co
 A project name may begin with `#` when that `#` is written immediately against the rest of the name and the line ends with the project's capacity.
 A name that is `#`, or that begins with `#` and a space, cannot be declared, because that line is a comment.
 A line whose name starts with `@` is a machine-wide setting rather than a project: `@heavy-limit` caps heavy workers across every project with a standing 3 from 06:00 up to but not including 21:00 UTC and 4 at other hours, and `@load-limit` caps the five-minute load average a heavy start tolerates with a standing 10.
-A worker that is only waiting on the user or on a set time holds no heavy worker place, and counts again once its status shows it resumed.
+A worker whose latest status is done or failed, or that is only waiting on the user or on a set time, holds no heavy worker place.
+It counts again once its status shows it resumed.
 On Linux the standing caps are 4 from 06:00 up to but not including 21:00 UTC and 6 at other hours with a load cap of 16.
 `@core-budget` caps trailing-hour core hours on the Mac with a standing 6, so a heavy start waits while the hour already burned that budget and resumes on its own once use drops back under, while a light start never waits.
 On a Linux host that two Firstmate homes share without a common local root, each home lists the other in `config/linux-load-siblings`, and the same two lines cap heavy starts across both homes with a standing 4 from 06:00 up to but not including 21:00 UTC and 6 at other hours, while the load average cap stays 16.
