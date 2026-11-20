@@ -1,7 +1,7 @@
 # Calm mode
 
 Calm is Firstmate's conversation-only transcript presentation toggle.
-This page is for operators who turn Calm on and need to know what it hides and keeps visible on Pi and on Claude Code, and which file owns each part of that behavior.
+Calm on Pi hides some transcript rows and keeps others visible, and one file owns each part of that behavior.
 
 ## Harness support and default
 
@@ -167,7 +167,7 @@ How Calm handles that shared slot depends on whether Calm was already on when th
 - [`calm-mode-feasibility.md`](calm-mode-feasibility.md) owns the version-scoped renderer taxonomy, built-in override constraints, and empirical evidence.
 - [`configuration.md`](configuration.md#calm-preference-configcalm) owns the persisted preference file and resolution rules.
 - `.pi/extensions/lib/fm-calm-visibility.ts` owns the visibility policy.
-- `.claude/mods/firstmate-calm/lib/fm-calm-preservation.ts` owns the shared substantive mid-turn text rule, which Pi imports through its tracked symlink.
+- `.pi/extensions/lib/fm-calm-preservation.ts` owns the substantive mid-turn text rule.
 - `.pi/extensions/lib/fm-calm-operational-user-layout.ts` owns the operational-user row adapter, its collapsed line, and its zero height under Calm.
 - `.pi/extensions/lib/fm-calm-pending-operational-layout.ts` owns the queued-row adapter and its session capability check.
 - `.pi/extensions/lib/fm-calm-working-ship.ts` owns Pi's animated working presentation over the geometry in `.pi/extensions/lib/fm-calm-working-ship-sprite.ts`.
