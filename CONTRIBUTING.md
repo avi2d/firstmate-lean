@@ -64,7 +64,7 @@ Coordinate any workflow rollback with its required-check names so a retired chec
   It pins one exact shellcheck version and one exact actionlint version and refuses to run under any other.
   Print the shellcheck pin with `bin/fm-lint.sh --required-version` and the actionlint pin with `bin/fm-lint-workflows.sh --required-version`.
   Use `bin/fm-install-shellcheck.sh` and `bin/fm-install-actionlint.sh` to install those exact builds locally; each installer's header owns its destination usage and supported platforms.
-- Harness-adapter ownership spans detection in `bin/fm-harness.sh`, launch and hook mechanics in `bin/fm-spawn.sh`, spawn-time Claude workspace-trust and external-CLAUDE.md-import pre-approval in `bin/fm-claude-trust.sh`, semantic busy sources and trust gates in `bin/fm-busy-lib.sh`, delivery-only rendered guards in `bin/fm-composer-lib.sh`, cleanup in `bin/fm-teardown.sh`, and facts in the skill tree rooted at `.agents/skills/harness-adapters/SKILL.md`; the `firstmate-coding-guidelines` skill owns the validation policy for checks that depend on those harnesses.
+- Harness-adapter ownership spans detection in `bin/fm-harness.sh`, launch and hook mechanics in `bin/fm-spawn.sh`, semantic busy sources and trust gates in `bin/fm-busy-lib.sh`, delivery-only rendered guards in `bin/fm-composer-lib.sh`, cleanup in `bin/fm-teardown.sh`, and facts in the skill tree rooted at `.agents/skills/harness-adapters/SKILL.md`; the `firstmate-coding-guidelines` skill owns the validation policy for checks that depend on those harnesses.
 - Changes to runtime session backends (`bin/fm-backend.sh`, `bin/backends/`, and the scripts that dispatch through them) keep current setup and limits in the relevant backend guide and active empirical evidence in [`docs/verification/runtime-backends.md`](docs/verification/runtime-backends.md).
 - [`docs/documentation-audiences.md`](docs/documentation-audiences.md) and its machine-consumed inventory own prose classification; run `bin/fm-doc-audience-check.sh` after documentation changes.
 - In Markdown, put each full sentence on its own line.
@@ -128,10 +128,9 @@ Those sleeps look like recoverable overhead - the watch-triage suite (`fm-watch-
 Sampling less often does not remove that wait, it only delays detection: raising the interval to 0.5s and charging each sample proportionally measured the unsplit suite at 435s and 440s against 390s and 393s for the unchanged script, back to back on 2026-09-03, because each of its ~40 poll-cycle waits and ~73 process-exit waits paid up to half a second more.
 Some of those loops are also catching a transient rather than waiting for a settled condition, so a coarser sample can step over the state they assert on.
 Discover tests by listing `tests/*.test.sh`: each is a self-contained bash script named `<subject>.test.sh`, and its header comment describes what it covers, so pass one to `bin/fm-test-run.sh` to focus on a subject with canonical timing output.
-Shared test helpers live in `tests/lib.sh`, `tests/fixtures.sh`, `tests/wake-helpers.sh`, `tests/secondmate-helpers.sh`, `tests/supervision-host-helpers.sh`, `tests/watch-triage-helpers.sh`, `tests/fm-captain-hold-helpers.sh`, and `tests/git-config-helpers.sh`.
+Shared test helpers live in `tests/lib.sh`, `tests/fixtures.sh`, `tests/wake-helpers.sh`, `tests/secondmate-helpers.sh`, `tests/watch-triage-helpers.sh`, `tests/fm-captain-hold-helpers.sh`, and `tests/git-config-helpers.sh`.
 `tests/lib.sh` holds reporters, temp roots, and git fixtures.
 `tests/fixtures.sh` holds fake toolchain and spawn-world builders.
-`tests/supervision-host-helpers.sh` holds stub-engine fixtures for the split supervision-host suites.
 `tests/watch-triage-helpers.sh` holds shared fixtures for the split watch-triage suites.
 `tests/fm-captain-hold-helpers.sh` holds shared fixtures for the split captain-hold-lifecycle suites.
 `tests/git-config-helpers.sh` holds fixture Git isolation from the host global and system configuration and from an inherited repository location such as `GIT_DIR`.
