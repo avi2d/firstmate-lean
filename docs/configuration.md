@@ -348,6 +348,14 @@ Use `update --body` to replace a task body.
 Use `add --parent <id>` to record the new ticket as a subtask of an open ticket.
 The wrapper rejects `note`, as does tasks-axi.
 Each task name stays in the ticket's `id` field.
+`list` includes drafts, and `list --state draft` shows only drafts.
+`ready` and the session-start digest show drafts from `data/backlog/drafts` in a separate section.
+Drafts do not count as ready work.
+Promote a draft to Queued in Backlog.md before dispatching it.
+The digest bounds drafts separately from the ready queue.
+Backlog.md orders ready tasks by priority, from `p0` to `p4`, then unprioritized tasks.
+Within each priority, it uses the ticket's `ordinal`.
+
 A held ticket uses the `Waiting` column and a `waiting-on:<kind>` label, with an optional `hold_until` date.
 On or after that date, `ready` no longer excludes the ticket for the hold.
 
@@ -424,6 +432,7 @@ It does not apply in an execution home, whose supervising home owns the item, or
 
 Each text message `bin/fm-send.sh` delivers is appended to the `## Messages` section of the task's item, with the UTC time and the sender.
 The sender is `user` when `--resolve-key` answers a decision and `firstmate` otherwise.
+The message log requires `python3` to lock the read and append on macOS and Linux.
 A failed append is reported after delivery and never undoes it, so do not resend the message.
 If the backlog cannot be read, the message is still sent with a warning.
 
@@ -1353,8 +1362,9 @@ A malformed or unreadable file refuses every fresh ship or scout spawn until it 
 
 ## Project tiers
 
-The optional local, gitignored `config/project-tiers` ranks this home's projects so that, when several queued items are ready at once, Firstmate dispatches the higher tier's items first.
+If the home uses `tasks-axi`, the optional local, gitignored `config/project-tiers` ranks projects for dispatch.
 Without it, ready work keeps the backlog's own order.
+The [Backlog.md backend](#backlogmd-lab-backend) uses task priority instead.
 
 ```text
 # fleet speed tiers
@@ -2784,7 +2794,7 @@ FM_TASK_INBOX=          # internal: absolute path of the task's steering inbox (
 HERDR_SESSION=default  # herdr-only: named session for normal backend ops; not enough for destructive cleanup (docs/herdr-backend.md)
 FM_BACKEND_HERDR_SUBMIT_POLLS=6  # herdr-only: agent-state samples spread across each Enter attempt's budget when confirming a submit (docs/herdr-backend.md "Current transport behavior")
 FM_BACKEND_HERDR_SUBMIT_MIN_SLEEP=0.6  # herdr-only: minimum per-Enter confirmation budget before polling agent-state after an idle baseline
-FM_SESSION_START_QUEUED_LIMIT=10   # blocked and ready queued backlog rows each listed in the session-start digest; held rows are never bounded, done rows and in-flight rows with a state/<id>.meta are never listed, and each omission prints its count and the command that lists the rest
+FM_SESSION_START_QUEUED_LIMIT=10   # separate digest limits for blocked queued, ready queued, and Backlog.md drafts; held rows are not bounded, and done rows and in-flight rows with a state/<id>.meta are omitted; each bound gives a count and a command to list the rest
 FM_SESSION_START_ENDPOINT_TIMEOUT=10   # seconds bounding each per-task endpoint liveness read in the session-start digest (bin/fm-session-start.sh); nonpositive or invalid values fall back to 10; a read that hits the bound or dies becomes that task's own `endpoint: error` line and the digest continues
 FM_BACKLOG_ROW_TIMEOUT_SECS=10   # seconds bounding each backlog row read (bin/fm-backlog-transition-lib.sh) and the tasks-axi replay of each captain-hold Done-archive row (bin/fm-captain-hold.sh, which stops with 124 on a replay timeout); the archive scan itself is not bounded; nonpositive or invalid values fall back to 10; the first backlog read bound hit latches the sweep so later reads return immediately, each still naming its own item
 FM_BOOTSTRAP_DETECT_ONLY=0   # internal/read-only session-start mode: skip bootstrap's mutating sweeps and print advisory TANGLE wording

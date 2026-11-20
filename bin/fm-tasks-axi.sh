@@ -91,15 +91,14 @@ for arg in "$@"; do
 done
 
 FM_PROJECT_TIERS=
-if [ "${1:-}" = ready ] && ! fm_project_tiers_read "$CONFIG"; then
-  fail "fix or remove $FM_PROJECT_TIERS_FILE to list ready work"
-fi
-
 if [ "$(fm_backlog_backend_value "$CONFIG")" = backlog-md ]; then
   command -v python3 >/dev/null 2>&1 || fail "Backlog.md requires python3 for its write lock"
   command -v node >/dev/null 2>&1 || fail "Backlog.md requires node"
   BACKLOG=(python3 "$SCRIPT_DIR/fm-backlog-md/locked.py" "$DATA" .fm-backlog-md.lock "$SCRIPT_DIR/fm-backlog-md/cli.cjs")
 else
+  if [ "${1:-}" = ready ] && ! fm_project_tiers_read "$CONFIG"; then
+    fail "fix or remove $FM_PROJECT_TIERS_FILE to list ready work"
+  fi
   command -v tasks-axi >/dev/null 2>&1 || fail "tasks-axi is not on PATH; run bin/fm-bootstrap.sh for the install command"
   FM_BACKLOG_TRANSITION_ERROR=
   if ! fm_backlog_tasks_axi_addressing "$DATA"; then

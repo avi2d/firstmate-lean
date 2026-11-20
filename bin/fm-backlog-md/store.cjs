@@ -67,9 +67,9 @@ function readTicketFile(file) {
   return { fields, markdown: parsed[2] };
 }
 
-function readTicket(file, archived) {
+function readTicket(file, archived, statuses = STATUSES) {
   const { fields, markdown } = readTicketFile(file);
-  if (typeof fields.title !== 'string' || !STATUSES.includes(fields.status) ||
+  if (typeof fields.title !== 'string' || !statuses.includes(fields.status) ||
       ['labels', 'dependencies', 'references'].some(key => fields[key] != null && !stringList(fields[key])) ||
       ['type', 'project', 'priority', 'created_date', 'updated_date', 'closed_date', 'hold_until', 'hold_reason', 'parent_task_id']
         .some(key => fields[key] != null && typeof fields[key] !== 'string') ||
@@ -152,20 +152,23 @@ function board(root) {
     }
   }
 
+  function draftFiles(parent) {
+    const directory = path.join(parent, 'drafts');
+    if (!regularDirectory(directory, true)) return [];
+    return fs.readdirSync(directory, { withFileTypes: true }).filter(entry => entry.name.endsWith('.md')).map(entry => {
+      const file = path.join(directory, entry.name);
+      if (!entry.isFile()) throw configError(file, 'expected a regular draft file, not a symlink');
+      return file;
+    });
+  }
+
   return {
     tickets,
+    drafts() {
+      return draftFiles(backlog).map(file => readTicket(file, false, ['Draft']));
+    },
     draftIds() {
-      const ids = [];
-      for (const directory of [path.join(backlog, 'drafts'), path.join(archive, 'drafts')]) {
-        if (!regularDirectory(directory, true)) continue;
-        for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-          if (!entry.name.endsWith('.md')) continue;
-          const file = path.join(directory, entry.name);
-          if (!entry.isFile()) throw configError(file, 'expected a regular draft file, not a symlink');
-          ids.push(readTicketFile(file).fields.id);
-        }
-      }
-      return ids;
+      return [...draftFiles(backlog), ...draftFiles(archive)].map(file => readTicketFile(file).fields.id);
     },
     add(draft) {
       const { fields } = draft;
@@ -200,6 +203,7 @@ function board(root) {
 
 function taskState(fields) {
   const previous = fields.labels?.includes('firstmate-in-flight') ? 'in_flight' : 'queued';
+  if (fields.status === 'Draft') return 'draft';
   if (fields.status === 'Done') return 'done';
   if (fields.status === 'In Flight') return 'in_flight';
   return previous;
@@ -254,12 +258,12 @@ function projectTask(ticket, tickets, now) {
     body: body || null,
     blocked: blocked_by.length > 0,
     blocked_by,
-    held: state !== 'done' && hold !== null && (!hold.until || hold.until > now.slice(0, 10)),
+    held: (state === 'queued' || state === 'in_flight') && hold !== null && (!hold.until || hold.until > now.slice(0, 10)),
   };
 }
 
 function taskOrder(left, right) {
-  const rank = { in_flight: 0, queued: 1, done: 2 };
+  const rank = { in_flight: 0, queued: 1, done: 2, draft: 3 };
   const order = rank[taskState(left.fields)] - rank[taskState(right.fields)];
   if (order !== 0) return order;
   if (left.fields.status === 'Done') {
