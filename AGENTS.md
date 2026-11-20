@@ -81,7 +81,6 @@ Put each lasting fact in its most specific place:
 
 - The user's preferences go in `data/captain.md`.
 - Facts about this home go in `data/learnings.md`.
-- A home with decision memory active keeps both as records, under `docs/configuration.md` "Decision memory in Backlog.md".
 - Notes about one task go with its backlog item, and findings go in the scout report.
 - A project's committed `AGENTS.md` belongs to its people: you never write it, and a worker edits it only to correct wrong text.
 
