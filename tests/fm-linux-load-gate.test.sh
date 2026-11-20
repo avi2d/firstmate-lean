@@ -3,12 +3,11 @@
 # average is high or six heavy workers already run across both homes.
 set -u
 
-# shellcheck source=tests/lib.sh
-. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=tests/fixtures.sh
+. "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 
 unset TASKS_AXI_BACKEND || :
 
-SPAWN="$ROOT/bin/fm-spawn.sh"
 TMP_ROOT=$(fm_test_tmproot fm-linux-load-gate)
 DEFER_EXIT=75
 HAVE_TASKS_AXI=0
@@ -34,7 +33,7 @@ make_home() {  # <home> [task-id...]
   shift
   mkdir -p "$home/state" "$home/config" "$home/data" "$home/projects"
   touch "$home/state/.last-watcher-beat"
-  printf '%s\n' codex > "$home/config/crew-harness"
+  printf '%s\n' pi > "$home/config/crew-harness"
   if [ "$HAVE_TASKS_AXI" = 1 ]; then
     printf '%s\n' '# Backlog' '' '## In flight' '' '## Queued' '' '## Done' > "$home/data/backlog.md"
     cat > "$home/.tasks.toml" <<'TOML'
@@ -51,45 +50,12 @@ TOML
 }
 
 make_case() {  # <name> [task-id...]
-  local name=$1 case_dir fakebin
+  local name=$1 case_dir
   shift
   case_dir="$TMP_ROOT/$name"
   mkdir -p "$case_dir"
-  fakebin=$(fm_fakebin "$case_dir")
   : > "$case_dir/calls.log"
-  cat > "$fakebin/tmux" <<'SH'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >> "$FM_FAKE_CALL_LOG"
-case "$*" in
-  *"#{pane_current_path}"*)
-    printf '%s\n' "${FM_FAKE_PANE_PATH:-}"
-    exit 0
-    ;;
-esac
-window_file="$(dirname "$0")/.spawn-window"
-case "${1:-}" in
-  display-message) printf 'firstmate\n' ;;
-  new-window)
-    name= previous=
-    for arg in "$@"; do
-      [ "$previous" = -n ] && name=$arg
-      previous=$arg
-    done
-    printf '%s\n' "$name" > "$window_file"
-    ;;
-  list-windows)
-    [ ! -s "$window_file" ] || cat "$window_file"
-    ;;
-esac
-exit 0
-SH
-  cat > "$fakebin/treehouse" <<'SH'
-#!/usr/bin/env bash
-printf 'treehouse %s\n' "$*" >> "$FM_FAKE_CALL_LOG"
-exit 0
-SH
-  chmod +x "$fakebin/tmux" "$fakebin/treehouse"
-  fm_fake_exit0 "$fakebin" gh gh-axi no-mistakes claude codex opencode grok gemini
+  fm_test_make_spawn_fakebin "$case_dir" gh gh-axi no-mistakes >/dev/null
   fm_git_init_commit "$case_dir/project"
   fm_git_add_origin "$case_dir/project" "$case_dir/project.origin.git"
   make_home "$case_dir/home-a" "$@"
@@ -112,11 +78,12 @@ write_live() {  # <home> <id> <project-dir> [extra...]
   local home=$1 id=$2 project=$3
   shift 3
   fm_write_meta "$home/state/$id.meta" \
-    "window=firstmate:fm-$id" \
+    "window=spawn-fixture:w1:p-$id" "backend=herdr" "herdr_session=spawn-fixture" \
+    "herdr_workspace_id=w1" "herdr_tab_id=w1:t-$id" "herdr_pane_id=w1:p-$id" \
     "endpoint_task_id=$id" \
     "worktree=$home/absent-worktree-$id" \
     "project=$project" \
-    "harness=codex" \
+    "harness=pi" \
     "kind=ship" \
     "mode=no-mistakes" \
     "yolo=off" \
@@ -136,14 +103,10 @@ new_worktree() {  # <case-dir> <name>
 run_spawn_load() {  # <load> <case-dir> <home> <pane> <args...>
   local load=$1 case_dir=$2 home=$3 pane=$4
   shift 4
-  FM_ROOT_OVERRIDE='' FM_HOME="$home" \
-    FM_STATE_OVERRIDE='' FM_DATA_OVERRIDE='' FM_PROJECTS_OVERRIDE='' FM_CONFIG_OVERRIDE='' \
-    FM_SPAWN_NO_GUARD=1 TMUX="fake,1,0" FM_BACKEND=tmux \
-    FM_MAC_LOAD_GATE_FORCE=0 FM_LINUX_LOAD_GATE_FORCE=1 \
+  FM_MAC_LOAD_GATE_FORCE=0 FM_LINUX_LOAD_GATE_FORCE=1 \
     FM_MAC_LOAD_MOCK_5MIN="$load" \
-    FM_FAKE_PANE_PATH="$pane" FM_FAKE_CALL_LOG="$case_dir/calls.log" \
-    PATH="$case_dir/fakebin:$PATH" \
-    "$SPAWN" "$@" 2>&1
+    FM_FAKE_CALL_LOG="$case_dir/calls.log" \
+    fm_test_run_spawn "$home" "$pane" "$case_dir/fakebin" "$@"
 }
 
 spawn_ship_load() {  # <load> <case-dir> <id> [pane]
@@ -169,7 +132,7 @@ assert_nothing_created() {  # <case-dir> <home> <id> <calls> <worktrees>
 write_remote_live() {  # <home> <id> <project-dir>
   fm_write_meta "$1/state/$2.meta" \
     "project=$3" \
-    "harness=codex" \
+    "harness=pi" \
     "kind=ship" \
     "mode=no-mistakes" \
     "yolo=off" \

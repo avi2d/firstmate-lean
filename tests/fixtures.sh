@@ -199,6 +199,13 @@ fi
 fixture="$(dirname "$0")"
 pane=${3:-}
 cwd_file="$fixture/cwd-$pane"
+if [ -n "${FM_FAKE_CALL_LOG:-}" ]; then
+  case "$1 $2" in
+    'tab create'|'pane run'|'pane send-text'|'pane send-keys'|'pane close')
+      printf 'herdr %s\n' "$*" >> "$FM_FAKE_CALL_LOG"
+      ;;
+  esac
+fi
 case "$1 $2" in
   'status --json')
     printf '%s\n' '{"client":{"version":"0.9.5","protocol":22},"server":{"running":true,"version":"0.9.5","protocol":22}}'
@@ -259,6 +266,7 @@ esac
 SH
   cat > "$fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
+[ -z "${FM_FAKE_CALL_LOG:-}" ] || printf 'treehouse %s\n' "$*" >> "$FM_FAKE_CALL_LOG"
 case "${1:-} ${2:-}" in
   'get --lease')
     if [ -n "${FM_FAKE_PANE_PATH_ROOT:-}" ]; then
