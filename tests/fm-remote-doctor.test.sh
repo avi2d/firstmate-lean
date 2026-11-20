@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The remote second-mate readiness gate, driven against a controlled account fixture.
+# The remote execution-home readiness gate, driven against a controlled account fixture.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -722,7 +722,7 @@ assert_not_contains "$DOCTOR_OUT" 'fix herdr-server=applied' "--fix claimed to h
 assert_contains "$DOCTOR_OUT" 'action: gui-session:' "the login-session gap came with no operator action"
 assert_contains "$DOCTOR_OUT" 'automatic login' "the login-session action did not name the operator step"
 assert_present "$CASE_PLIST" "--fix skipped the automatable launch-agent gap because a human gap existed"
-assert_contains "$DOCTOR_OUT" 'error: this host is not ready for a remote second mate' \
+assert_contains "$DOCTOR_OUT" 'error: this host is not ready for a remote execution home' \
   "a remaining human gap did not fail the readiness verdict"
 assert_no_dangerous_calls "the doctor tried to create a login session by force"
 pass "human gaps are reported with their operator step and never claimed as fixed"

@@ -27,12 +27,6 @@ command -v jq >/dev/null 2>&1 || { echo "skip: jq not found (required by the her
 herdr_forget_inherited_pane
 
 TMP_ROOT=$(fm_test_tmproot fm-backend-herdr-tests)
-# Pin the ambient-home default to a marker-free fixture: FM_HOME resolves to
-# the suite's own root when unset, and a secondmate-marked checkout (any
-# treehouse crew home carries .fm-secondmate-home) would flip the default
-# workspace label to 2ndmate-*, silently changing placement behavior for
-# every test that does not set FM_HOME itself. Per-test FM_HOME prefixes
-# still override this default.
 mkdir -p "$TMP_ROOT/ambient-home"
 export FM_HOME="$TMP_ROOT/ambient-home"
 export FM_BACKEND_HERDR_SUBMIT_MIN_SLEEP=0
@@ -460,51 +454,12 @@ test_version_check_refuses_missing_herdr() {
 
 # --- workspace_label: per-firstmate-HOME resolution (P3, herdr-sm-spaces-k4) -
 
-test_workspace_label_primary_home_no_marker() {
+test_workspace_label_uses_firstmate_not_the_home_directory_name() {
   local home
   home="$TMP_ROOT/primary-home-no-marker"; mkdir -p "$home"
   out=$( FM_HOME="$home" bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_workspace_label' "$ROOT" )
   [ "$out" = "firstmate" ] || fail "a primary home (no .fm-secondmate-home marker) should resolve to label 'firstmate', got '$out'"
   pass "fm_backend_herdr_workspace_label: a primary home (no marker) resolves to 'firstmate'"
-}
-
-test_workspace_label_secondmate_home_uses_marker_id() {
-  local home
-  home="$TMP_ROOT/secondmate-home"; mkdir -p "$home"
-  printf 'sshhip-h7\n' > "$home/.fm-secondmate-home"
-  out=$( FM_HOME="$home" bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_workspace_label' "$ROOT" )
-  [ "$out" = "2ndmate-sshhip-h7" ] || fail "a secondmate home should resolve to '2ndmate-<id>', got '$out'"
-  pass "fm_backend_herdr_workspace_label: a secondmate home (.fm-secondmate-home) resolves to '2ndmate-<id>'"
-}
-
-test_workspace_label_secondmate_marker_trims_whitespace() {
-  local home
-  home="$TMP_ROOT/secondmate-home-ws"; mkdir -p "$home"
-  printf '  sshhip-h7  \n\n' > "$home/.fm-secondmate-home"
-  out=$( FM_HOME="$home" bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_workspace_label' "$ROOT" )
-  [ "$out" = "2ndmate-sshhip-h7" ] || fail "the marker id should be trimmed of surrounding whitespace, got '$out'"
-  pass "fm_backend_herdr_workspace_label: trims whitespace around the marker's secondmate id"
-}
-
-test_workspace_label_empty_marker_falls_back_to_primary() {
-  local home
-  home="$TMP_ROOT/secondmate-home-empty"; mkdir -p "$home"
-  : > "$home/.fm-secondmate-home"
-  out=$( FM_HOME="$home" bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_workspace_label' "$ROOT" )
-  [ "$out" = "firstmate" ] || fail "an empty/unreadable marker should fall back to 'firstmate', got '$out'"
-  pass "fm_backend_herdr_workspace_label: an empty marker file falls back to the primary label 'firstmate'"
-}
-
-test_workspace_label_different_secondmates_get_different_labels() {
-  local home1 home2 out1 out2
-  home1="$TMP_ROOT/secondmate-a"; mkdir -p "$home1"; printf 'alpha-a1\n' > "$home1/.fm-secondmate-home"
-  home2="$TMP_ROOT/secondmate-b"; mkdir -p "$home2"; printf 'bravo-b2\n' > "$home2/.fm-secondmate-home"
-  out1=$( FM_HOME="$home1" bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_workspace_label' "$ROOT" )
-  out2=$( FM_HOME="$home2" bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_workspace_label' "$ROOT" )
-  [ "$out1" = "2ndmate-alpha-a1" ] || fail "secondmate home1 label mismatch: $out1"
-  [ "$out2" = "2ndmate-bravo-b2" ] || fail "secondmate home2 label mismatch: $out2"
-  [ "$out1" != "$out2" ] || fail "two different secondmate homes must not collide on the same label"
-  pass "fm_backend_herdr_workspace_label: two different secondmate homes get two different, non-colliding labels"
 }
 
 # --- fm_backend_herdr_cli: session targeting (2026-07-02 incident fix) -------
@@ -1762,7 +1717,7 @@ test_server_ensure_starts_a_firstmate_owned_server() {
   dir="$TMP_ROOT/server-owned-default"; mkdir -p "$dir/session"
   out=$(run_owned_server_ensure "$dir")
   status=$?
-  expect_code 0 $status "server_ensure should start a stopped server the session directory does not mark as externally owned"
+  expect_code 0 "$status" "server_ensure should start a stopped server the session directory does not mark as externally owned"
   [ "$(cat "$dir/starts" 2>/dev/null)" = started ] || fail "server_ensure did not start exactly one Firstmate-owned server: $out"
   pass "fm_backend_herdr_server_ensure: still starts a stopped server when no ownership marker is present"
 }
@@ -1789,7 +1744,7 @@ test_server_ensure_uses_a_running_externally_managed_server() {
   : > "$dir/running"
   out=$(run_owned_server_ensure "$dir")
   status=$?
-  expect_code 0 $status "server_ensure should use a running externally managed server: $out"
+  expect_code 0 "$status" "server_ensure should use a running externally managed server: $out"
   [ ! -e "$dir/sleep-count" ] || fail "server_ensure waited on a running externally managed server with no replacement in progress"
   [ ! -e "$dir/starts" ] || fail "server_ensure started a server that an external owner manages"
   pass "fm_backend_herdr_server_ensure: a running externally managed server is used at once"
@@ -1801,7 +1756,7 @@ test_server_ensure_waits_out_a_server_replacement() {
   : > "$dir/session/firstmate-server-replacing"
   out=$(run_owned_server_ensure "$dir" FM_HERDR_FLIP_AFTER=3 FM_HERDR_FLIP=up)
   status=$?
-  expect_code 0 $status "server_ensure should proceed once the replaced server reports running: $out"
+  expect_code 0 "$status" "server_ensure should proceed once the replaced server reports running: $out"
   [ ! -e "$dir/starts" ] || fail "server_ensure started a server during a replacement"
   [ "$(cat "$dir/sleep-count")" = 3 ] || fail "server_ensure should have waited until the replacement ended on the third wait, got $(cat "$dir/sleep-count")"
   pass "fm_backend_herdr_server_ensure: a replacement marker makes it wait without starting, then proceed once the server is running"
@@ -1814,7 +1769,7 @@ test_server_ensure_holds_callers_off_a_running_server_during_a_replacement() {
   : > "$dir/running"
   out=$(run_owned_server_ensure "$dir" FM_HERDR_FLIP_AFTER=4 FM_HERDR_FLIP=clear)
   status=$?
-  expect_code 0 $status "server_ensure should proceed once the replacement marker clears: $out"
+  expect_code 0 "$status" "server_ensure should proceed once the replacement marker clears: $out"
   [ ! -e "$dir/starts" ] || fail "server_ensure started a server during a replacement"
   [ "$(cat "$dir/sleep-count" 2>/dev/null)" = 4 ] || fail "server_ensure released its caller to a running server while the replacement marker remained: $(cat "$dir/sleep-count" 2>/dev/null) waits"
   pass "fm_backend_herdr_server_ensure: a running server is not used while a replacement marker remains"
@@ -1826,7 +1781,7 @@ test_server_ensure_resumes_ownership_after_a_replacement_clears() {
   : > "$dir/session/firstmate-server-replacing"
   out=$(run_owned_server_ensure "$dir" FM_HERDR_FLIP_AFTER=2 FM_HERDR_FLIP=clear)
   status=$?
-  expect_code 0 $status "server_ensure should start its own server once a replacement ends with the server down: $out"
+  expect_code 0 "$status" "server_ensure should start its own server once a replacement ends with the server down: $out"
   [ "$(cat "$dir/starts" 2>/dev/null)" = started ] || fail "server_ensure did not start its own server after the replacement marker cleared"
   pass "fm_backend_herdr_server_ensure: with no owner marker, a cleared replacement hands back to the Firstmate-owned start"
 }
@@ -2128,23 +2083,6 @@ test_container_ensure_creates_with_no_focus_flag() {
   assert_contains "$(cat "$log")" $'\x1f''workspace'$'\x1f''create'$'\x1f''--cwd'$'\x1f''/tmp'$'\x1f''--label'$'\x1f''firstmate'$'\x1f''--no-focus' \
     "container_ensure's workspace create did not pass --no-focus (focus-safety: never steal the captain's attention on spawn)"
   pass "fm_backend_herdr_container_ensure: workspace create passes --no-focus"
-}
-
-test_container_ensure_uses_secondmate_home_label() {
-  local dir log resp fb out home
-  dir="$TMP_ROOT/container-secondmate-label"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
-  home="$TMP_ROOT/container-secondmate-home"; mkdir -p "$home"; printf 'sshhip-h7\n' > "$home/.fm-secondmate-home"
-  printf '{"client":{"version":"0.7.1","protocol":14}}\n' > "$resp/1.out"
-  printf '{"server":{"running":true}}\n' > "$resp/2.out"
-  printf '{"result":{"workspaces":[]}}\n' > "$resp/3.out"
-  printf '{"result":{"workspace":{"workspace_id":"w9","label":"2ndmate-sshhip-h7"},"tab":{"tab_id":"w9:t1"},"root_pane":{"pane_id":"w9:p1"}}}\n' > "$resp/4.out"
-  fb=$(make_herdr_fakebin "$dir")
-  out=$( PATH="$fb:$PATH" FM_HOME="$home" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" FM_HERDR_SCRIPT_STATUS=1 HERDR_SESSION=fmtest \
-    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_container_ensure /tmp' "$ROOT" )
-  [ "$out" = $'fmtest:w9\tw9:t1' ] || fail "container_ensure did not echo the expected session:workspace_id + seeded default tab id, got '$out'"
-  assert_contains "$(cat "$log")" $'\x1f''workspace'$'\x1f''create'$'\x1f''--cwd'$'\x1f''/tmp'$'\x1f''--label'$'\x1f''2ndmate-sshhip-h7' \
-    "container_ensure did not create the workspace under this secondmate home's own label"
-  pass "fm_backend_herdr_container_ensure: creates the workspace under the SECONDMATE home's own label, not 'firstmate'"
 }
 
 test_create_task_creates_with_no_focus_flag() {
@@ -4339,45 +4277,36 @@ test_projection_recovery_is_read_only_and_refuses_live_duplicate_risk() {
   pass "herdr presentation recovery: duplicate-token inspection is read-only and live-agent risk refuses fallback"
 }
 
-# --- workspace_find: scoped to THIS home's own label, not just any match ----
+# --- workspace_find: scoped to the Firstmate label, not just any match ----
 
-test_workspace_find_matches_only_this_homes_own_label() {
-  local dir log resp fb out home
+test_workspace_find_skips_unrelated_workspace_labels() {
+  local dir log resp fb out
   dir="$TMP_ROOT/find-scoped"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
-  home="$TMP_ROOT/find-scoped-home"; mkdir -p "$home"; printf 'bravo-b2\n' > "$home/.fm-secondmate-home"
-  # A workspace list carrying BOTH the primary's "firstmate" space and this
-  # secondmate's own "2ndmate-bravo-b2" space (as would be true once several
-  # homes share one herdr session) - find must pick the one matching THIS
-  # home's own label, never the primary's or a sibling secondmate's.
-  printf '{"result":{"workspaces":[{"workspace_id":"w1","label":"firstmate"},{"workspace_id":"w2","label":"2ndmate-bravo-b2"},{"workspace_id":"w3","label":"2ndmate-alpha-a1"}]}}\n' > "$resp/1.out"
+  printf '{"result":{"workspaces":[{"workspace_id":"w1","label":"notes"},{"workspace_id":"w2","label":"firstmate"},{"workspace_id":"w3","label":"scratch"}]}}\n' > "$resp/1.out"
   fb=$(make_herdr_fakebin "$dir")
-  out=$( PATH="$fb:$PATH" FM_HOME="$home" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
+  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
     bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_workspace_find fmtest' "$ROOT" )
-  [ "$out" = "w2" ] || fail "workspace_find should have matched this home's own label (2ndmate-bravo-b2 -> w2), got '$out'"
-  pass "fm_backend_herdr_workspace_find: matches only THIS home's own label among several coexisting workspaces"
+  [ "$out" = "w2" ] || fail "workspace_find should have matched the Firstmate label (firstmate -> w2), got '$out'"
+  pass "fm_backend_herdr_workspace_find: matches only the Firstmate label among several coexisting workspaces"
 }
 
-# --- list_live: scoped to this home's own workspace only ---------------------
+# --- list_live: scoped to the Firstmate workspace only ---------------------
 
-test_list_live_scoped_to_this_homes_workspace_only() {
-  local dir log resp fb out home
+test_list_live_skips_tabs_in_unrelated_workspaces() {
+  local dir log resp fb out
   dir="$TMP_ROOT/list-live-scoped"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
-  home="$TMP_ROOT/list-live-scoped-home"; mkdir -p "$home"; printf 'bravo-b2\n' > "$home/.fm-secondmate-home"
-  # 1: workspace_find's `workspace list` - two homes coexist, secondmate's is w2
-  printf '{"result":{"workspaces":[{"workspace_id":"w1","label":"firstmate"},{"workspace_id":"w2","label":"2ndmate-bravo-b2"}]}}\n' > "$resp/1.out"
-  # 2: tab list --workspace w2 (this secondmate's own tabs only)
-  printf '{"result":{"tabs":[{"tab_id":"w2:t1","label":"fm-secondmatetask"}]}}\n' > "$resp/2.out"
-  # 3: pane_for_tab's `pane list --workspace w2`
+  printf '{"result":{"workspaces":[{"workspace_id":"w1","label":"notes"},{"workspace_id":"w2","label":"firstmate"}]}}\n' > "$resp/1.out"
+  printf '{"result":{"tabs":[{"tab_id":"w2:t1","label":"fm-worker-task"}]}}\n' > "$resp/2.out"
   printf '{"result":{"panes":[{"pane_id":"w2:p1","tab_id":"w2:t1"}]}}\n' > "$resp/3.out"
   fb=$(make_herdr_fakebin "$dir")
-  out=$( PATH="$fb:$PATH" FM_HOME="$home" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
+  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
     bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_list_live fmtest' "$ROOT" )
-  [ "$out" = $'fmtest:w2:p1\tfm-secondmatetask' ] || fail "list_live should report only this home's own tab, got '$out'"
+  [ "$out" = $'fmtest:w2:p1\tfm-worker-task' ] || fail "list_live should report only the Firstmate tab, got '$out'"
   assert_contains "$(cat "$log")" $'\x1f''tab'$'\x1f''list'$'\x1f''--workspace'$'\x1f''w2' \
-    "list_live did not scope the tab list call to this home's own workspace (w2)"
+    "list_live did not scope the tab list call to the Firstmate workspace (w2)"
   assert_not_contains "$(cat "$log")" $'\x1f''tab'$'\x1f''list'$'\x1f''--workspace'$'\x1f''w1' \
-    "list_live must never query the primary's (or a sibling secondmate's) workspace"
-  pass "fm_backend_herdr_list_live: scoped to this home's own workspace, never a sibling home's"
+    "list_live must never query an unrelated workspace"
+  pass "fm_backend_herdr_list_live: skips unrelated workspaces"
 }
 
 # --- target parsing, key normalization ---------------------------------------
@@ -6727,11 +6656,7 @@ test_canonical_socket_path_refuses_empty_cygpath_output() {
 test_version_check_accepts_current_protocol
 test_version_check_refuses_old_protocol
 test_version_check_refuses_missing_herdr
-test_workspace_label_primary_home_no_marker
-test_workspace_label_secondmate_home_uses_marker_id
-test_workspace_label_secondmate_marker_trims_whitespace
-test_workspace_label_empty_marker_falls_back_to_primary
-test_workspace_label_different_secondmates_get_different_labels
+test_workspace_label_uses_firstmate_not_the_home_directory_name
 test_cli_helper_sets_env_and_appends_trailing_session_flag
 test_agent_state_bypasses_a_stale_client_shadowing_a_compatible_one
 test_recovery_grade_read_widens_only_at_its_own_boundary
@@ -6796,7 +6721,6 @@ test_server_ensure_resumes_ownership_after_a_replacement_clears
 test_server_ensure_reports_a_replacement_that_never_ends
 test_container_ensure_reuses_existing_workspace
 test_container_ensure_creates_with_no_focus_flag
-test_container_ensure_uses_secondmate_home_label
 test_workspace_ensure_prunes_default_tab
 test_repeated_cycles_reuse_one_workspace_no_orphans
 test_adopted_workspace_never_prunes_default_tab
@@ -6877,8 +6801,8 @@ test_projection_order_rejects_malformed_socket
 test_projection_reclaim_refusal_matrix_is_non_mutating
 test_projection_reclaim_replaces_only_exact_husk_and_advances_binding
 test_projection_recovery_is_read_only_and_refuses_live_duplicate_risk
-test_workspace_find_matches_only_this_homes_own_label
-test_list_live_scoped_to_this_homes_workspace_only
+test_workspace_find_skips_unrelated_workspace_labels
+test_list_live_skips_tabs_in_unrelated_workspaces
 test_parse_target
 test_normalize_key
 test_capture_reads_the_viewport_and_never_the_recent_source
