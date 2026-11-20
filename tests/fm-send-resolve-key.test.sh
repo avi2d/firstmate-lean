@@ -36,8 +36,8 @@
 #      still refuses, and that refusal hands the operator's message back intact.
 set -u
 
-# shellcheck source=tests/lib.sh
-. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=tests/fixtures.sh
+. "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-marker-lib.sh"
 
@@ -46,43 +46,14 @@ DRAIN="$ROOT/bin/fm-wake-drain.sh"
 
 TMP_ROOT=$(fm_test_tmproot fm-send-resolve-key)
 
-# Stub tmux: logs literal typed text to FM_SEND_LOG and lets the submit path
+# Stub Herdr: logs literal typed text to FM_SEND_LOG and lets the submit path
 # reach a clean "empty" verdict (numeric cursor_y, empty bordered composer).
-# FM_FAKE_TMUX_SEND_FAIL=1 makes send-keys fail so the delivery-failure leg can
+# FM_FAKE_HERDR_SEND_FAIL=1 makes delivery fail so the delivery-failure leg can
 # assert that a failed send closes nothing.
 make_stubs() {  # <dir> -> echoes fakebin dir
   local dir=$1 fb="$1/fakebin"
   mkdir -p "$fb"
-  cat > "$fb/tmux" <<'SH'
-#!/usr/bin/env bash
-set -u
-case "${1:-}" in
-  send-keys)
-    [ "${FM_FAKE_TMUX_SEND_FAIL:-0}" = 1 ] && exit 1
-    shift
-    literal=0
-    while [ $# -gt 0 ]; do
-      case "$1" in
-        -t) shift 2 ;;
-        -l) literal=1; shift ;;
-        *) break ;;
-      esac
-    done
-    if [ "$literal" = 1 ]; then
-      printf '%s' "${1:-}" >> "$FM_SEND_LOG"
-    fi
-    exit 0 ;;
-  display-message)
-    for a in "$@"; do case "$a" in *cursor_y*) printf '1\n'; exit 0 ;; esac; done
-    printf 'fakepane\n'; exit 0 ;;
-  capture-pane) printf '╭────╮\n│    │\n╰────╯\n'; exit 0 ;;
-  list-windows)
-    printf '%s\n' fm-t1 fm-t2 fm-t3 fm-t4 fm-t5 fm-t6 fm-t7 fm-t8 fm-t9 fm-mate elsewhere
-    exit 0 ;;
-esac
-exit 0
-SH
-  chmod +x "$fb/tmux"
+  fm_test_fake_herdr_send "$fb"
   cat > "$fb/sleep" <<'SH'
 #!/usr/bin/env bash
 exit 0
@@ -126,7 +97,7 @@ test_answer_send_closes_open_decision() {
   dir="$TMP_ROOT/closes"; mkdir -p "$dir"
   fb=$(make_stubs "$dir"); log="$dir/send.log"
   home=$(setup_home closes)
-  fm_write_meta "$home/state/t1.meta" "window=sess:fm-t1" "kind=ship"
+  fm_write_meta "$home/state/t1.meta" "window=sess:w1:p1" "kind=ship"
   printf 'needs-decision [key=api-shape]: pick REST or RPC\n' > "$home/state/t1.status"
   printf 'working: kept busy on an unrelated stream\n' >> "$home/state/t1.status"
 
@@ -165,7 +136,7 @@ test_answer_close_is_self_announced() {
   dir="$TMP_ROOT/self-announced"; mkdir -p "$dir"
   fb=$(make_stubs "$dir"); log="$dir/send.log"
   home=$(setup_home self-announced)
-  fm_write_meta "$home/state/t9.meta" "window=sess:fm-t9" "kind=ship"
+  fm_write_meta "$home/state/t9.meta" "window=sess:w1:p1" "kind=ship"
   printf 'needs-decision [key=port-choice]: 8080 or 9090\n' > "$home/state/t9.status"
   FM_STATE_OVERRIDE="$home/state" bash -c '
     . "$1"
@@ -203,7 +174,7 @@ test_separate_resolve_key_answers_do_not_rewake() {
   fb=$(make_stubs "$dir"); log="$dir/send.log"
   home=$(setup_home separate-answers)
   status="$home/state/t7.status"
-  fm_write_meta "$home/state/t7.meta" "window=sess:fm-t7" "kind=ship"
+  fm_write_meta "$home/state/t7.meta" "window=sess:w1:p1" "kind=ship"
   {
     printf 'needs-decision [key=budget]: approve spend?\n'
     printf 'needs-decision [key=vendor]: pick a vendor\n'
@@ -258,7 +229,7 @@ test_colon_first_key_position_is_answerable() {
   dir="$TMP_ROOT/colon-first"; mkdir -p "$dir"
   fb=$(make_stubs "$dir"); log="$dir/send.log"
   home=$(setup_home colon-first)
-  fm_write_meta "$home/state/t8.meta" "window=sess:fm-t8" "kind=ship"
+  fm_write_meta "$home/state/t8.meta" "window=sess:w1:p1" "kind=ship"
   printf 'needs-decision: [key=seam-max-bound] cap the seam at 4 or 8\n' > "$home/state/t8.status"
 
   out=$(drain_out "$home")
@@ -282,7 +253,7 @@ test_answer_starts_work_never_orphans() {
   dir="$TMP_ROOT/starts-work"; mkdir -p "$dir"
   fb=$(make_stubs "$dir"); log="$dir/send.log"
   home=$(setup_home starts-work)
-  fm_write_meta "$home/state/t2.meta" "window=sess:fm-t2" "kind=ship"
+  fm_write_meta "$home/state/t2.meta" "window=sess:w1:p1" "kind=ship"
   printf 'needs-decision [key=rollout]: big-bang or phased\n' > "$home/state/t2.status"
 
   run_send "$fb" "$home" "$log" t2 --resolve-key rollout "phased, gate each region"; rc=$?
@@ -305,7 +276,7 @@ test_routine_steer_never_closes() {
   dir="$TMP_ROOT/routine"; mkdir -p "$dir"
   fb=$(make_stubs "$dir"); log="$dir/send.log"
   home=$(setup_home routine)
-  fm_write_meta "$home/state/t3.meta" "window=sess:fm-t3" "kind=ship"
+  fm_write_meta "$home/state/t3.meta" "window=sess:w1:p1" "kind=ship"
   printf 'needs-decision [key=schema]: split or embed\n' > "$home/state/t3.status"
 
   run_send "$fb" "$home" "$log" t3 "unrelated nudge, keep going"; rc=$?
@@ -330,7 +301,7 @@ test_not_open_key_refuses_before_send() {
   dir="$TMP_ROOT/not-open"; mkdir -p "$dir"
   fb=$(make_stubs "$dir"); log="$dir/send.log"; err="$dir/send.err"
   home=$(setup_home not-open)
-  fm_write_meta "$home/state/t4.meta" "window=sess:fm-t4" "kind=ship"
+  fm_write_meta "$home/state/t4.meta" "window=sess:w1:p1" "kind=ship"
   printf 'needs-decision [key=real-key]: choose\n' > "$home/state/t4.status"
 
   : > "$log"
@@ -365,11 +336,11 @@ test_failed_ring_still_closes_at_enqueue() {
   dir="$TMP_ROOT/ring-fail"; mkdir -p "$dir"
   fb=$(make_stubs "$dir"); log="$dir/send.log"
   home=$(setup_home ring-fail)
-  fm_write_meta "$home/state/t5.meta" "window=sess:fm-t5" "kind=ship"
+  fm_write_meta "$home/state/t5.meta" "window=sess:w1:p1" "kind=ship"
   printf 'blocked [key=creds]: need the deploy token\n' > "$home/state/t5.status"
 
   : > "$log"
-  env PATH="$fb:$PATH" FM_FAKE_TMUX_SEND_FAIL=1 \
+  env PATH="$fb:$PATH" FM_FAKE_HERDR_SEND_FAIL=1 \
     FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SEND_LOG="$log" FM_SEND_SETTLE=0 \
     "$SEND" t5 --resolve-key creds "token is in the vault now" >/dev/null 2>&1; rc=$?
   expect_code 0 "$rc" "a failed doorbell must not fail the durably enqueued answer"
@@ -391,7 +362,7 @@ test_failed_enqueue_does_not_close() {
   dir="$TMP_ROOT/enqueue-fail"; mkdir -p "$dir"
   fb=$(make_stubs "$dir"); log="$dir/send.log"
   home=$(setup_home enqueue-fail)
-  fm_write_meta "$home/state/t5.meta" "window=sess:fm-t5" "kind=ship"
+  fm_write_meta "$home/state/t5.meta" "window=sess:w1:p1" "kind=ship"
   printf 'blocked [key=creds]: need the deploy token\n' > "$home/state/t5.status"
   : > "$home/state/t5.inbox"   # a FILE where the inbox dir must go
 
@@ -415,7 +386,7 @@ test_multiple_keys_close_together() {
   dir="$TMP_ROOT/multi"; mkdir -p "$dir"
   fb=$(make_stubs "$dir"); log="$dir/send.log"
   home=$(setup_home multi)
-  fm_write_meta "$home/state/t6.meta" "window=sess:fm-t6" "kind=ship"
+  fm_write_meta "$home/state/t6.meta" "window=sess:w1:p1" "kind=ship"
   {
     printf 'needs-decision [key=k1]: first\n'
     printf 'blocked [key=k2]: second\n'
@@ -442,7 +413,7 @@ test_multiple_keys_close_after_fold_is_self_announced() {
   dir="$TMP_ROOT/multi-fold"; mkdir -p "$dir"
   fb=$(make_stubs "$dir"); log="$dir/send.log"
   home=$(setup_home multi-fold)
-  fm_write_meta "$home/state/t7.meta" "window=sess:fm-t7" "kind=ship"
+  fm_write_meta "$home/state/t7.meta" "window=sess:w1:p1" "kind=ship"
   {
     printf 'needs-decision [key=budget]: approve spend?\n'
     printf 'needs-decision [key=vendor]: pick a vendor\n'
@@ -470,7 +441,7 @@ test_local_secondmate_answer_marked_and_closed() {
   dir="$TMP_ROOT/sm"; mkdir -p "$dir"
   fb=$(make_stubs "$dir"); log="$dir/send.log"
   home=$(setup_home sm)
-  fm_write_secondmate_meta "$home/state/domain.meta" "$home" "sess:fm-domain"
+  fm_write_secondmate_meta "$home/state/domain.meta" "$home" "sess:w1:p1"
   printf 'needs-decision [key=fleet-split]: shard by team or by repo\n' > "$home/state/domain.status"
 
   run_send "$fb" "$home" "$log" fm-domain --resolve-key fleet-split "shard by team"; rc=$?
@@ -507,7 +478,7 @@ setup_remote_home() {  # <name> -> echoes home dir with remote meta + registry
   fm_write_meta "$home/state/rsm.meta" \
     "window=fm-remote:w1:p1" \
     "endpoint_task_id=rsm" \
-    "harness=claude" \
+    "harness=pi" \
     "kind=secondmate" \
     "mode=secondmate" \
     "yolo=off" \
@@ -609,7 +580,7 @@ test_flag_misuse_refuses() {
   dir="$TMP_ROOT/misuse"; mkdir -p "$dir"
   fb=$(make_stubs "$dir"); log="$dir/send.log"; err="$dir/send.err"
   home=$(setup_home misuse)
-  fm_write_meta "$home/state/t7.meta" "window=sess:fm-t7" "kind=ship"
+  fm_write_meta "$home/state/t7.meta" "window=sess:w1:p1" "kind=ship"
   printf 'needs-decision [key=k]: choose\n' > "$home/state/t7.status"
 
   # --resolve-key with --key (both orders) is refused: an answer is text.
@@ -632,7 +603,7 @@ test_flag_misuse_refuses() {
 
   # An explicit backend target has no task ledger in this home.
   env PATH="$fb:$PATH" FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SEND_LOG="$log" FM_SEND_SETTLE=0 \
-    "$SEND" sess:elsewhere --resolve-key k "answer" >/dev/null 2>"$err"; rc=$?
+    "$SEND" sess:w1:p9 --resolve-key k "answer" >/dev/null 2>"$err"; rc=$?
   [ "$rc" -ne 0 ] || fail "an explicit backend target should refuse --resolve-key"
   assert_contains "$(cat "$err")" "no decision ledger" "the explicit-target refusal should be explicit"
 
@@ -660,7 +631,7 @@ test_reserved_pending_reply_key_closes_through_resolve_key() {
   home=$(setup_home reserved-close)
   corr=abcdef0123456789
   key="pending-reply-$corr"
-  fm_write_meta "$home/state/mate.meta" "window=sess:fm-mate" "kind=ship"
+  fm_write_meta "$home/state/mate.meta" "window=sess:w1:p1" "kind=ship"
   printf 'blocked [key=%s]: pending-reply-missed: task=mate pending-reply-id=%s request=ship it\n' \
     "$key" "$corr" > "$home/state/mate.status"
 
@@ -694,7 +665,7 @@ test_resolve_key_settles_escalated_record_not_left_escalated() {
   home=$(setup_home reserved-record)
   corr=0123456789abcdef
   key="pending-reply-$corr"
-  fm_write_meta "$home/state/mate.meta" "window=sess:fm-mate" "kind=ship"
+  fm_write_meta "$home/state/mate.meta" "window=sess:w1:p1" "kind=ship"
   printf 'blocked [key=%s]: pending-reply-missed: task=mate pending-reply-id=%s request=ship it\n' \
     "$key" "$corr" > "$home/state/mate.status"
   mkdir -p "$home/state/pending-replies"
@@ -721,7 +692,7 @@ test_unrelated_writer_cannot_close_or_hijack_reserved_key() {
   home=$(setup_home reserved-guard)
   corr=abcdef0123456789
   key="pending-reply-$corr"
-  fm_write_meta "$home/state/mate.meta" "window=sess:fm-mate" "kind=ship"
+  fm_write_meta "$home/state/mate.meta" "window=sess:w1:p1" "kind=ship"
   {
     printf 'blocked [key=%s]: pending-reply-missed: task=mate pending-reply-id=%s request=ship it\n' \
       "$key" "$corr"
@@ -751,7 +722,7 @@ test_unclosable_reserved_key_refuses_before_send() {
   dir="$TMP_ROOT/reserved-refuse"; mkdir -p "$dir"
   fb=$(make_stubs "$dir"); log="$dir/send.log"; err="$dir/send.err"
   home=$(setup_home reserved-refuse)
-  fm_write_meta "$home/state/t1.meta" "window=sess:fm-t1" "kind=ship"
+  fm_write_meta "$home/state/t1.meta" "window=sess:w1:p1" "kind=ship"
   printf 'blocked [key=secret-abc]: secret-held: keep this\n' > "$home/state/t1.status"
 
   : > "$log"
@@ -780,7 +751,7 @@ test_long_decision_key_refuses_before_send() {
   fb=$(make_stubs "$dir"); log="$dir/send.log"; err="$dir/send.err"
   home=$(setup_home long-key)
   key=$(printf 'k%.0s' {1..230})
-  fm_write_meta "$home/state/t1.meta" "window=sess:fm-t1" "kind=ship"
+  fm_write_meta "$home/state/t1.meta" "window=sess:w1:p1" "kind=ship"
   printf 'needs-decision [key=%s]: choose safely\n' "$key" > "$home/state/t1.status"
 
   : > "$log"
@@ -811,7 +782,7 @@ test_stamped_close_line_stays_within_the_status_line_cap() {
   dir="$TMP_ROOT/cap-with-stamp"; mkdir -p "$dir"
   fb=$(make_stubs "$dir"); log="$dir/send.log"
   home=$(setup_home cap-with-stamp)
-  fm_write_meta "$home/state/t1.meta" "window=sess:fm-t1" "kind=ship"
+  fm_write_meta "$home/state/t1.meta" "window=sess:w1:p1" "kind=ship"
   printf 'needs-decision [key=api-shape]: REST or gRPC\n' > "$home/state/t1.status"
   answer=$(printf 'x%.0s' {1..400})
 
@@ -835,7 +806,7 @@ test_failed_close_recovery_command_is_shell_safe() {
   home=$(setup_home "manual close")
   marker="$dir/injected"
   answer="ok'; touch $marker; echo '"
-  fm_write_meta "$home/state/t1.meta" "window=sess:fm-t1" "kind=ship"
+  fm_write_meta "$home/state/t1.meta" "window=sess:w1:p1" "kind=ship"
   printf 'needs-decision [key=quote-safety]: choose safely\n' > "$home/state/t1.status"
   chmod 0400 "$home/state/t1.status"
 
@@ -895,7 +866,7 @@ test_decision_answer_partition_relocates_under_the_record() {
   dir="$TMP_ROOT/partition"; mkdir -p "$dir"
   fb=$(make_stubs "$dir"); log="$dir/send.log"
   home=$(setup_home partition)
-  fm_write_meta "$home/state/t1.meta" "window=sess:fm-t1" "kind=ship"
+  fm_write_meta "$home/state/t1.meta" "window=sess:w1:p1" "kind=ship"
   printf 'needs-decision [key=api-shape]: pick REST or RPC\n' > "$home/state/t1.status"
   printf 'blocked [key=token]: firstmate can refresh the token\n' >> "$home/state/t1.status"
 
@@ -957,7 +928,7 @@ test_listed_key_closes_a_trailing_token_blocker() {
   dir="$TMP_ROOT/trailing-token"; mkdir -p "$dir"
   fb=$(make_stubs "$dir"); log="$dir/send.log"
   home=$(setup_home trailing-token)
-  fm_write_meta "$home/state/t10.meta" "window=sess:fm-t10" "kind=ship"
+  fm_write_meta "$home/state/t10.meta" "window=sess:w1:p1" "kind=ship"
   printf 'blocked: axi run hung without registering a branch run [key=no-mistakes-start]\n' \
     > "$home/state/t10.status"
 
@@ -996,7 +967,7 @@ test_unresolvable_key_refusal_preserves_the_message() {
   dir="$TMP_ROOT/preserved"; mkdir -p "$dir"
   fb=$(make_stubs "$dir"); log="$dir/send.log"; err="$dir/send.err"
   home=$(setup_home preserved)
-  fm_write_meta "$home/state/t11.meta" "window=sess:fm-t11" "kind=ship"
+  fm_write_meta "$home/state/t11.meta" "window=sess:w1:p1" "kind=ship"
   printf 'blocked: axi run hung [key=decoy-token]\nneeds-decision [key=alpha]: A or B\n' \
     > "$home/state/t11.status"
   msg="don't restart it; \$RUN is still live
@@ -1045,7 +1016,7 @@ test_empty_status_open_set_still_offers_the_keyed_resend() {
   dir="$TMP_ROOT/held-only"; mkdir -p "$dir"
   fb=$(make_stubs "$dir"); log="$dir/send.log"; err="$dir/send.err"
   home=$(setup_home held-only)
-  fm_write_meta "$home/state/t14.meta" "window=sess:fm-t14" "kind=ship"
+  fm_write_meta "$home/state/t14.meta" "window=sess:w1:p1" "kind=ship"
   printf 'needs-decision [key=migration]: cut over now or after the freeze\ncaptain-held [key=migration]: transferred to the captain-held task\n' \
     > "$home/state/t14.status"
   msg="cut over after the freeze"
@@ -1097,7 +1068,7 @@ test_refusal_resend_carries_its_own_routing_context() {
   dir="$TMP_ROOT/routing"; mkdir -p "$dir"
   fb=$(make_stubs "$dir"); log="$dir/send.log"; err="$dir/send.err"
   home=$(setup_home routing)
-  fm_write_meta "$home/state/t12.meta" "window=sess:fm-t12" "kind=ship"
+  fm_write_meta "$home/state/t12.meta" "window=sess:w1:p1" "kind=ship"
   printf 'needs-decision [key=alpha]: A or B\n' > "$home/state/t12.status"
   msg="hold the deploy until the migration lands"
 
@@ -1121,7 +1092,7 @@ test_refusal_resend_carries_its_own_routing_context() {
   # An explicit FM_STATE_OVERRIDE is part of that routing too: without it the
   # resend silently resolves to <home>/state and answers a different ledger.
   state="$dir/elsewhere-state"; mkdir -p "$state"
-  fm_write_meta "$state/t13.meta" "window=sess:fm-t13" "kind=ship"
+  fm_write_meta "$state/t13.meta" "window=sess:w1:p1" "kind=ship"
   printf 'needs-decision [key=beta]: C or D\n' > "$state/t13.status"
   : > "$log"
   ( cd "$ROOT" && env PATH="$fb:$PATH" \
@@ -1152,7 +1123,7 @@ refusal_keyed_resend_case() { # <name> <expected keyed args> <resolve-key>...
   dir="$TMP_ROOT/multi-key-$name"; mkdir -p "$dir"
   fb=$(make_stubs "$dir"); log="$dir/send.log"; err="$dir/send.err"
   home=$(setup_home "multi-key-$name")
-  fm_write_meta "$home/state/t15.meta" "window=sess:fm-t15" "kind=ship"
+  fm_write_meta "$home/state/t15.meta" "window=sess:w1:p1" "kind=ship"
   printf 'needs-decision [key=alpha]: A or B\nneeds-decision [key=beta]: C or D\n' \
     > "$home/state/t15.status"
   msg="A, and C"

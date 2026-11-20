@@ -295,54 +295,33 @@ SH
   chmod +x "$fakebin/tmux"
 }
 
-# fm_test_fake_tmux_send <fakebin>
-# Send-world tmux: logs send-keys -l payloads to FM_SEND_LOG, reports a numeric
-# cursor_y, and renders an empty bordered composer so the submit path reads
-# empty. Env knobs:
-#   FM_FAKE_TMUX_SEND_FAIL=1  send-keys exits 1
-#   FM_FAKE_TMUX_COMPOSER=pending  capture-pane shows leftover composer text
-fm_test_fake_tmux_send() {
+fm_test_fake_herdr_send() {
   local fakebin=$1
-  cat > "$fakebin/tmux" <<'SH'
+  cat > "$fakebin/herdr" <<'SH'
 #!/usr/bin/env bash
 set -u
-case "${1:-}" in
-  send-keys)
-    [ "${FM_FAKE_TMUX_SEND_FAIL:-0}" = 1 ] && exit 1
-    shift
-    literal=0
-    while [ $# -gt 0 ]; do
-      case "$1" in
-        -t) shift 2 ;;
-        -l) literal=1; shift ;;
-        *) break ;;
-      esac
-    done
-    if [ "$literal" = 1 ]; then
-      printf '%s' "${1:-}" >> "${FM_SEND_LOG:-/dev/null}"
-    fi
-    exit 0
+case "${1:-} ${2:-}" in
+  'status --json')
+    printf '%s\n' '{"client":{"version":"0.9.5","protocol":22},"server":{"running":true}}'
     ;;
-  display-message)
-    for a in "$@"; do
-      case "$a" in *cursor_y*) printf '1\n'; exit 0 ;; esac
-    done
-    printf 'fakepane\n'
-    exit 0
+  'pane get')
+    printf '{"result":{"pane":{"pane_id":"%s"}}}\n' "$3"
     ;;
-  capture-pane)
-    if [ "${FM_FAKE_TMUX_COMPOSER:-}" = pending ]; then
-      printf '╭──────────────╮\n│ leftover txt │\n╰──────────────╯\n'
-    else
-      printf '╭────╮\n│    │\n╰────╯\n'
-    fi
-    exit 0
+  'pane read')
+    case "${FM_FAKE_HERDR_COMPOSER:-}" in
+      pending) printf '%s\n' '{"result":{"text":"╭──────────────╮\n│ leftover txt │\n╰──────────────╯"}}' ;;
+      *) printf '%s\n' '{"result":{"text":"╭────╮\n│    │\n╰────╯"}}' ;;
+    esac
     ;;
-  list-windows) exit 0 ;;
+  'pane send-text')
+    [ "${FM_FAKE_HERDR_SEND_FAIL:-0}" != 1 ] || exit 1
+    printf '%s' "$4" >> "${FM_SEND_LOG:-/dev/null}"
+    ;;
+  'pane send-keys') [ "${FM_FAKE_HERDR_SEND_FAIL:-0}" != 1 ] ;;
+  *) exit 1 ;;
 esac
-exit 0
 SH
-  chmod +x "$fakebin/tmux"
+  chmod +x "$fakebin/herdr"
 }
 
 # fm_test_fake_ssh <fakebin> [name]
@@ -534,13 +513,10 @@ fm_test_run_single_herdr_spawn() {
 # --- send-world stubs -------------------------------------------------------
 
 # make_stubs <dir>
-# Send-world fakebin: send tmux + no-op sleep. Echoes the fakebin path.
-# Suites that need recording sleep, herdr, or ssh add those on top of this
-# fakebin (or replace sleep via fm_test_fake_sleep_log).
 make_stubs() {
   local dir=$1 fakebin
   fakebin=$(fm_fakebin "$dir")
-  fm_test_fake_tmux_send "$fakebin"
+  fm_test_fake_herdr_send "$fakebin"
   fm_test_fake_sleep_noop "$fakebin"
   printf '%s\n' "$fakebin"
 }

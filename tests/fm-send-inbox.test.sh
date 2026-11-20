@@ -4,7 +4,7 @@
 # An ordinary text steer to a task recorded in this home no longer types its
 # payload: fm-send appends a durable sequenced record to state/<id>.inbox/ and
 # rings one constant self-describing doorbell line, best-effort. These tests
-# drive the real fm-send executable over a stubbed tmux and pin:
+# drive the real fm-send executable over a stubbed Herdr and pin:
 #   1. The payload is durably recorded and never typed; only the doorbell
 #      crosses the terminal, and the send exits 0 at enqueue.
 #      The doorbell names the inbox once and never grows with the home's depth.
@@ -17,7 +17,7 @@
 #      watcher's re-ring ladder owns delivery from the record on. A
 #      fire-and-forget record whose ring did not land is owed one retry ring.
 #   6. Carve-outs keep the typed plane: a leading "/" (any harness), a leading
-#      "$" to codex, an explicit backend target, and the --key path.
+#      an explicit Herdr target, or the --key path.
 #   7. A marked secondmate steer carries its marker + corr token in the record
 #      body, and the pending-reply expectation is marked delivered at enqueue.
 #   8. Pending-reply bookkeeping failure after enqueue never reports a
@@ -32,8 +32,8 @@
 # shellcheck disable=SC2016
 set -u
 
-# shellcheck source=tests/lib.sh
-. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=tests/fixtures.sh
+. "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-marker-lib.sh"
 
@@ -42,46 +42,13 @@ SEND="$ROOT/bin/fm-send.sh"
 TMP_ROOT=$(fm_test_tmproot fm-send-inbox)
 TMP_ROOT=$(cd "$TMP_ROOT" && pwd)
 
-# Stub tmux: logs literal typed text to FM_SEND_LOG and lets the submit and
-# composer paths reach clean verdicts. FM_FAKE_TMUX_COMPOSER=pending renders a
-# composer visibly holding text; FM_FAKE_TMUX_SEND_FAIL=1 fails send-keys.
+# Stub Herdr: logs literal typed text to FM_SEND_LOG and lets the submit and
+# composer paths reach clean verdicts. FM_FAKE_HERDR_COMPOSER=pending renders a
+# composer visibly holding text; FM_FAKE_HERDR_SEND_FAIL=1 fails send-keys.
 make_stubs() { # <dir> -> echoes fakebin dir
   local dir=$1 fb="$1/fakebin"
   mkdir -p "$fb"
-  cat >"$fb/tmux" <<'SH'
-#!/usr/bin/env bash
-set -u
-case "${1:-}" in
-  send-keys)
-    [ "${FM_FAKE_TMUX_SEND_FAIL:-0}" = 1 ] && exit 1
-    shift
-    literal=0
-    while [ $# -gt 0 ]; do
-      case "$1" in
-        -t) shift 2 ;;
-        -l) literal=1; shift ;;
-        *) break ;;
-      esac
-    done
-    if [ "$literal" = 1 ]; then
-      printf '%s\n' "${1:-}" >> "$FM_SEND_LOG"
-    fi
-    exit 0 ;;
-  display-message)
-    for a in "$@"; do case "$a" in *cursor_y*) printf '1\n'; exit 0 ;; esac; done
-    printf 'fakepane\n'; exit 0 ;;
-  capture-pane)
-    if [ "${FM_FAKE_TMUX_COMPOSER:-}" = pending ]; then
-      printf '╭──────────────╮\n│ leftover txt │\n╰──────────────╯\n'
-    else
-      printf '╭────╮\n│    │\n╰────╯\n'
-    fi
-    exit 0 ;;
-  list-windows) printf 'fm-t1\nwin\n'; exit 0 ;;
-esac
-exit 0
-SH
-  chmod +x "$fb/tmux"
+  fm_test_fake_herdr_send "$fb"
   cat >"$fb/sleep" <<'SH'
 #!/usr/bin/env bash
 exit 0
@@ -91,11 +58,11 @@ SH
 }
 
 setup_case() { # <name> [harness] -> echoes case dir with home/state + t1 meta
-  local name=$1 harness=${2:-claude} dir
+  local name=$1 harness=${2:-pi} dir
   dir="$TMP_ROOT/$name"
   mkdir -p "$dir/home/state"
   make_stubs "$dir" >/dev/null
-  fm_write_meta "$dir/home/state/t1.meta" "window=sess:fm-t1" "kind=ship" "harness=$harness"
+  fm_write_meta "$dir/home/state/t1.meta" "window=sess:w1:p1" "kind=ship" "harness=$harness"
   printf '%s\n' "$dir"
 }
 
@@ -151,7 +118,7 @@ test_deep_home_doorbell_stays_short() {
   home="$deep/one/two/three/four/five/six/seven/eight-secondmate-homes-nest-under-long-worktree-paths"
   mkdir -p "$home/state"
   make_stubs "$deep" >/dev/null
-  fm_write_meta "$home/state/t1.meta" "window=sess:fm-t1" "kind=ship" "harness=claude"
+  fm_write_meta "$home/state/t1.meta" "window=sess:w1:p1" "kind=ship" "harness=pi"
   err="$deep/send.err"
   env PATH="$deep/fakebin:$PATH" \
     FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SEND_LOG="$deep/send.log" \
@@ -219,7 +186,7 @@ test_pending_composer_skips_ring_advisorily() {
   local dir err rc
   dir=$(setup_case pendingskip)
   err="$dir/send.err"
-  run_send "$dir" "$err" FM_FAKE_TMUX_COMPOSER=pending -- t1 "steer past a stuck composer"
+  run_send "$dir" "$err" FM_FAKE_HERDR_COMPOSER=pending -- t1 "steer past a stuck composer"
   rc=$?
   expect_code 0 "$rc" "a skipped ring is still a sent steer"
   [ -f "$dir/home/state/t1.inbox/001.msg" ] || fail "the steer was not recorded"
@@ -233,7 +200,7 @@ test_failed_ring_is_still_sent() {
   local dir err rc
   dir=$(setup_case ringfail)
   err="$dir/send.err"
-  run_send "$dir" "$err" FM_FAKE_TMUX_SEND_FAIL=1 -- t1 "steer into a dead pane"
+  run_send "$dir" "$err" FM_FAKE_HERDR_SEND_FAIL=1 -- t1 "steer into a dead pane"
   rc=$?
   expect_code 0 "$rc" "a failed doorbell must not fail the send"
   [ -f "$dir/home/state/t1.inbox/001.msg" ] || fail "the steer was not recorded"
@@ -252,8 +219,8 @@ test_fire_and_forget_unlanded_ring_owes_one_retry() {
   err="$dir/send.err"
   # The stub lists only window fm-t1, so the secondmate takes it over.
   rm -f "$dir/home/state/t1.meta"
-  fm_write_secondmate_meta "$dir/home/state/domain.meta" "$dir/home" "sess:fm-t1" alpha claude
-  run_send "$dir" "$err" FM_FAKE_TMUX_COMPOSER=pending -- \
+  fm_write_secondmate_meta "$dir/home/state/domain.meta" "$dir/home" "sess:w1:p1" alpha pi
+  run_send "$dir" "$err" FM_FAKE_HERDR_COMPOSER=pending -- \
     fm-domain --fire-and-forget 0123456789abcdef "reconcile your books"; rc=$?
   expect_code 0 "$rc" "a skipped fire-and-forget ring is still a sent steer"
   [ "$(cat "$dir/home/state/domain.inbox/.retry-ring" 2>/dev/null)" = 001.msg ] \
@@ -268,7 +235,7 @@ test_fire_and_forget_unlanded_ring_owes_one_retry() {
 
   dir=$(setup_case ordinary-no-retry)
   err="$dir/send.err"
-  run_send "$dir" "$err" FM_FAKE_TMUX_COMPOSER=pending -- t1 "ordinary steer"
+  run_send "$dir" "$err" FM_FAKE_HERDR_COMPOSER=pending -- t1 "ordinary steer"
   [ ! -e "$dir/home/state/t1.inbox/.retry-ring" ] \
     || fail "an ordinary record rides the ladder and must not owe a separate retry"
   pass "fm-send inbox: a fire-and-forget ring that did not land owes one retry ring"
@@ -281,8 +248,8 @@ test_fire_and_forget_retry_stays_off_without_the_flag() {
   err="$dir/send.err"
   [ ! -e "$dir/home/config/wait-no-turns" ]
   rm -f "$dir/home/state/t1.meta"
-  fm_write_secondmate_meta "$dir/home/state/domain.meta" "$dir/home" "sess:fm-t1" alpha claude
-  run_send "$dir" "$err" FM_FAKE_TMUX_COMPOSER=pending -- \
+  fm_write_secondmate_meta "$dir/home/state/domain.meta" "$dir/home" "sess:w1:p1" alpha pi
+  run_send "$dir" "$err" FM_FAKE_HERDR_COMPOSER=pending -- \
     fm-domain --fire-and-forget 0123456789abcdef "reconcile your books"; rc=$?
   expect_code 0 "$rc" "a skipped fire-and-forget ring is still a sent steer"
   [ ! -e "$dir/home/state/domain.inbox/.retry-ring" ] \
@@ -301,36 +268,22 @@ test_harness_invocations_stay_typed() {
   typed=$(cat "$dir/send.log")
   assert_contains "$typed" "/no-mistakes" "the slash command should be typed literally"
   [ ! -d "$dir/home/state/t1.inbox" ] || fail "a slash command must not be routed to the inbox"
-  # A codex `$<skill>` invocation likewise stays typed.
-  dir=$(setup_case codexskill codex)
+  # A dollar-prefixed message is plain text to Pi.
+  dir=$(setup_case dollartext pi)
   err="$dir/send.err"
-  run_send "$dir" "$err" -- t1 '$no-mistakes' || fail "a codex \$skill send should succeed"
-  assert_contains "$(cat "$dir/send.log")" '$no-mistakes' "the codex \$skill should be typed literally"
-  [ ! -d "$dir/home/state/t1.inbox" ] || fail "a codex \$skill must not be routed to the inbox"
-  # A cloud-claude pane runs a relay with no parser, so its slash text is a steer.
-  dir=$(setup_case cloudslash cloud-claude)
-  err="$dir/send.err"
-  run_send "$dir" "$err" -- t1 "/review the diff" || fail "a cloud-claude slash send should succeed"
-  [ -f "$dir/home/state/t1.inbox/001.msg" ] || fail "a cloud-claude slash message should ride the inbox"
+  run_send "$dir" "$err" -- t1 '$5/month is cheap' || fail "a pi \$-text send should succeed"
+  [ -f "$dir/home/state/t1.inbox/001.msg" ] || fail "a Pi \$-message should ride the inbox"
   case "$(cat "$dir/send.log")" in
-  *'/review the diff'*) fail "a cloud-claude slash payload was typed" ;;
+  *'$5/month'*) fail "a Pi \$-message payload was typed" ;;
   esac
-  # The same `$` message to a non-codex harness is plain text: inbox plane.
-  dir=$(setup_case dollartext claude)
-  err="$dir/send.err"
-  run_send "$dir" "$err" -- t1 '$5/month is cheap' || fail "a claude \$-text send should succeed"
-  [ -f "$dir/home/state/t1.inbox/001.msg" ] || fail "a non-codex \$-message should ride the inbox"
-  case "$(cat "$dir/send.log")" in
-  *'$5/month'*) fail "a non-codex \$-message payload was typed" ;;
-  esac
-  pass "fm-send planes: slash and codex \$skill invocations stay typed; cloud-claude slash text and plain \$-text ride the inbox"
+  pass "fm-send planes: slash invocations stay typed; dollar-prefixed text rides the inbox"
 }
 
 test_explicit_target_stays_typed() {
   local dir err
   dir=$(setup_case explicit)
   err="$dir/send.err"
-  run_send "$dir" "$err" -- sess:win "hello there" || fail "an explicit-target send should succeed"
+  run_send "$dir" "$err" -- sess:w1:p1 "hello there" || fail "an explicit-target send should succeed"
   assert_contains "$(cat "$dir/send.log")" "hello there" \
     "an explicit backend target should receive the literal text"
   [ -z "$(find "$dir/home/state" -maxdepth 1 -name '*.inbox' -print 2>/dev/null)" ] ||
@@ -351,7 +304,7 @@ test_secondmate_marker_and_enqueue_delivery() {
   local dir err body corr pr_rec delivered
   dir=$(setup_case secondmate)
   err="$dir/send.err"
-  fm_write_secondmate_meta "$dir/home/state/domain.meta" "$dir/home" "sess:fm-domain"
+  fm_write_secondmate_meta "$dir/home/state/domain.meta" "$dir/home" "sess:w1:p1"
   run_send "$dir" "$err" -- fm-domain "please summarize fleet health" ||
     fail "a secondmate steer should succeed"
   body=$(record_body _ "$dir/home/state/domain.inbox/001.msg")
@@ -375,7 +328,7 @@ test_post_enqueue_bookkeeping_failure_is_not_retryable() {
   local dir err rc rec body
   dir=$(setup_case bookkeeping-failure)
   err="$dir/send.err"
-  fm_write_secondmate_meta "$dir/home/state/domain.meta" "$dir/home" "sess:fm-domain"
+  fm_write_secondmate_meta "$dir/home/state/domain.meta" "$dir/home" "sess:w1:p1"
   cat >"$dir/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 set -u
@@ -454,7 +407,7 @@ test_unwritable_inbox_fails_loudly() {
   local dir err rc
   dir=$(setup_case unwritable)
   err="$dir/send.err"
-  fm_write_secondmate_meta "$dir/home/state/domain.meta" "$dir/home" "sess:fm-domain"
+  fm_write_secondmate_meta "$dir/home/state/domain.meta" "$dir/home" "sess:w1:p1"
   : >"$dir/home/state/domain.inbox" # a FILE where the inbox dir must go
   run_send "$dir" "$err" -- fm-domain "this cannot be recorded"
   rc=$?
@@ -474,7 +427,7 @@ test_empty_message_refused() {
   # parent could never see resolved.
   dir=$(setup_case empty-marked)
   err="$dir/send.err"
-  fm_write_secondmate_meta "$dir/home/state/domain.meta" "$dir/home" "sess:fm-domain"
+  fm_write_secondmate_meta "$dir/home/state/domain.meta" "$dir/home" "sess:w1:p1"
   run_send "$dir" "$err" -- fm-domain
   rc=$?
   [ "$rc" -ne 0 ] || fail "an empty secondmate steer should refuse"
