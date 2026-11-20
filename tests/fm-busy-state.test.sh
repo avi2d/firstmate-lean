@@ -687,7 +687,7 @@ test_model_stream_lifecycle_is_fenced() {
   [ ! -e "$state/t1.progress" ] || fail "model stream changed the default native anchor"
   [ "$(cat "$state/t1.busy-state")" = "$before" ] || fail "stream changed busy state"
   [ ! -e "$state/t1.turn-ended" ] || fail "stream fabricated completion"
-  if fm_busy_stream_read "$state" t1 pi >/dev/null; then fail "foreign harness trusted stream"; fi
+  if fm_busy_stream_read "$state" t1 unknown >/dev/null; then fail "foreign harness trusted stream"; fi
   "$EV" stream "$state" t1 close --gen "$gen" --request 1 || fail "stream close refused"
   [ ! -e "$state/t1.model-stream" ] || fail "close retained active marker"
   if "$EV" stream "$state" t1 progress --gen "$gen" --request 1 2>/dev/null; then fail "closed progress accepted"; fi

@@ -474,7 +474,7 @@ assert_equals "unknown" "$can" "unknown lock plus unknown consumer is not can_re
 home=$(make_home ready-holder)
 # A process whose ps comm is the harness name, so lock inspect and
 # fm-harness.sh ancestry both classify it without PATH tricks.
-perl -e '$0="claude"; sleep 60' &
+perl -e '$0="pi"; sleep 60' &
 holder_pid=$!
 # Give ps a moment to report the renamed comm.
 sleep 0.2
@@ -487,7 +487,7 @@ printf '%s\n' "$holder_pid" > "$home/state/.lock"
 touch "$home/state/.last-watcher-beat"
 held=$(run_inbox "$home" ready) || fail "ready should succeed for a lock-holder harness"
 assert_equals "held" "$(printf '%s' "$held" | python3 -c 'import json,sys; print(json.load(sys.stdin)["lock"]["state"])')" \
-  "a live claude-named holder is a held lock"
+  "a live pi-named holder is a held lock"
 assert_equals "healthy" "$(printf '%s' "$held" | json_get wake_consumer state)" \
   "lock-holder ancestry plus a fresh beacon is a healthy wake consumer"
 assert_equals "True" "$(printf '%s' "$held" | json_get can_receive)" \

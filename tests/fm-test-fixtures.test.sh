@@ -421,9 +421,7 @@ test_inherited_launcher_env_is_cleared() (
       export FM_CONFIG_OVERRIDE="$2/empty-config" REX_BLOCK=block
       . "$ROOT/bin/fm-backend.sh"
       backend=$(fm_backend_name)
-      case "$backend" in
-        herdr|rex|paseo) echo "inherited launcher still selects $backend"; exit 1 ;;
-      esac
+      [ "$backend" = herdr ] || { echo "inherited launcher selected $backend"; exit 1; }
     ) || exit 1
     (
       export FM_CONFIG_OVERRIDE="$2/empty-config" HERDR_ENV=1

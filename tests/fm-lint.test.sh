@@ -520,7 +520,7 @@ test_changed_mode_lints_only_the_changed_file() {
     FM_TEST_GIT_DIFF_FILE="$diff_file" "$LINT" 2>&1) \
     || fail "changed-mode lint run failed"$'\n'"$out"
   [ "$(cat "$log")" = "$target" ] \
-    || fail "changed-mode lint did not run ShellCheck on exactly the changed file"$'\n'"logged: $(cat "$log")"
+    || fail "changed-mode lint did not run ShellCheck on exactly the changed file"$'\n'"logged: $(cat "$log")"$'\n'"$out"
   pass "fm-lint.sh changed mode lints only the changed canonical file"
 }
 
