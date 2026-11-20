@@ -2,7 +2,7 @@
 
 Audience: maintainer verification.
 
-This record supports current session-start, turn-end, watcher-continuity, supervision-host, and wedge-alarm guarantees.
+This record supports current session-start, turn-end, watcher-continuity, and supervision-host guarantees.
 Operator behavior and active limits remain in the linked current guides.
 Task-specific chronology, temporary paths, run identifiers, and delivery transcripts remain in private reports or PR evidence.
 

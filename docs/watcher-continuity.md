@@ -224,10 +224,9 @@ A branch settlement that does not settle within FM_PI_BRANCH_SETTLEMENT_TIMEOUT_
 
 [`pi-supervision-branch.md`](pi-supervision-branch.md#components-and-their-owners) owns branch eligibility, mixed-queue dispatch, the pre-drain recheck, and heartbeat's all-or-nothing rule.
 
-While attended, a check-kind row is main-owned, including a heartbeat review.
+A check-kind row is main-owned, including a heartbeat review.
 So it is never part of a branch claim and never defers one.
 Main is woken for it on that check's own triggering close.
-Under the away-posture record the exclusion lifts and a check row is offered to and claimed by the branch like every other actionable row.
 
 `fm-wake-drain.sh` never reclassifies a row itself.
 It filters the queue to the current actor's opaque claim before same-key deduplication, then presents and acknowledges only that actor-local view.

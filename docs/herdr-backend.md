@@ -722,7 +722,7 @@ A pane already mid-turn cannot borrow a rendered-footer transition as proof of t
 After retries, only proven pending text plus native `working` can establish that its Enter was accepted and queued.
 
 The composer verdict itself is deliberately unchanged.
-A right-aligned status token on the composer row stays content for every other caller, including the away-mode pre-injection guard.
+A right-aligned status token on the composer row stays content for every other caller.
 
 The poll density bounds the residual possibility of an extremely fast complete turn.
 A missed native transition falls through to the composer verdict rather than reporting a false swallow.
@@ -764,13 +764,7 @@ ANSI capture preserves de-emphasized placeholder style.
 
 If the ANSI capture ever fails, the plain fallback declares itself unstyled.
 The classifier then degrades a glyph row carrying trailing text to `unknown` instead of misreading ghost suggestions as typed input.
-That safely defers injection and eventually raises the wedge alarm.
-
-### Away-mode injection
-
-A bare shell prompt is never an empty agent composer.
-Away-mode injection proceeds only on an affirmative `empty` result, never on unknown.
-This prevents a dead agent pane from receiving and possibly executing an escalation as shell input.
+That safely defers injection.
 
 ### Operational input markers
 
@@ -937,7 +931,6 @@ The watcher maps the pane back to the task and skips these:
 - Declared `paused:` waits, because the worker's declared wait already accounts for its quiet.
   It is left to the watcher's own bounded pause cadence.
 - Verified `captain-held` transfers.
-  A captain-held transfer remains silent without rechecks while the away-posture record exists.
 
 ### Polling fallback
 
@@ -1010,8 +1003,6 @@ tests/fm-herdr-session-cleanup.test.sh
 tests/fm-herdr-session-cleanup-e2e.test.sh
 tests/fm-herdr-groups.test.sh
 tests/fm-herdr-attached-viewer-live-e2e.test.sh
-tests/fm-afk-inject-herdr-e2e.test.sh
-tests/fm-afk-pi-herdr-return-e2e.test.sh
 ```
 
 Real Herdr tests use the named lab helper and default-session tripwire.

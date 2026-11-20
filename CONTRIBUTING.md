@@ -86,7 +86,7 @@ bin/fm-test-run.sh --changed   # the local pre-push fast tier: touched tests plu
 bin/fm-test-run.sh --changed --jobs 1   # explicit serial override
 bin/fm-test-run.sh --changed --max-wall-ms 300000   # same automatic path with a post-run five-minute result check
 bin/fm-test-run.sh --proven-isolated --jobs 4   # explicit local parallel of the individually proven set
-bin/fm-test-run.sh --lane portable-serial   # portable serial remainder (watcher/AFK/tmux/stateful)
+bin/fm-test-run.sh --lane portable-serial   # portable serial remainder (watcher and stateful suites)
 bin/fm-test-run.sh --list-lanes   # discover exact lane names, including the current CI serial shards
 bin/fm-test-run.sh --check-coverage   # prove portable shards + serial + serial shards + Herdr equal the full inventory
 bin/fm-test-run.sh --all   # deliberate complete regression (the daily and manual CI runs own it, not a pre-push step or no-mistakes Test)

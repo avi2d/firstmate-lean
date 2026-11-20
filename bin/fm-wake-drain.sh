@@ -681,18 +681,14 @@ if [ -n "$ACK_THROUGH" ]; then
     # because it was not present during the earlier drain. A row above the
     # cutoff arrived after presentation and was never shown to main, so it
     # stays unowned for whichever actor presents it next; claiming it here
-    # would hand every later away-session wake back to main. A live branch
+    # would hand every later wake back to main. A live branch
     # grant remains excluded by claim_main_rows_locked.
     claim_main_rows_locked "$ACK_THROUGH" || exit 1
   fi
   if [ "$ACTOR" = branch ]; then
-    # An away-posture grant can name check-kind rows - the attended
-    # partition's check/decision exclusions lift under the away record
-    # (docs/pi-supervision-branch.md "Postures") - so a branch ack must retire
-    # the inactive-outcome and notice receipts carried by the exact granted
-    # sequences it consumes. Otherwise the receipt stays pending and every
-    # later reconcile scan re-queues the same fingerprint. Attended, a grant
-    # names no check row and both scans find nothing.
+    # A branch ack retires the inactive-outcome and notice receipts carried by
+    # the exact granted sequences it consumes; otherwise a pending receipt is
+    # re-queued by every later reconcile scan.
     ACK_FINGERPRINTS=$(inactive_outcome_fingerprints "$ACK_THROUGH" 'inactive-outcome:' "$ELIGIBLE_ROWS_FILE") || exit 1
     ACK_NOTICE_FINGERPRINTS=$(inactive_outcome_fingerprints "$ACK_THROUGH" 'inactive-reconcile:' "$ELIGIBLE_ROWS_FILE") || exit 1
   else

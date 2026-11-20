@@ -51,7 +51,7 @@ That is the trigger condition for loading the skill, plus any safety-critical fa
 Everything else - the procedure, the mechanism, the surrounding detail - moves out completely.
 Do not leave a partial restatement behind "just in case".
 A partial copy is exactly the duplication the one-owner rule forbids.
-The model to copy is `AGENTS.md` section 8's "Away-mode and quiet-mode stub": it keeps only the skill-invocation triggers inline and points everything else at the `/afk`, `/quiet`, and `away-quiet-supervision` skills.
+The model to copy is `AGENTS.md` section 7's "Load these at their moments" list: it keeps only the skill-invocation triggers inline and leaves everything else to the named skills.
 
 ## Size discipline
 
@@ -93,7 +93,7 @@ Where a surface signal is unavoidable, back it with a guard that fails loudly na
 
 Every such check needs two tests, because they fail for different reasons:
 
-- A portable regression in `tests/` that pins the logic with real processes and no harness, so CI enforces the classifier everywhere it runs tmux.
+- A portable regression in `tests/` that pins the logic with real processes and no harness, so CI enforces the classifier everywhere it runs.
   Drive the signals apart deliberately and assert the verdict survives losing one; assert the divergence itself so the case cannot go quietly vacuous.
   Confirm which signal a given construction actually blinds on each supported platform rather than assuming, because the same trick can break different sources on macOS and Linux.
 - A live guard in the `live-harness-optin` family (`bin/fm-test-run.sh`) that exercises every INSTALLED harness for real and fails naming the harness and version.

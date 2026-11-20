@@ -14,8 +14,7 @@ This document records the deterministic mechanism, structured surfaces, compatib
 | Why does cleanup of finished work leave a user call open? | [Cleanup never closes a user call](#cleanup-never-closes-a-user-call) |
 | How does a keyed answer from chat or a board reach the call? | [Answer-time resolution](#answer-time-resolution) |
 | How is a call closed when it stopped being a question? | [Reconcile](#reconcile-re-check-reality-never-a-blind-close) |
-| Why did a decision card disappear from the board? | [Card hygiene](#card-hygiene-a-landed-subject-is-not-a-live-call) |
-| Where does a hold appear in snapshots and Bearings? | [Structured read surfaces](#structured-read-surfaces) |
+| Where does a hold appear in snapshots? | [Structured read surfaces](#structured-read-surfaces) |
 | What does a `RECORD DIVERGENCE` section mean? | [Record divergence](#record-divergence) |
 | How do rows from older installs still work? | [Compatibility with pre-collapse installs](#compatibility-with-pre-collapse-installs) |
 | Which tests prove this, and how is the record refreshed? | [Verification record](#verification-record) |
@@ -88,8 +87,6 @@ The `answer` subcommand records the user's exact words and resolves the call in 
 | `answer --release` | Frees a captain-gated work item to proceed without completing it. |
 
 It requires a non-empty user decision file of at most 8192 bytes.
-`answer --release` is attended-only: while the away-posture record exists it is refused before anything is written, and the keyed-answer intake refuses a `release` line the same way, because only the user in an attended session releases a user hold.
-A quiet record is a present user and does not refuse.
 It then works in this order:
 
 1. It durably writes a resolution block carrying the decision digest and a `Resolution mode:`.
@@ -331,39 +328,6 @@ Every retirement is checked.
 If request removal fails after an answer, close, or note is already durable, the durable outcome stands, but the command fails and leaves the pending request visible for retry.
 No path here closes a user call without either the user's words through `answer` or the evidence through `reconcile close`.
 
-## Card hygiene: a landed subject is not a live call
-
-`bin/fm-bearings-board.sh build` cross-checks every `decision` card before it publishes and drops stale subjects rather than trusting the composed inventory alone.
-
-Three checks run, all on exact identity and none on prose:
-
-- The card's key is the captain-held task id, so `bin/fm-captain-hold.sh open --distinguish-absent` is asked whether that task is still an open user call.
-  - Exit 1 means the task is present but closed, or no longer held for the user, and drops the card.
-  - Exit 2 means the answer could not be established, and keeps the card.
-  - Exit 3 means the task is absent from the main backlog, which includes a home carrying no backlog file at all, and keeps the card.
-
-  Exits 2 and 3 keep the card because a card wrongly shown is recoverable and a call wrongly hidden is not.
-- The payload's own `landed` rows are the recently-landed artifacts.
-  A decision card whose task id or `pr_url` appears among them has already shipped its subject, so it drops.
-- A version decision can carry a structured `subject` with an artifact and numeric three-part version.
-  A landed row carrying the same artifact at that version or a newer one supersedes the card without parsing prose.
-
-### Dropped and kept cards
-
-Dropped cards are named on stderr as `dropped-landed-card:` lines, so a rebuild states what it removed rather than quietly shrinking User's Call.
-The landing procedure requires one immediate board rebuild to remove already-stale merged-PR and superseded-version cards without a committed migration or change-worktree state mutation.
-A subject whose state cannot be established is kept, because a wrongly shown card is safer than a wrongly hidden call.
-The validator's reservation scope must equal the adapter's reconcile-classification scope.
-That scope is all card types, because the captured payload carries no card type.
-
-### Remote-secondmate cards
-
-Owner-aware routing for remote-secondmate decision cards is tracked separately.
-That follow-up must query landedness and route reconciliation in the authoritative secondmate home while honoring the remote and local consistency principle.
-Until then, an absent main-home task passes through this hygiene check unchanged.
-Its Reconcile selection remains announced but cannot create a main-home request, because the main intake refuses an absent task.
-For a main-home call, the reconcile option is the recovery path for whatever still slips through.
-
 ## Structured read surfaces
 
 ### Fleet snapshot buckets
@@ -414,7 +378,6 @@ That local window is normally only seconds wide and requires re-holding a task w
 A re-hold inside the window makes cleanup retain the row rather than publish it, so the delivery is omitted until the stale hold is cleared from that row.
 Queued forge merges cannot be covered locally.
 The forge performs the merge asynchronously after the local command has returned, when no lock this code could hold would still be held.
-The away-posture restriction on queued merges and its residual limits are owned by [architecture.md](architecture.md#delivery-modes-are-explicit-per-task).
 
 ## Record divergence
 
@@ -496,7 +459,7 @@ The suites do not test the accepted merge-to-cleanup re-hold window or asynchron
 
 ### Cleanup of a captain-held row
 
-- Cleanup of a finished task whose own row is the user call leaves that call open, queued, held, carrying its deliverable, and visible in Bearings' User's Call.
+- Cleanup of a finished task whose own row is the user call leaves that call open, queued, held, carrying its deliverable, and visible as an open user call.
   That cleanup leaves no pending record behind.
   The call survives a `--force` cleanup and closes only when `answer` records the user's words.
   An ordinary finished task in the same home still closes with its report link.
@@ -536,7 +499,6 @@ The suites do not test the accepted merge-to-cleanup re-hold window or asynchron
 - Answer-time resolution works through a bound channel with task-id keys.
   This includes the `release` mode, mode-matched replay idempotence, and the refusal of drifted, mode-mismatched, absent, unheld, and already-closed keys.
 - The chat channel reaches the same intake.
-- `test_release_is_attended_only` exercises the attended-only release: the away posture record and the away daemon flag each refuse `answer --release` and a `release` intake line without writing, while no record and a quiet record release, and a closing answer is not gated.
 - Hold-set stamping precedes visible hold state, preserves an active lifecycle's timestamp, and resets after release.
 - Interrupted answer closure retains the stamp until close and restores resolution-first ordering on retry.
 - Deferral through `--until` leaves `captain_actionable` false until due.
@@ -610,44 +572,23 @@ The captured-source coverage proves:
 - Chat reconcile text creates none.
 - The resulting board request authorizes evidence-backed closure.
 
-### Board suite
-
-The board's half is pinned in `tests/fm-bearings-board.test.sh`:
-
-- Every published decision card carries exactly one reconcile option.
-- Authored options reserve that value across every card type.
-- Recommendations name authored options.
-- A decision card whose structured subject appears in the payload's landed rows is dropped.
-  A genuinely open one is kept even when an unrelated landed id contains its key after a newline.
-- A build requires a fresh authoritative listed-open result before binding or arming.
-- A reopen retires the pre-reopen source generation and waits for a fresh live listener.
-- A rebuild of an already-armed board with no live listener starts one.
-
-That suite drives its Lavish session through a protocol-shaped stub.
-`tests/fm-bearings-board-lavish-live-e2e.test.sh` is the default-on capability guard for the installed provider, and [`verification/process-event-sources.md`](verification/process-event-sources.md) owns the version-scoped evidence.
-[`verification/process-event-sources.md`](verification/process-event-sources.md) owns the process-event ownership and reclamation evidence exercised by `tests/fm-procevent.test.sh`.
-
 ### Classifier and projection suites
 
 `tests/fm-classify-decision-key.test.sh` pins `status_key_closing_verb` itself.
 It separates a resolution from the durable-transfer close and from a still-open key.
 It reports the last real transition across re-openings and both key positions, and treats a prose mention as no transition.
 
-Projection and decision-text rendering regressions live in three suites:
+Projection regressions live in one suite:
 
 | Suite | What it covers |
 | --- | --- |
 | `tests/fm-fleet-snapshot-view.test.sh` | The total structured-only bucket classifier, hold-until parsing, kind-independent user actionability, undated-hold aging, and title stripping. |
-| `tests/fm-bearings-snapshot.test.sh` | Default and expanded decision-bucket membership, deferral explanations, blocker-overflow disclosure, working-hold dual surfaces, remote-summary schema invalidation, exact leading-kind inference, artifact-kind mismatch and answered-question exclusion, kind-bearing and kindless local-only landings publishing their recorded note, scout-report precedence over competing pull-request links, and full local and secondmate question transport with Unicode, report pointers, and legacy optional-field fallbacks. |
-| `tests/fm-bearings-board-render.test.sh` | Complete snapshot question and option text reaching the rendered decision card, including Unicode. |
 
 ### Refreshing this record
 
 The exact commands and their summarized outputs are recorded in the shipping PR's evidence.
 To refresh this record, run:
 
-- The suites above: the ten `tests/fm-captain-hold-*.test.sh` suites, `tests/fm-classify-decision-key.test.sh`, `tests/fm-fleet-snapshot-view.test.sh`, and `tests/fm-bearings-snapshot.test.sh`.
-- `tests/fm-send-resolve-key.test.sh`, `tests/fm-bearings-board.test.sh`, `tests/fm-bearings-board-render.test.sh`, and `tests/fm-procevent.test.sh`.
+- The suites above: the nine `tests/fm-captain-hold-*.test.sh` suites, `tests/fm-classify-decision-key.test.sh`, and `tests/fm-fleet-snapshot-view.test.sh`.
+- `tests/fm-send-resolve-key.test.sh` and `tests/fm-procevent.test.sh`.
 - `bin/fm-lint.sh`.
-
-After a lavish-axi upgrade, run `FM_BEARINGS_LAVISH_LIVE=1 tests/fm-bearings-board-lavish-live-e2e.test.sh`.

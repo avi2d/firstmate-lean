@@ -123,7 +123,7 @@ test_branch_prompt_routes_completed_scouts_through_guarded_cleanup() {
   # The emitted system prompt is the contract, not the generator's source or
   # proof that a model will obey it. No live agent or endpoint is involved.
   case "$prompt" in
-    *"For a completed scout, follow the scout-completion and captain-hold-lifecycle policies included below in both postures."*"After their completion gate passes, retain the report, claim the task's lease, and run \`bin/fm-teardown.sh <task>\` with no flags."*"Report the findings and cleanup result in that event's outcome; a refusal is reported with its exact reason and never forced, worked around, or repaired by hand."*) ;;
+    *"For a completed scout, follow the scout-completion and captain-hold-lifecycle policies included below."*"After their completion gate passes, retain the report, claim the task's lease, and run \`bin/fm-teardown.sh <task>\` with no flags."*"Report the findings and cleanup result in that event's outcome; a refusal is reported with its exact reason and never forced, worked around, or repaired by hand."*) ;;
     *) fail "branch prompt omits the completed-scout cleanup sequence or refusal reporting" ;;
   esac
   assert_contains "$prompt" \

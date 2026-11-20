@@ -64,12 +64,7 @@
 # tasks-axi --archive-body). It closes a question with `tasks-axi done` - or,
 # with `--release`, lifts the hold with `tasks-axi unhold` so a captain-gated
 # WORK item resumes without closing - and restores resolution-first body
-# ordering. `--release` is attended-only: while the away-posture record exists
-# (state/.afk-contract, or the daemon flag state/.afk, read as away; a quiet
-# record is a present captain) it is refused before anything is written, so an
-# unattended supervisor cannot free held work with its own words and then steer
-# it; the captain releases the hold in an attended session. A closing answer
-# without `--release` is not gated by posture. An exact retry also completes
+# ordering. An exact retry also completes
 # unfinished ordering normalization and
 # is idempotent only when its requested close mode
 # matches the newest record; a changed decision or a mode mismatch is rejected.
@@ -91,9 +86,7 @@
 # on a character boundary, which keeps the keyed record inside `answer`'s
 # 8192-byte limit. The optional fourth field selects the close:
 # empty or `done` completes the task, `release` lifts the hold so held work
-# resumes; anything else is skipped. A `release` line while the away-posture
-# record exists is reported as `refused:` under the same attended-only rule as
-# `answer --release` and feeds nothing. A key that names no task, a task that is
+# resumes; anything else is skipped. A key that names no task, a task that is
 # not held for the captain, or a task already closed is reported as `skipped:`
 # and feeds nothing. A replayed delivery whose answer digest and requested
 # close mode both match the newest record is reported `closed:` and is a no-op;

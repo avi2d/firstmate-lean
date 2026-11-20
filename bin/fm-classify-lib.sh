@@ -115,13 +115,12 @@ FM_CLASSIFY_PAUSED_VERB_DEFAULT='paused'
 # names it with `until` (status_paused_until below) and is rechecked at that
 # time or this cadence bound, whichever comes first. Consumers read
 # FM_PAUSE_RESURFACE_SECS with this default so
-# the cadence has one owner. An item held for the captain is not rechecked at all
-# while the away-posture record exists (bin/fm-watch.sh owns that rule).
+# the cadence has one owner.
 # shellcheck disable=SC2034 # Read by fm-watch.sh, not this lib.
 FM_PAUSE_RESURFACE_SECS_DEFAULT=14400
 
 # fm_utc_iso_to_epoch <YYYY-MM-DDTHH:MM[:SS]Z>: the one portable UTC ISO 8601
-# reader shared by the declared-wait vocabulary and the away-posture record.
+# reader for the declared-wait vocabulary.
 # Prints epoch seconds; returns 1 on any other shape
 # so a malformed time is refused rather than read as "now".
 fm_utc_iso_to_epoch() {  # <timestamp>

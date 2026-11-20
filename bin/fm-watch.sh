@@ -13,14 +13,11 @@
 # although its initial no-verb status signal still surfaces in normal mode.
 # That cadence is hours long and condition-aware: a paused: line naming
 # `until <UTC ISO 8601>` is rechecked when that time passes, but a declared time
-# beyond FM_PAUSE_RESURFACE_SECS cannot extend the ordinary recheck cadence, and
-# while an away record (state/.afk-contract, never quiet mode's) exists an
-# item held for the captain is never rechecked at all, in either posture.
-# While state/.afk exists, the daemon owns triage and this watcher queues and exits
-# on every wake. Printed reason lines:
+# beyond FM_PAUSE_RESURFACE_SECS cannot extend the ordinary recheck cadence.
+# Printed reason lines:
 #   signal: <file>...      status/turn-end signals, surfaced when a listed status
 #                          span has a captain-relevant event OR a no-verb signal lacks
-#                          positive execution evidence, unless afk is active
+#                          positive execution evidence
 #   stale: <window>        a provably-working stale is ALWAYS absorbed (with a wedge
 #                          timer) regardless of what the status log says - an active
 #                          run-step or busy pane outranks even a captain-relevant log
@@ -54,7 +51,7 @@
 #                          to carry the name, and no other reason carries it: the
 #                          deferral, dead-record and declared-wait recheck
 #                          reasons below keep their wording.
-#                          Unless afk is active. A pane about to escalate
+#                          A pane about to escalate
 #                          that can account for its quiet - a `paused:` external
 #                          wait or a verified `captain-held` transfer its worker
 #                          declared, a backlog captain hold on its task, or,
@@ -99,11 +96,8 @@
 #                          FM_STREAM_SILENT_MAX_SECS crosses that bound early.
 #                          Past that bound, a declared external
 #                          wait or verified captain-held transfer uses the long
-#                          pause recheck cadence; under daemon-backed afk an
-#                          external wait is instead handed to the daemon as this
-#                          plain reason once per declaration, while captain-held
-#                          work stays silent until return
-#                          (busy_turn_bound_check owns that split);
+#                          pause recheck cadence
+#                          (busy_turn_bound_check owns that choice);
 #                          every other pane goes through the same wedge timer,
 #                          the dead-record probe above included, and surfaces
 #                          with the same "stale: ..." reason, escalation
@@ -155,7 +149,7 @@
 #                          invalid pending retirements were preserved without
 #                          running a check or removing poll artifacts
 #   heartbeat              fleet-scan backstop found an unsurfaced captain-relevant
-#                          status, unless afk is active
+#                          status
 #   check: inactive-outcome bounded poll-loop reconciliation found a suspicious
 #                          inactive terminal outcome that still lacks its durable
 #                          upstream receipt
@@ -384,10 +378,7 @@ TURNEND_CHURN_ABSORB_SECS=${FM_TURNEND_CHURN_ABSORB_SECS:-900}  # longest a task
 # eligible proof, any check, a stale pane whose crew is not provably working, a
 # provably-working stale past the threshold, or anything unknown) is written to
 # the durable queue and exits. That wakes the LLM through the background-task
-# completion. The same classifier
-# (fm-classify-lib.sh) backs the away-mode daemon; while state/.afk exists the
-# daemon owns triage, so this watcher reverts to one-shot (enqueue + exit on every
-# wake) and never double-triages - and never runs the costly provably-working read.
+# completion.
 STALE_ESCALATE_SECS=${FM_STALE_ESCALATE_SECS:-240}  # idle secs before a provably-working stale escalates as a possible wedge
 # A busy pane is unconditional proof of liveness with no built-in duration bound,
 # so a hung foreground call can remain hidden even while its rendered busy
@@ -424,8 +415,7 @@ BUSY_STREAM_SNAPSHOT=
 # (pause_state_class owns that split).
 # These cases re-surface once for a recheck every PAUSE_RESURFACE_SECS - far
 # longer than the wedge threshold, but finite so a forgotten wait cannot rot
-# invisibly - except an item held for the captain while the away-posture record
-# exists, which is never rechecked (away_record_present below).
+# invisibly.
 PAUSE_RESURFACE_SECS=${FM_PAUSE_RESURFACE_SECS:-$FM_PAUSE_RESURFACE_SECS_DEFAULT}
 # A declared wait that names WHEN it clears (`paused: ... until <UTC ISO 8601>`,
 # status_paused_until in fm-classify-lib.sh) is condition-aware: it is not
@@ -678,7 +668,7 @@ inbox_steer_check() {  # <window> <task>
 # .stale- classification and wedge episode are cleared because churn begins a new
 # quiet interval; retaining either would make the new interval inherit the prior
 # one. The episode release goes through wedge_episode_end, so a cap that episode
-# fired goes with the rest of its bookkeeping. Reached only for a non-afk,
+# fired goes with the rest of its bookkeeping. Reached only for a
 # no-captain-verb signal, so it never runs on the ordinary per-wake path.
 signal_turnend_panes_churned() {  # <file> ...
   [ -e "$CONFIG/turnend-churn-absorb" ] || return 1
@@ -918,8 +908,7 @@ _wedge_cap_int FM_ROLLBACK_SENTINEL_TTL_SECS "$FM_ROLLBACK_SENTINEL_TTL_SECS" 36
 # scratch rather than inheriting a window an earlier episode left silent. The
 # cap-fire route is the one caller that keeps these markers instead of calling it
 # here: they are the ceiling it has just published, so the episode it ends must
-# leave them standing. The away-posture first sight is the one caller that
-# releases them WITHOUT ending an episode, and says so at its own call site.
+# leave them standing.
 # _wedge_cap_markers_clear <window-key>
 _wedge_cap_markers_clear() {
   local key=$1
@@ -937,14 +926,6 @@ _wedge_cap_markers_clear() {
 # turn-end churn absorb. The cap release is then structural rather than a list of
 # sites to keep in step - a new episode-ending route is one call, and it cannot
 # drop the episode marker without dropping the cap with it.
-#
-# One first-sight route is not an episode end: the away-posture branch, where the
-# away daemon owns the one-shot per stale hash. It classifies a fresh render
-# without arming or dropping any wedge timer - the first poll after the
-# away-posture record goes picks the episode it was already in back up on that
-# hash - so it releases the cap markers alone, through
-# _wedge_cap_markers_clear. Dropping the timer and count there would leave a hash
-# the daemon already surfaced with no wedge timer behind it at all.
 #
 # Non-zero when a reset could not be written, so a caller that has to undo an
 # absorb of its own on a failed reset (signal_turnend_panes_churned) can see it.
@@ -968,8 +949,7 @@ _wedge_cap_markers_clear() {
 # The other episode-ending routes are NOT keep-count sites: the pre-cap
 # watcher reset the count there too (the declared-wait absorb, the turn-end
 # churn absorb, the busy-pane and hash-change resets, and the provably-working
-# absorb, whose clear_pause_tracking removed it), so those keep resetting it
-# in both postures.
+# absorb, whose clear_pause_tracking removed it), so those keep resetting it.
 #
 # keep-cap=1 is the cap-fire route itself. It ends the episode and resets the
 # escalation count itself, but the cap markers it has just written are the whole
@@ -1169,8 +1149,7 @@ wedge_defer_writing() {  # <window> <since-file> <triage-label> <idle-age>
 #   <kind>       what the evidence IS, as the recheck names it.
 #   <subject>    WHO the wait is on, in the recheck's own words.
 #   <whom>       `captain` when that subject is the captain, `supervisor` when
-#                it is firstmate itself, `external` otherwise; this is what
-#                applies the away-posture rule below, which only `captain` takes.
+#                it is firstmate itself, `external` otherwise.
 #   <action>     the one thing that clears the lane.
 #   <age-record> the file whose mtime is when this wait started, or EMPTY when
 #                the wait has no written record. Empty is a real answer, not a
@@ -1247,9 +1226,7 @@ wait_record() {  # <kind> <subject> <whom> <action> <age-record>
 # not that evidence, and neither is a verdict that names no run. The wait is owed
 # by firstmate, not the captain: ask-user findings are routed to firstmate, which
 # decides most of them itself, and one it escalates becomes a captain-held
-# transfer that the first record above already catches. So the away-posture
-# silence does not apply to it: under away posture the supervision branch is the
-# actor allowed to answer it, and it is rechecked on the long cadence throughout.
+# transfer that the first record above already catches.
 # The two signals come apart in both directions, and the ladder is kept in each:
 #   - the decision was ANSWERED and the crewmate has not yet relayed it with
 #     `axi respond`: the gate is still reported parked and still carries the
@@ -1334,20 +1311,6 @@ wedge_wait_evidence() {  # <task> -> one wait_record on stdout
 # pass, so a number read from it would never grow and would tell a supervisor
 # that a day-old gate opened four minutes ago. The bounded re-surface still
 # fires, governed by its own throttle instead of by a wait age.
-# A CAPTAIN-facing wait is not rechecked at all while the away-posture record
-# exists: the one human who can answer it is away, the return brief already lists
-# it, and every other captain-facing path in this file absorbs it silently for
-# that reason (handle_paused_stale, surface_nonterminal_stale,
-# captain_call_stale_bound). That absorb arms no throttle and, for a
-# `captain-held:` line, leaves the idle timer alone: that arm of
-# wedge_wait_evidence returns before any backlog, decision-fold or current-state
-# read, so the only read that repeats under the away record is the one
-# status-line read that predates this deferral. There is nothing costly to
-# throttle there, so the recheck owed on return stays owed in full the moment the
-# record is archived rather than starting a cadence nobody could act on. A
-# backlog-only hold is proven by a backlog read, so its timer is restarted. The
-# costly parked-gate consult is owed to the supervisor instead, never silenced
-# here, and its own deferral restarts the timer below.
 # The escalation counter is left alone, exactly as the write deferral leaves it:
 # this is not an escalation, and a later genuine one must keep the
 # demand-inspection history it had already earned.
@@ -2173,9 +2136,8 @@ clear_stale_hash_tracking() {  # <window-key>
 }
 
 # Name a blocking dialog on a plain stale reason or the final wedge escalation,
-# the only two reasons that carry it. The name stays inside the one
-# parenthetical, after every clause already there, because the away daemon
-# matches "idle *s, possible wedge, escalation *" as a prefix. A reason with no
+# the only two reasons that carry it. The name goes inside the one
+# parenthetical, after every clause already there. A reason with no
 # parenthetical gains one.
 stale_reason_naming_dialog() {  # <reason> [dialog-name]
   local reason=$1 name=${2-}
@@ -2929,7 +2891,6 @@ signal_files_actionable() {  # <status-file> ...
 # only after its wake is queued, so a failed append never silences a retry.
 ready_capacity_wake_fires() {
   local ids sorted recorded count list home_state state_dir
-  away_record_present && return 1
   home_state=$(cd -P -- "$FM_HOME/state" 2>/dev/null && pwd -P) || return 1
   state_dir=$(cd -P -- "$STATE" 2>/dev/null && pwd -P) || return 1
   [ "$home_state" = "$state_dir" ] || return 1
@@ -3653,7 +3614,6 @@ $pending
 EOF
     reason="signal:$files"
     # Triage: a signal is ACTIONABLE when any of these holds (cheapest first):
-    #   - the away-mode daemon owns triage (afk) and wants every wake;
     #   - any status file gained a captain-relevant event since it was last
     #     classified (its whole new span, not merely its last line);
     #   - or it is a no-verb wake (a bare turn-end, a working: note) with no
@@ -3673,7 +3633,7 @@ EOF
     # whose crew is still executing) in always-on mode -> advance the markers so it
     # will not re-fire, log, and keep blocking without enqueuing. Both evidence
     # checks are costly (a bounded no-mistakes call, then a pane capture), so the ||
-    # ordering evaluates them ONLY for a non-afk signal with no captain-relevant
+    # ordering evaluates them ONLY for a signal with no captain-relevant
     # status span, and the capture only once the authoritative verdict comes up short.
     FM_SIGNAL_SURFACE_ENDPOINTS=''
     FM_SIGNAL_NEEDS_DECISION_FILES=''
@@ -3736,7 +3696,7 @@ EOF
   # signature means the crewmate finished, is waiting, or is wedged. Each distinct
   # stale hash is surfaced, absorbed, or timed toward escalation once (.stale-*
   # remembers the hash already classified, or the declaration a busy pane's
-  # crossed turn bound already handed to the away-mode daemon).
+  # crossed turn bound already surfaced).
   while IFS= read -r w; do
     kind=$(window_kind "$w")
     task=$(window_to_task "$w" "$STATE")
@@ -3752,7 +3712,7 @@ EOF
     watcher_capture "$pane_backend" "$w" 40 "$(window_label "$w")" || continue
     tail40=$WATCHER_CAPTURE
     # The matcher is already defined in this shell. It reads the capture this
-    # poll already takes, and a miss drops a name the away daemon saved.
+    # poll already takes.
     dialog=$(fm_composer_blocking_dialog "$tail40") || dialog=
     h=$(fm_pane_stale_hash "$pane_backend" "$(window_harness "$w")" "$w" "$(window_label "$w")" "$tail40") || continue
 
@@ -3984,8 +3944,7 @@ EOF
     # Triage: in always-on mode a heartbeat is benign unless the cheap fleet-scan
     # turns up a captain-relevant status the per-wake path missed. Absorb the
     # no-change case (advance the schedule and back off exactly as wake() would,
-    # without exiting); the away-mode daemon, when present, owns triage and wants
-    # every heartbeat.
+    # without exiting).
     if heartbeat_scan_finds_actionable; then
       # Enqueue first, then record every status log surfaced through its end so the
       # next heartbeat does not re-fire it (enqueue-before-suppress preserved);

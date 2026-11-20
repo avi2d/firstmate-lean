@@ -389,7 +389,7 @@ ROWS
 test_linux_provider_fixture_tree() {
   # The stat-line parser is a pure seam, so its shapes are pinned on any
   # host; the full route through FM_PROC_ROOT_OVERRIDE (the same hook
-  # bin/fm-cursor-lib.sh and friends take for their fixture trees)
+  # bin/fm-remote-job-lib.sh and bin/fm-teardown.sh take for their fixture trees)
   # drives the real Linux branch against a saved /proc directory.
   local got
   got=$(bash -c '

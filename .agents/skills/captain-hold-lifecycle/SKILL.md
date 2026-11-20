@@ -48,7 +48,7 @@ A retirement failure makes the command fail without reversing the already-durabl
 Never use `answer` for an evidence-only moot call: `answer` records what the user said, while `reconcile close` records verified evidence.
 A captain-held task closed outside this owner leaves no durable answer, so the completion gate keeps failing until `answer` records the decision the user actually gave.
 Resolved findings, recommendations that need no user choice, and prose that merely sounds decision-like do not create held tasks.
-Bearings reads the resulting structured state and must never compensate by scraping historical reports, visual-review artifacts, terminal output, chat, or other prose.
+Readers of the resulting structured state never compensate by scraping historical reports, visual-review artifacts, terminal output, chat, or other prose.
 
 A user call can be written down twice - as the keyed status decision the fold reads, and as the backlog task held for the user - and those two records can disagree without either surface saying so.
 `bin/fm-captain-hold.sh diverged` reports that contradiction and the wake drain prints it as `RECORD DIVERGENCE`; it closes nothing, because a user call closed wrongly leaves review entirely, which is worse than the noise.
@@ -62,9 +62,9 @@ The absence of a routed work item is not a divergence and the guard never requir
 2. Inventory only genuine unresolved choices that require the user, and find the task each one gates.
 3. Firstmate holds that task - or creates one captain-held task for the review's open questions - with a concise reason carrying the question and options.
 4. Attest the full inventory for that review pass under the caller authority in Policy above.
-5. Relay the choices to the user as decisions from Bearings' User's Call section under `AGENTS.md` section 9; do not use the word hold in user chat.
+5. Relay the choices to the user as decisions under `AGENTS.md` section 9; do not use the word hold in user chat.
 6. Close each call only through `answer` (or a channel that feeds `answers`), close a board-requested moot call through evidence-backed `reconcile close`, record a still-active reconciliation through `reconcile note`, use `--until` when the user defers it, or confirm a channel already closed it.
-7. Confirm Bearings reflects the outcome: answered or reconciled-moot calls leave User's Call, released work resumes, active reconciliations remain held, and deferred calls sit in Charted Next with their date.
+7. Confirm the backlog reflects the outcome: answered or reconciled-moot calls are closed, released work resumes, active reconciliations remain held, and deferred calls carry their date.
 
 `bin/fm-captain-hold.sh --help` owns command syntax, close modes, legacy-identity compatibility, completion attestation, retry behavior, and close ordering.
 `docs/captain-hold-lifecycle.md` records the mechanism and regression evidence without restating this policy.

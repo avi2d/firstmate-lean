@@ -33,9 +33,9 @@ Markers are compact trailing HTML comments, deliberately cheap because marker by
 
 ```markdown
 - Treehouse pool slots share one repo, so workers must create their task branch before editing. <!--a:2026-08-03-->
-- While state/.afk exists, the away-daemon owns triage (until the afk-wake fix lands; tracked: afk-pi-wake-bypass-r1). <!--p:2026-07-20-->
+- A pinned tool version can lag its upstream; re-check the pin after each upgrade. <!--p:2026-07-20-->
 - Never restart the shared no-mistakes daemon while runs are active. <!--P-->
-- Codex writes its trust prompt to stderr, not stdout. <!--a:2026-07-28/6-->
+- Herdr pane hashes skip Pi's transient scrollbar column. <!--a:2026-07-28/6-->
 ```
 
 The tier names say what the pass does with an entry:
@@ -142,7 +142,7 @@ Archive provenance stays verbose rather than compact because the cold tier is ne
 
 ```markdown
 ## 2026-08-08 stow
-- (from learnings.md, tier: perishable, reinforced: 2026-06-30) While state/.afk exists, the away-daemon owns triage... [archived: unreinforced 39d]
+- (from learnings.md, tier: perishable, reinforced: 2026-06-30) A pinned tool version can lag its upstream... [archived: unreinforced 39d]
 ```
 
 Reasons include `unreinforced <N>d`, `unreinforced <N>p`, `budget oldest-first`, and `legacy-unvalidated`.

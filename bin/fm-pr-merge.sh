@@ -324,13 +324,9 @@ META="$STATE/$ID.meta"
 
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
-# Role partition: merging is MAIN-owned while attended; the Pi supervision
-# branch reports the green PR and never merges (contract: bin/fm-lease-lib.sh;
-# no-op in homes without a branch actor). While the away-posture record exists
-# main is parked and this one action relocates to the branch, which then meets
-# exactly the same gates below as main would: green at its live head,
-# synchronous, under the record lock. This precedes
-# reading the task record, because the wrong actor is refused for its role
+# Role partition: merging is MAIN-owned; the Pi supervision branch reports the
+# green PR and never merges (contract: bin/fm-lease-lib.sh; no-op in homes
+# without a branch actor). This precedes reading the task record, because the wrong actor is refused for its role
 # whatever that record says.
 # shellcheck source=bin/fm-lease-lib.sh
 . "$SCRIPT_DIR/fm-lease-lib.sh"
@@ -2569,10 +2565,6 @@ if [ "$RELEASE_PR" != true ]; then
 fi
 require_released_merge_hold || exit 1
 
-# Accepted confused-agent-grade limitation, as in bin/fm-lease-lib.sh, not an
-# oversight: if this lock-owning shell dies while its gh or glab child lives,
-# stale-owner recovery can release the record for archive or replacement and
-# the orphaned forge child can still merge on the lapsed away authority.
 case "$PROVIDER" in
   github)
     merge_output=

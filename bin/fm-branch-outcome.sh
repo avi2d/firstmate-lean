@@ -133,7 +133,7 @@
 #     absent, validate only the newest complete rows within the display-tail
 #     row and byte budget and write the copy from them; otherwise read and
 #     change nothing. fm-session-start.sh runs it at every locked session
-#     start, on every harness and away posture, before the drain.
+#     start, on every harness, before the drain.
 set -eu
 
 SCRIPT_DIR="$(d=${BASH_SOURCE[0]%/*}; [ "$d" != "${BASH_SOURCE[0]}" ] || d=.; cd "${d:-/}" && pwd)"

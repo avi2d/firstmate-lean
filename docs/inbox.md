@@ -40,7 +40,7 @@ Default bounds omit records rather than implying the first page contains everyth
 Each reply has a durable per-home sequence, so the receipts cursor is a strict total order and replies recorded in the same second remain readable.
 Only one reply per note is accepted.
 
-`ready` is the read-only primary-readiness projection of lock, wake-consumer health, away posture, and observation time.
+`ready` is the read-only primary-readiness projection of lock, wake-consumer health, and observation time.
 It never acquires the session lock or infers liveness from a lock file, session, or pane.
 
 ## Status and questions

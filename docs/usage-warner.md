@@ -42,8 +42,6 @@ The read bound is 10 seconds, or `FM_CHECK_TIMEOUT` minus 3 seconds when that is
 ## Notification path
 
 Warnings reach macOS through Notification Center using `osascript display notification`.
-The away-mode config schema and max-defer rate limiting are also specific to buffered escalations, not to this feature's own edge-triggered de-dupe.
-So this script posts the identical OS call under its own title instead, which is the reusable part of "the same alerting path" without reaching into daemon-internal, away-mode-specific state.
 Notification Center is macOS-only, so `arm` refuses on any other platform.
 
 ## Relationship to the quota process-event source
