@@ -120,7 +120,7 @@ cat > "$FAKE/ssh" <<SH
 #!/usr/bin/env bash
 while [ "\$#" -gt 0 ]; do case "\$1" in -o) shift 2 ;; --) shift; break ;; *) exit 90 ;; esac; done
 [ "\$1" = testhost ] || exit 91
-[ "\$2" = fm-remote-entrypoint.sh ] || exit 92
+[ "\$2" = "'$REMOTE_ROOT/bin/fm-remote-entrypoint.sh'" ] || exit 92
 shift 2
 if [ -d '$FAKE/race' ] && printf '%s' "\$4" | base64 -d 2>/dev/null | tr '\\0' '\\n' | grep -qx launch; then
   cp '$FAKE'/race/*.meta '$REMOTE_HOME/state/'

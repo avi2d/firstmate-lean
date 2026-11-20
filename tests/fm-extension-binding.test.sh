@@ -2301,7 +2301,7 @@ host=$1
 entry=$2
 shift 2
 [ "$host" = remote-mac ] || exit 91
-[ "$entry" = fm-remote-entrypoint.sh ] || exit 92
+case "$entry" in \'/*/bin/fm-remote-entrypoint.sh\') ;; *) exit 92 ;; esac
 exec "$FM_FAKE_REMOTE_ENTRYPOINT" "$@"
 SH
 chmod +x "$REMOTE_FAKEBIN/fake-ssh"

@@ -67,7 +67,7 @@ host=$1
 entry=$2
 shift 2
 [ "$host" = exec-alias ] || exit 91
-[ "$entry" = fm-remote-entrypoint.sh ] || exit 92
+case "$entry" in \'/*/bin/fm-remote-entrypoint.sh\') ;; *) exit 92 ;; esac
 argv_b64=$4
 command_name=$(perl -MMIME::Base64=decode_base64 -e 'print((split(/\0/, decode_base64($ARGV[0])))[0])' "$argv_b64")
 # The readiness gate is answered here rather than by the real doctor, which

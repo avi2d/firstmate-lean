@@ -265,17 +265,21 @@ assert_not_contains "$(herdr_calls)" 'server stop' "the guard stopped a gui-doma
 assert_contains "$GUARD_OUT" "pid $LAUNCHD_PID born in the Aqua login session (launchd)" \
   "the guard did not name the launchd owner"
 
-new_case running
-# The attested worker pid proves the worker birth where ps -E hides FM_REMOTE_JOB_ACTIVE.
-printf '%s\n' "$WORKER_PID" > "$CASE_OWNER"
-load_job gui dev.firstmate.remote-job "$WORKER_PID"
-guard
-expect_code 0 "$GUARD_RC" "the guard did not exit 0 for the gui-domain worker owner"
-assert_not_started "the guard started a second server over a gui-domain worker owner"
-assert_not_contains "$(herdr_calls)" 'server stop' "the guard stopped a gui-domain worker owner"
-assert_contains "$GUARD_OUT" "pid $WORKER_PID born in the Aqua login session (worker)" \
-  "the guard did not name the worker owner"
-pass "launchd and worker markers require gui-domain launchctl proof"
+# shellcheck source=bin/fm-remote-job-lib.sh
+. "$ROOT/bin/fm-remote-job-lib.sh"
+KEYED_WORKER_LABEL=$(fm_remote_job_label "$ROOT") || fail "could not name the test worker"
+for worker_label in "$KEYED_WORKER_LABEL" "$FM_REMOTE_JOB_LEGACY_LABEL"; do
+  new_case running
+  printf '%s\n' "$WORKER_PID" > "$CASE_OWNER"
+  load_job gui "$worker_label" "$WORKER_PID"
+  guard
+  expect_code 0 "$GUARD_RC" "the guard did not exit 0 for the gui-domain worker owner"
+  assert_not_started "the guard started a second server over a gui-domain worker owner"
+  assert_not_contains "$(herdr_calls)" 'server stop' "the guard stopped a gui-domain worker owner"
+  assert_contains "$GUARD_OUT" "pid $WORKER_PID born in the Aqua login session (worker)" \
+    "the guard did not name the worker owner"
+done
+pass "the guard does not replace a server owned by a keyed or legacy Aqua worker"
 
 # --- a foreign owner is stopped, then the guard becomes the server -----------
 

@@ -72,7 +72,7 @@ host=$1
 entry=$2
 shift 2
 [ "$host" = remote-mac ] || exit 91
-[ "$entry" = fm-remote-entrypoint.sh ] || exit 92
+case "$entry" in \'/*/bin/fm-remote-entrypoint.sh\') ;; *) exit 92 ;; esac
 cd "$FM_FAKE_REMOTE_CWD" || exit 93
 # The readiness gate is answered here rather than by the real doctor, which
 # would inspect the RUNNER's own account; tests/fm-remote-doctor.test.sh owns

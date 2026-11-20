@@ -1379,7 +1379,14 @@ case "${1:-}" in
     worker_lane_main "$2"
     ;;
   '')
-    if [ "$(fm_remote_job_platform)" = linux ]; then worker_supervise_linux; else main; fi
+    if [ "$(fm_remote_job_platform)" = linux ]; then
+      worker_supervise_linux
+    else
+      # The shared LaunchAgent has no --serve argument and must keep serving its own queue.
+      ACCOUNT_HOME=$(worker_account_home) || exit 1
+      FM_REMOTE_JOB_STATE_ROOT=${FM_REMOTE_JOB_STATE_ROOT:-$(fm_remote_job_legacy_state_path "$ACCOUNT_HOME")}
+      main
+    fi
     ;;
   *) worker_error "unexpected worker arguments"; exit 2 ;;
 esac

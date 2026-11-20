@@ -100,7 +100,7 @@ cat > "$FAKE/ssh" <<SH
 #!/usr/bin/env bash
 while [ "\$#" -gt 0 ]; do case "\$1" in -o) shift 2 ;; --) shift; break ;; *) exit 90 ;; esac; done
 [ "\$1" = testhost ] || exit 91
-[ "\$2" = fm-remote-entrypoint.sh ] || exit 92
+[ "\$2" = "'$REMOTE_ROOT/bin/fm-remote-entrypoint.sh'" ] || exit 92
 shift 2
 export PATH='$REMOTE_ROOT/bin':"\$PATH"
 export FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux FM_REMOTE_JOB_STATE_ROOT='$JOB_STATE' FM_MAC_LOAD_MOCK_5MIN=0

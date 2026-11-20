@@ -85,8 +85,8 @@ fm_remote_herdr_gui_job_is_exclusive() { # <uid> <label>
 
 # macOS 26 hides one process's environment from another, so birth is proven
 # through launchd's own job-to-pid record instead of ps -E markers.
-fm_remote_herdr_owner_birth() { # <pid> [<aqua-agent-label>]
-  local pid=$1 aqua_label=${2:-dev.firstmate.herdr.fm-remote}
+fm_remote_herdr_owner_birth() {
+  local pid=$1 aqua_label=${2:-dev.firstmate.herdr.fm-remote} worker_label=${3:-}
   local env uid xpc_line env_label label job_pid worker_pid
   env=$(fm_remote_herdr_process_env "$pid") || env=
   if printf '%s\n' "$env" | grep -q -E '^SSH_(CONNECTION|CLIENT|TTY)='; then
@@ -105,17 +105,19 @@ fm_remote_herdr_owner_birth() { # <pid> [<aqua-agent-label>]
         return 0
       fi
     done
-    if fm_remote_herdr_gui_job_is_exclusive "$uid" dev.firstmate.remote-job; then
+    for label in "$worker_label" "$FM_REMOTE_JOB_LEGACY_LABEL"; do
+      [ -n "$label" ] || continue
+      fm_remote_herdr_gui_job_is_exclusive "$uid" "$label" || continue
       if printf '%s\n' "$env" | grep -q -E '^FM_REMOTE_JOB_ACTIVE=1$'; then
         printf 'worker\n'
         return 0
       fi
-      worker_pid=$(fm_remote_herdr_gui_job_pid "$uid" dev.firstmate.remote-job) || worker_pid=
-      if [ -n "$worker_pid" ] && fm_remote_herdr_pid_descends_from "$pid" "$worker_pid"; then
+      worker_pid=$(fm_remote_herdr_gui_job_pid "$uid" "$label") || continue
+      if fm_remote_herdr_pid_descends_from "$pid" "$worker_pid"; then
         printf 'worker\n'
         return 0
       fi
-    fi
+    done
   fi
   if fm_remote_herdr_process_ancestry "$pid" | fm_remote_herdr_ancestry_has_ssh_origin; then
     printf 'ssh\n'

@@ -98,7 +98,7 @@ LAUNCH_AGENT_DIR="${HOME:-}/Library/LaunchAgents"
 LAUNCH_AGENT_PLIST="$LAUNCH_AGENT_DIR/$LAUNCH_AGENT_LABEL.plist"
 LAUNCH_AGENT_LOG_DIR="${HOME:-}/Library/Logs"
 LAUNCH_AGENT_LOG="$LAUNCH_AGENT_LOG_DIR/$LAUNCH_AGENT_LABEL.log"
-ENTRYPOINT_LINK="${HOME:-}/.local/bin/fm-remote-entrypoint.sh"
+ENTRYPOINT_LINK=
 
 usage() { sed -n '2,5p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 
@@ -233,7 +233,7 @@ herdr_server_birth() {
     printf 'unproven\n'
     return 0
   fi
-  birth=$(fm_remote_herdr_owner_birth "$owner")
+  birth=$(fm_remote_herdr_owner_birth "$owner" "$LAUNCH_AGENT_LABEL" "$(fm_remote_job_label "$FM_ROOT")")
   printf '%s %s\n' "$birth" "$owner"
 }
 
@@ -386,7 +386,7 @@ launch_agent_loaded_contract_matches() { # <resolved-login-shell>
 
 remote_job_existing_state() {
   local root
-  root=${FM_REMOTE_JOB_STATE_ROOT:-${HOME:-}/.firstmate/remote-job}
+  root=$(fm_remote_job_state_path "${HOME:-}" "$FM_ROOT") || return 1
   root=$(fm_remote_job_canonical_existing_dir "$root") || return 1
   fm_remote_job_canonical_existing_dir "$root/jobs" >/dev/null || return 1
   # shellcheck disable=SC2034 # The sourceable worker helpers consume the validated state root.
@@ -412,7 +412,7 @@ remote_job_identity_ok() {
 }
 
 check_remote_job_worker() {
-  local worker
+  local worker pid=''
   worker="$FM_ROOT/bin/fm-remote-job-worker.sh"
   if [ ! -f "$worker" ] || [ -L "$worker" ] || [ ! -x "$worker" ]; then
     record remote-job-worker "human: the configured Firstmate code root has no safe remote job worker" \
@@ -422,12 +422,12 @@ check_remote_job_worker() {
     return 0
   fi
   if [ "$PLATFORM" = darwin ]; then
-    fm_remote_job_launchagent_paths "${HOME:-}"
+    fm_remote_job_launchagent_paths "$FM_ROOT" "${HOME:-}"
     if fm_remote_job_launchagent_contract_matches "$FM_ROOT" "${HOME:-}"; then
       record remote-job-worker "ok: $FM_REMOTE_JOB_LAUNCH_AGENT_PLIST matches the Firstmate-owned Aqua worker contract"
     else
       record remote-job-worker "fixable: $FM_REMOTE_JOB_LAUNCH_AGENT_PLIST does not match the Firstmate-owned Aqua worker contract" \
-        "rerun this command with --fix to write dev.firstmate.remote-job"
+        "rerun this command with --fix to write the LaunchAgent for $FM_ROOT"
     fi
     if [ -z "$UID_NUM" ] || ! command -v launchctl >/dev/null 2>&1; then
       record remote-job-worker-loaded "human: the remote job worker cannot be inspected without launchctl and an account uid" \
@@ -442,11 +442,12 @@ check_remote_job_worker() {
         "close the login-session gap first; SSH cannot create an Aqua session"
     fi
   else
-    local pid
-    pid=$(cat "${FM_REMOTE_JOB_STATE_ROOT:-${HOME:-}/.firstmate/remote-job}/worker.pid" 2>/dev/null || true)
-    if [ "${FM_REMOTE_JOB_ACTIVE:-}" = 1 ] ||
-      { remote_job_existing_state && case "$pid" in ''|*[!0-9]*) false ;; *) kill -0 "$pid" 2>/dev/null ;; esac; }; then
-      record remote-job-worker "ok: the Linux remote job worker is running"
+    if remote_job_existing_state; then
+      pid=$(fm_remote_job_read_single_line "$FM_REMOTE_JOB_STATE/worker.pid" 64 2>/dev/null || true)
+      case "$pid" in ''|*[!0-9]*) pid='' ;; esac
+    fi
+    if [ "${FM_REMOTE_JOB_ACTIVE:-}" = 1 ] || { [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; }; then
+      record remote-job-worker "ok: the Linux remote job worker for $FM_ROOT is running"
       record remote-job-worker-loaded "skip: Aqua launch agents do not apply on $PLATFORM"
     else
       record remote-job-worker "fixable: the Linux remote job worker is not running" \
@@ -606,7 +607,7 @@ repair_required_wrappers() {
 
 fix_remote_job_worker() {
   if fm_remote_job_ensure_worker "$FM_ROOT" "${HOME:-}"; then
-    [ "$FM_REMOTE_JOB_REPAIRED" -eq 0 ] || fix_report remote-job-worker applied "installed or reloaded $FM_REMOTE_JOB_LABEL"
+    [ "$FM_REMOTE_JOB_REPAIRED" -eq 0 ] || fix_report remote-job-worker applied "started or reloaded the worker for $FM_ROOT"
     return 0
   fi
   fix_report remote-job-worker failed "${FM_REMOTE_JOB_ERROR:-the remote job worker could not start}"
@@ -880,22 +881,28 @@ check_herdr_server() {
 }
 
 check_entrypoint_link() {
-  local want
+  local want key
   if [ -z "${FM_ROOT_OVERRIDE:-}" ]; then
-    record entrypoint-link "skip: this run did not come through the fixed remote entrypoint"
+    record entrypoint-link "skip: this run did not come through a remote entrypoint"
     return 0
   fi
-  want="$FM_ROOT_OVERRIDE/bin/fm-remote-entrypoint.sh"
+  if ! key=$(fm_remote_job_root_key "$FM_ROOT"); then
+    record entrypoint-link "human: cannot name the entrypoint link for $FM_ROOT" \
+      "restore the system SHA-256 command, then rerun this command"
+    return 0
+  fi
+  want="$FM_ROOT/bin/fm-remote-entrypoint.sh"
+  ENTRYPOINT_LINK="${HOME:-}/.local/bin/fm-remote-entrypoint-$key.sh"
   if [ -L "$ENTRYPOINT_LINK" ] && [ "$(readlink "$ENTRYPOINT_LINK")" = "$want" ]; then
     record entrypoint-link "ok: $ENTRYPOINT_LINK"
     return 0
   fi
   if [ -e "$ENTRYPOINT_LINK" ] || [ -L "$ENTRYPOINT_LINK" ]; then
     record entrypoint-link "human: $ENTRYPOINT_LINK exists but is not the symlink to $want" \
-      "inspect that path yourself and replace it with 'ln -sfn $want $ENTRYPOINT_LINK' if it is stale; Firstmate never overwrites a file it did not create there"
+      "inspect the conflicting path before changing it; --fix never replaces an existing entrypoint"
     return 0
   fi
-  record entrypoint-link "fixable: no entrypoint symlink at $ENTRYPOINT_LINK" \
+  record entrypoint-link "fixable: no entrypoint symlink for $FM_ROOT at $ENTRYPOINT_LINK" \
     "rerun this command with --fix to create it"
 }
 
@@ -1025,12 +1032,12 @@ start_herdr_server() {
 }
 
 link_entrypoint() {
-  local want="${FM_ROOT_OVERRIDE:-}/bin/fm-remote-entrypoint.sh"
+  local want="$FM_ROOT/bin/fm-remote-entrypoint.sh"
   if ! mkdir -p "$(dirname "$ENTRYPOINT_LINK")" 2>/dev/null; then
     fix_report entrypoint-link failed "cannot create $(dirname "$ENTRYPOINT_LINK")"
     return 1
   fi
-  if ! ln -s "$want" "$ENTRYPOINT_LINK" 2>/dev/null; then
+  if ! ln -sn "$want" "$ENTRYPOINT_LINK" 2>/dev/null; then
     fix_report entrypoint-link failed "cannot create the symlink at $ENTRYPOINT_LINK"
     return 1
   fi
@@ -1099,7 +1106,7 @@ if [ -n "${FM_ROOT_OVERRIDE:-}" ] && [ "${PATH%%:*}" = "$FM_ROOT_OVERRIDE/bin" ]
   printf 'entrypoint=yes\n'
 else
   printf 'entrypoint=no\n'
-  printf 'note: not launched through the fixed remote entrypoint; the reported PATH is this caller environment.\n' >&2
+  printf 'note: not launched through a remote entrypoint; the reported PATH is this caller environment.\n' >&2
 fi
 printf 'platform=%s\n' "$PLATFORM"
 

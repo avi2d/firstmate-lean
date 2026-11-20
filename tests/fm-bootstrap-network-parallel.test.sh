@@ -53,7 +53,7 @@ done
 host=${1:-}
 entry=${2:-}
 shift 2 || true
-[ "$entry" = fm-remote-entrypoint.sh ] || exit 92
+case "$entry" in \'/*/bin/fm-remote-entrypoint.sh\') ;; *) exit 92 ;; esac
 argv_b64=${4:-}
 cmd=$(python3 -c 'import sys, base64
 raw = base64.b64decode(sys.argv[1])

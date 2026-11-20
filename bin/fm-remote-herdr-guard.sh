@@ -42,6 +42,8 @@ SCRIPT_SELF=${BASH_SOURCE[0]}
 SCRIPT_DIR=${SCRIPT_SELF%/*}
 [ "$SCRIPT_DIR" != "$SCRIPT_SELF" ] || SCRIPT_DIR=.
 SCRIPT_DIR=$(CDPATH='' cd -- "$SCRIPT_DIR" && pwd -P)
+# shellcheck source=bin/fm-remote-job-lib.sh
+. "$SCRIPT_DIR/fm-remote-job-lib.sh"
 # shellcheck source=bin/fm-remote-herdr-owner-lib.sh
 . "$SCRIPT_DIR/fm-remote-herdr-owner-lib.sh"
 
@@ -84,7 +86,7 @@ elif [ -z "$OWNER" ]; then
   log "session $SESSION is running but no herdr process could be proven to own ${SOCKET:-its socket}"
   BIRTH=unknown
 else
-  BIRTH=$(fm_remote_herdr_owner_birth "$OWNER")
+  BIRTH=$(fm_remote_herdr_owner_birth "$OWNER" '' "$(fm_remote_job_label "${SCRIPT_DIR%/bin}")")
 fi
 
 if fm_remote_herdr_birth_is_aqua "$BIRTH"; then
