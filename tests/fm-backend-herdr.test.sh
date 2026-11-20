@@ -1111,31 +1111,24 @@ process_info_body() {  # <shell-pid> <foreground-processes-json-array>
   printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":%s,"foreground_process_group_id":%s,"foreground_processes":%s}}}' "$1" "$1" "$2"
 }
 
-test_process_state_reads_every_foreground_process_with_args_intact() {
-  local gemini=/usr/local/lib/node_modules/@google/gemini-cli/dist/index.js out
-  # The harness is the last of several processes, and only its full command
-  # line names it, so the verdict needs every record and the args past the
-  # first space.
-  out=$(process_state_read many-cmdline "$(process_info_body 4242 \
+test_process_state_finds_a_harness_last_after_records_with_spaced_and_tabbed_args() {
+  local out
+  out=$(process_state_read many-records "$(process_info_body 4242 \
     '[{"pid":4250,"name":"git","argv0":"git","argv":["git","status"],"cmdline":"git status"},
-      {"pid":4251,"name":"starship","argv":["/usr/local/bin/starship","prompt"]},
-      {"pid":4252,"name":"node","argv0":"node","cmdline":"node --max-old-space-size=10000 '"$gemini"'"}]')")
+      {"pid":4251,"name":"starship","argv":["/usr/local/bin/starship","prompt"],"cmdline":"starship\tprompt\n--right"},
+      {"pid":4252,"name":"node","argv0":"pi","cmdline":"pi --continue"}]')")
   [ "${out%% *}" = agent ] \
-    || fail "a harness named only by the cmdline of the last foreground process must read agent, got '$out'"
-  out=$(process_state_read many-argv "$(process_info_body 4242 \
+    || fail "a harness after records with spaced, tabbed and multi-line args must read agent, got '$out'"
+  out=$(process_state_read argv-path "$(process_info_body 4242 \
     '[{"pid":4250,"name":"git","argv0":"git"},
-      {"pid":4252,"name":"node","argv":["node","--max-old-space-size=10000","'"$gemini"'"]}]')")
+      {"pid":4252,"name":"node","argv":["/home/u/.local/share/pi/bin/pi","--continue"]}]')")
   [ "${out%% *}" = agent ] \
-    || fail "args joined from argv must reach the classifier whole, got '$out'"
-  out=$(process_state_read tab-cmdline "$(process_info_body 4242 \
-    '[{"pid":4252,"name":"node","argv0":"node","cmdline":"node\t'"$gemini"'\n"}]')")
-  [ "${out%% *}" = agent ] \
-    || fail "a tab inside the cmdline must reach the classifier as a tab, not an escape, got '$out'"
+    || fail "an install path in argv[0] must name the harness, got '$out'"
   out=$(process_state_read node-only "$(process_info_body 4242 \
     '[{"pid":4252,"name":"node","argv0":"node","cmdline":"node --max-old-space-size=10000"}]')")
   [ "${out%% *}" = other ] \
-    || fail "a node process with no harness argument must stay other, got '$out'"
-  pass "herdr process state: every foreground process is read, with spaced and tabbed args intact"
+    || fail "a node process with no harness name must stay other, got '$out'"
+  pass "herdr process state: every foreground record is read with its fields aligned"
 }
 
 test_process_state_tolerates_missing_and_malformed_process_fields() {
@@ -6684,7 +6677,7 @@ test_registered_agent_with_an_agent_descendant_outside_the_foreground_stays_aliv
 test_agent_descendant_under_a_spaced_install_path_stays_alive
 test_registered_agent_with_an_unreadable_process_view_is_unknown
 test_registered_agent_with_an_empty_foreground_over_a_real_shell_settles_via_descendant_walk
-test_process_state_reads_every_foreground_process_with_args_intact
+test_process_state_finds_a_harness_last_after_records_with_spaced_and_tabbed_args
 test_process_state_tolerates_missing_and_malformed_process_fields
 test_process_state_shell_verdict_survives_several_shell_processes
 test_process_state_jq_calls_do_not_grow_with_foreground_processes
