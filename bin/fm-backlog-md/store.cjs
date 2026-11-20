@@ -65,7 +65,7 @@ function readTicket(file, archived) {
   if (!object(fields) || typeof fields.id !== 'string' || !SLUG.test(fields.id) ||
       typeof fields.title !== 'string' || !STATUSES.includes(fields.status) ||
       ['labels', 'dependencies', 'references'].some(key => fields[key] != null && !stringList(fields[key])) ||
-      ['type', 'project', 'priority', 'created_date', 'updated_date', 'closed_date', 'hold_until', 'hold_reason']
+      ['type', 'project', 'priority', 'created_date', 'updated_date', 'closed_date', 'hold_until', 'hold_reason', 'parent_task_id']
         .some(key => fields[key] != null && typeof fields[key] !== 'string') ||
       (fields.ordinal != null && !Number.isSafeInteger(fields.ordinal))) {
     throw configError(file, 'invalid ticket fields');
