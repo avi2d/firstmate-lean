@@ -324,7 +324,7 @@ POLL=${FM_POLL:-15}                   # seconds between cycles
 # derivation - see docs/turnend-guard.md "Guard grace and the poll cadence".
 # This recomputes the library default above now that the real configured
 # POLL is known.
-WATCHER_STALE_GRACE=${FM_WATCHER_STALE_GRACE:-${FM_GUARD_GRACE:-$(fm_poll_derived_grace "$POLL")}}
+WATCHER_STALE_GRACE=$(fm_watcher_stale_grace "$POLL")
 # Hard bound on a live holder's beacon age. Under it a re-arm refuses and asks
 # for inspection (the grace above); at or past it the re-arm evicts the holder
 # instead, because a watcher whose beacon has stalled that long is not polling
@@ -3942,6 +3942,15 @@ EOF
           "$SCRIPT_DIR/fm-herdr-session-cleanup.sh" --heartbeat >/dev/null 2>&1 || true
       fi
       unset _fm_pending_journal _fm_pending_close
+    fi
+    overdue_line=$(fm_wake_queue_overdue_line "$WATCHER_STALE_GRACE")
+    if [ -n "$overdue_line" ]; then
+      reason="check: wake-queue-overdue: $overdue_line"
+      if ! fm_wake_queued_keys check | grep -qx wake-queue-overdue; then
+        fm_wake_append check wake-queue-overdue "$reason" || exit 1
+      fi
+      touch "$STATE/.last-heartbeat"
+      wake "$reason"
     fi
     # Triage: in always-on mode a heartbeat is benign unless the cheap fleet-scan
     # turns up a captain-relevant status the per-wake path missed. Absorb the

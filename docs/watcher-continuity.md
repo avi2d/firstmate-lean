@@ -102,6 +102,20 @@ An external durable append still republishes that episode as pending downtime, s
 The append numbers past every queued row, so a lost or malformed sequence counter cannot let an outstanding acknowledgement consume it.
 Once those rows are acknowledged, a later append that repeats one byte for byte still opens a new recovery generation, which the successor recovers.
 Notification never consumes rows; sequence-bound, per-actor acknowledgement remains the owner of consumption.
+
+### Pi follow-up delivery
+
+While main streams, a wake Pi accepts waits in Pi's follow-up queue, and a later wake joins that accepted record instead of being sent again.
+An interrupt moves Pi's queued follow-ups into the editor without a turn, so an accepted wake can leave Pi's queue unconsumed.
+When main is idle with nothing queued, the extension treats the accepted wake as dropped and sends the next wake afresh, carrying the dropped records with it.
+A captain prompt that contains a wake's text, such as the editor's restored wake plus the captain's own words, consumes that wake.
+
+### Overdue queued wakes
+
+A queued wake older than one watcher cycle means the watcher runs but its wakes do not reach the supervisor.
+One cycle is the watcher stale grace that `fm_watcher_stale_grace` derives, at least 300 seconds.
+The watcher heartbeat queues and raises a `check: wake-queue-overdue:` wake naming the oldest row, and session start prints the same `watcher: FAILED` line in its WAKE QUEUE section.
+
 ## Recovery episode acknowledgement
 
 A recovery episode is one generation of the `state/.watcher-down` marker.
@@ -351,6 +365,7 @@ The same suite covers ordinary same-process session replacement for `/new`, `/re
 - A mid-restore marker advance that delivers the wake with no rejection appendix, offers it to an accepting supervision branch like a confirmed delivery, and records the attempt and the confirm result in the bounded extension log when opted in.
 - A failed confirmation for a stale successor that spares a newer arm started by a repair.
 - A repair, a scheduled retry, and a deferred close over a dead-but-unclosed arm child that each start a fresh arm instead of stalling.
+- A wake an interrupt moved out of Pi's queue, after which the next wake is sent afresh, and a captain prompt carrying a restored wake consumes it.
 
 The guard and session-start suites prove that active generation evidence tolerates a fresh-beacon handoff.
 They also prove that a legacy or handoff-phase watcher marker from an absent replacement extension still raises the outage diagnostic.
