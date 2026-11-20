@@ -13,44 +13,10 @@
 #                 "STARTUP_MEMORY_BUDGET: invalid config/startup-memory-budget - <reason>",
 #                 "CREW_DISPATCH: invalid config/crew-dispatch.json - <reason>",
 #                 "FLEET_SYNC: <repo>: skipped|recovered|STUCK: <detail>",
-#                 "HOME_SUMMARY: <ledger never published|not republished since
-#                 <stamp>>; <n> failed attempt(s) ... last: <recorded failure>",
 #                 "BACKLOG_RECONCILE: <id>: <what this home could not reconcile>",
 #                 "BACKLOG_RECONCILE: code-root <file> is not this home's <file>; ...",
 #                 "TANGLE: <remediation>",
-#                 "SECONDMATE_SYNC: secondmate <id>: skipped: <reason>",
-#                 "NUDGE_SECONDMATES: secondmate <id>: send failed: <reason>",
-#                 "BOOTSTRAP_INFO: nudged fm-<id> with '<message>'",
-#                 "SECONDMATE_LIVENESS: secondmate <id>: skipped: <reason>|respawn failed after <cause>: <reason>",
-#                 "SECONDMATE_HANDOFF: secondmate <id>: pending delivery: <n> item(s)",
 #                 "FMX: X mode on ..." or "FMX: X mode off ...".
-#          When a RUNNING secondmate home is fast-forwarded, its target is
-#          firstmate's own current default-branch commit. A local worktree uses
-#          a purely local fast-forward with no origin fetch; a remote route hands
-#          the same commit to its host, which imports that commit into the home
-#          without moving the host's Firstmate copy. If either placement changes
-#          its loaded instruction surface
-#          (AGENTS.md, bin/, or .agents/skills/), bootstrap immediately nudges it
-#          via FM_HOME=<active-home> bin/fm-send.sh fm-<id> so meta resolves the
-#          current route and the standard from-firstmate marker is applied. A
-#          successful send prints one BOOTSTRAP_INFO line with the exact target
-#          and message sent; a failed send leaves an idempotent retry marker
-#          under state/.secondmate-nudge-pending/ and prints an actionable
-#          NUDGE_SECONDMATES line.
-#          Already-current or no-instruction-change homes are silently left alone.
-#          The secondmate sweep also propagates declared inherited local material
-#          into each validated live secondmate home.
-#          SECONDMATE_SYNC lines report actionable skipped placement-specific
-#          syncs or inheritance failures for live secondmate homes, plus
-#          quarantine diagnostics for divergent shared captain-preference
-#          copies; no-op/current and successful updates stay quiet.
-#          SECONDMATE_LIVENESS lines report only actionable failures from the
-#          recovery-grade state owned by bin/fm-backend.sh's
-#          fm_backend_agent_state: skipped distinguishes an existing ambiguous
-#          process, an unreadable target, and an unverified backend; respawn
-#          failed names whether the endpoint was missing or agent-less.
-#          Already-live and successfully relaunched secondmates are silent
-#          unless FM_BOOTSTRAP_VERBOSE_FACTS=1 requests BOOTSTRAP_INFO facts.
 #          A TANGLE line means the firstmate primary checkout (FM_ROOT) is stranded
 #          on a feature branch instead of its default branch - a crewmate's work
 #          landed in the primary instead of its own worktree; restore it per the line.
@@ -77,9 +43,7 @@
 #          .agents/skills/quota-array-dispatch/SKILL.md.
 #          On a primary home, the locked mutable path materializes the visible
 #          default config/startup-memory-budget=7500 when absent. It never
-#          guesses at malformed or unsafe existing files, and secondmate homes
-#          await the primary-authoritative inherited value instead of creating
-#          their own.
+#          guesses at malformed or unsafe existing files.
 #          Fleet sync fetches, fast-forwards safe default-branch states, reports
 #          recovered and STUCK clone drift, and prunes gone local branches; it is
 #          bounded by FM_FLEET_SYNC_BOOTSTRAP_TIMEOUT when it is a non-empty
@@ -111,25 +75,13 @@
 #                 step. Unrecognized values fall back here on purpose: a typo
 #                 must never silently skip a safety sweep.
 #            skip - every LOCAL step, and none of the network ones. Skips
-#                 `gh auth status`, secondmate_liveness_sweep, secondmate_sync,
-#                 secondmate_handoff_resume, and fleet_sync.
+#                 `gh auth status` and fleet_sync.
 #          FM_BOOTSTRAP_DETECT_ONLY composes with it unchanged, so `only` plus
 #          detect-only is the read-only `gh auth status` probe on its own.
 #          bin/fm-startup-network.sh owns the deferral: it runs the `only` phase
 #          in a detached bounded worker and publishes the result. This file stays
 #          the single owner of every sweep, and the split changes only WHEN each
-#          runs, never WHETHER. During the network phase, project clone refresh
-#          overlaps the independent secondmate work. Per-secondmate remote
-#          liveness workers run concurrently and finish before per-secondmate
-#          remote convergence workers run concurrently, because convergence
-#          consumes respawned ids. Worker output is captured separately and
-#          replayed in spawn order; failure to create that private capture
-#          directory selects the sequential fallback. Remote tracked-file sync
-#          and inheritance share a per-mate FM_SECONDMATE_CONVERGENCE_TIMEOUT
-#          budget (secondmate_sync_remote_one owns it).
-#          A relaunch that the liveness sweep performs during an `only` run is
-#          always reported, because a digest composed before that run already
-#          printed the superseded endpoint record.
+#          runs, never WHETHER.
 #          Set FM_BOOTSTRAP_LOCKED=1 alongside it when the sweeps are skipped
 #          because THIS session already ran them while holding the fleet lock,
 #          rather than because it has no lock at all. The two cases differ in
@@ -812,7 +764,7 @@ detect_local_tools() {
 detect_local_config() {
   # Worktree-tangle check: the firstmate primary checkout (FM_ROOT) must sit on its
   # default branch, not a feature branch (see fm-tangle-lib.sh). Scoped to the
-  # primary only; detached-HEAD worktrees and secondmate homes never trip it.
+  # primary only; detached-HEAD worktrees never trip it.
   tangle_branch=$(fm_primary_tangle_branch "$FM_ROOT" 2>/dev/null || true)
   if [ -n "$tangle_branch" ]; then
     tangle_default=$(fm_default_branch "$FM_ROOT" 2>/dev/null || echo main)
@@ -852,14 +804,6 @@ detect_code_root_backlog_fork() {
   done
 }
 
-# This home's ledger publication is deliberately best-effort: every lifecycle
-# trigger calls it with --best-effort so a failure can never change the result
-# of a session start, a spawn, a teardown, or a watcher poll. That is correct,
-# and it also means a home that never manages to publish says nothing at all -
-# the failures land only in the bounded home-local record nobody reads.
-#
-# So read that same record here, where a session start already looks, and say so
-
 # The order below is the order the diagnostics have always printed in, so a
 # `skip` run is the same output with the network lines removed rather than a
 # reshuffle. `gh auth status` sits between the two local blocks because that is
@@ -867,9 +811,8 @@ detect_code_root_backlog_fork() {
 # Each network owner below is bracketed by an elapsed-time record, so a deferred
 # stage that ran long can be attributed to the phase that spent the time.
 # fm-timing-lib.sh discards the record unless the caller asked for timings, and
-# every sweep is still called directly. Per-secondmate remote probes run
-# concurrently; clone refresh overlaps them. Diagnostic lines are replayed in
-# original order so attribution is unchanged.
+# every sweep is still called directly. Clone refresh output is captured and
+# replayed after it finishes, so attribution is unchanged.
 # The stamp variable is named for the library rather than `start` on purpose:
 # fleet_sync and others assign plain names like `start` without `local`, and
 # bash's dynamic scoping would let them overwrite a stamp held by a caller.

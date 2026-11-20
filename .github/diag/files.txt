@@ -14,7 +14,6 @@ tests/fm-task-inbox.test.sh
 tests/fm-pipeline-spend.test.sh
 tests/fm-session-start.test.sh
 tests/fm-send-resolve-key.test.sh
-tests/fm-bootstrap-network-parallel.test.sh
 tests/fm-fleet-snapshot-view.test.sh
 tests/fm-startup-memory-budget.test.sh
 tests/fm-remote-delta-read.test.sh

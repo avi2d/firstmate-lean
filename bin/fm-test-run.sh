@@ -350,7 +350,7 @@ family_for_basename() {
       printf '%s\n' secondmate
       ;;
     fm-backlog-atomicity.test.sh|\
-    fm-bootstrap.test.sh|fm-bootstrap-network-parallel.test.sh|fm-fleet-sync.test.sh|fm-gate-refuse.test.sh|fm-gotmp.test.sh|\
+    fm-bootstrap.test.sh|fm-fleet-sync.test.sh|fm-gate-refuse.test.sh|fm-gotmp.test.sh|\
     fm-session-start.test.sh|fm-sessionstart-nudge.test.sh|fm-startup-network.test.sh|\
     fm-tangle-guard.test.sh|fm-update.test.sh)
       printf '%s\n' session-bootstrap
@@ -645,7 +645,6 @@ tests/fm-backend-herdr-server-detach.test.sh 1460
 tests/fm-backend.test.sh 28709
 tests/fm-backlog-atomicity.test.sh 219379
 tests/fm-backlog-read-bound.test.sh 24743
-tests/fm-bootstrap-network-parallel.test.sh 30424
 tests/fm-bootstrap.test.sh 50965
 tests/fm-branch-supervision.test.sh 22979
 tests/fm-browser-suite.test.sh 26730
