@@ -3,7 +3,7 @@ const { assignTaskId, followupMarker, hasFollowupMarker } = require('./task-id.c
 const { board, draftTicket, PR, projectTask, holdRecord, saveHold, taskOrder, sectionBody, setSection } = require('./store.cjs');
 const { scalar, help, show, table, mutation, EXTRA, HOLD } = require('./output.cjs');
 
-const states = ['queued', 'in_flight', 'done', 'held'];
+const states = ['queued', 'in_flight', 'done', 'held', 'draft'];
 const holdKinds = ['captain', 'external', 'load', 'parked', 'future'];
 const baseFields = ['repo', 'kind'];
 const patchFields = [...baseFields, 'priority', 'body', 'body-file', 'pr', 'report'];
@@ -209,21 +209,27 @@ function describeTasks(tasks, options) {
   return [
     `count: ${shown.length}${shown.length === matching.length ? '' : ` of ${matching.length} total`}`,
     ...table('tasks', shown, fields),
-    ...help(state || options.kind || options.repo || options.blocked ? [listHint] : [listHint, 'Run `tasks-axi ready` to see unblocked queued work']),
+    ...help(state === 'draft' ? ['Use the Backlog.md board to view or promote drafts']
+      : state || options.kind || options.repo || options.blocked ? [listHint] : [listHint, 'Run `tasks-axi ready` to see unblocked queued work']),
   ].join('\n');
 }
 
 function ready(tasks, options) {
-  const queued = tasks.filter(task => task.state === 'queued' && !task.blocked && (!options.repo || task.repo === options.repo));
-  const dispatchable = queued.filter(task => !task.held);
+  const matching = tasks.filter(task => !options.repo || task.repo === options.repo);
+  const queued = matching.filter(task => task.state === 'queued' && !task.blocked);
+  const priority = task => task.priority ?? Number.MAX_SAFE_INTEGER;
+  const dispatchable = queued.filter(task => !task.held).sort((a, b) => priority(a) - priority(b));
   const held = queued.filter(task => task.held);
+  const drafts = matching.filter(task => task.state === 'draft');
   return [
     `count: ${dispatchable.length}`,
     ...(dispatchable.length ? table('ready', dispatchable, []) : ['ready: 0 unblocked queued tasks']),
     'ready_public_followups: 0 delivery-ready obligations',
     ...(options['include-held'] && held.length ? table('held', held, HOLD) : []),
+    ...(drafts.length ? table('drafts', drafts, []) : []),
     ...help([dispatchable.length ? 'Run `tasks-axi start <id>` to dispatch one of these'
-      : `Run \`tasks-axi list --state queued${options.repo ? ` --repo=${options.repo}` : ''}\` to see all queued work (incl. blocked)`]),
+      : `Run \`tasks-axi list --state queued${options.repo ? ` --repo=${options.repo}` : ''}\` to see all queued work (incl. blocked)`,
+    ...(drafts.length ? ['Drafts are not dispatchable; promote them to Queued on the Backlog.md board first'] : [])]),
   ].join('\n');
 }
 
@@ -385,7 +391,9 @@ function main(root, verb, args) {
   const project = ticket => projectTask(ticket, book.tickets, now);
   if (command === 'add') return add(book, positionals, options, now, project);
   if (command === 'list' || command === 'ready') {
-    const tasks = Array.from(book.tickets.values()).filter(ticket => !ticket.archived).sort(taskOrder).map(project);
+    const active = Array.from(book.tickets.values()).filter(ticket => !ticket.archived);
+    const drafts = !options.state || options.state === 'draft' ? book.drafts() : [];
+    const tasks = active.concat(drafts).sort(taskOrder).map(project);
     return command === 'ready' ? ready(tasks, options) : describeTasks(tasks, options);
   }
 

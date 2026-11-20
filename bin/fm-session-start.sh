@@ -336,10 +336,10 @@ print_in_flight_not_held() {
 }
 
 print_backlog_reemit_groups() {
-  local in_flight=$1 held=$2 blocked=$3 open_rows
+  local in_flight=$1 held=$2 blocked=$3 backend=$4 open_rows
   open_rows=$(print_in_flight_not_held "$in_flight")
-  printf 'context re-emit backlog summary (tasks-axi; done rows omitted; held and blocked rows counted, not listed; ready queued bounded to %s; task bodies omitted)\n' \
-    "$QUEUED_LIMIT"
+  printf 'context re-emit backlog summary (%s; done rows omitted; held and blocked rows counted, not listed; ready queued bounded to %s; task bodies omitted)\n' \
+    "$backend" "$QUEUED_LIMIT"
   printf 'counts: in flight %s, held %s (in-flight items included), blocked queued %s; list them with bin/fm-tasks-axi.sh list --state held, or --state queued --blocked\n' \
     "$(listing_count "$in_flight")" "$(listing_count "$held")" "$(listing_count "$blocked")"
   printf '\nin flight, not held {id,state,kind,repo,title}:\n'
@@ -350,10 +350,10 @@ print_backlog_reemit_groups() {
   fi
 }
 
-print_backlog_summary_groups() {  # <in-flight> <held> <blocked> <ready>
-  local in_flight=$1 held=$2 blocked=$3 unlisted
-  printf 'backlog summary (tasks-axi; done rows omitted; held rows in full; blocked and ready queued bounded to %s; task bodies omitted)\n' \
-    "$QUEUED_LIMIT"
+print_backlog_summary_groups() {
+  local in_flight=$1 held=$2 blocked=$3 backend=$5 unlisted
+  printf 'backlog summary (%s; done rows omitted; held rows in full; blocked and ready queued bounded to %s; task bodies omitted)\n' \
+    "$backend" "$QUEUED_LIMIT"
   printf 'counts: in flight %s, held %s (in-flight items included), blocked queued %s, ready queued %s\n' \
     "$(listing_count "$in_flight")" "$(listing_count "$held")" "$(listing_count "$blocked")" "$(listing_count "$4")"
   if [ "$(listing_count "$held")" != 0 ]; then
@@ -371,43 +371,73 @@ print_backlog_summary_groups() {  # <in-flight> <held> <blocked> <ready>
   fi
 }
 
-print_backlog_tasks_axi_compact() {
-  local path=$1 in_flight_fields=$BACKLOG_FIELDS in_flight held blocked ready err
+backlog_digest_query() {
+  local path=$1
+  shift
+  if [ -n "$path" ]; then
+    tasks-axi "$@" --file "$path"
+  else
+    FM_DATA_OVERRIDE="$DATA" FM_CONFIG_OVERRIDE="$CONFIG" bash "$SCRIPT_DIR/fm-tasks-axi.sh" "$@"
+  fi
+}
+
+print_backlog_backend_compact() {
+  local path=$1 backend=tasks-axi in_flight_fields=$BACKLOG_FIELDS in_flight held blocked ready drafts err
+  [ -n "$path" ] || backend=Backlog.md
   [ "$REEMIT" -eq 0 ] || in_flight_fields=held
-  if ! in_flight=$(tasks-axi list --file "$path" --state in_flight --fields "$in_flight_fields" 2>&1); then
+  if ! in_flight=$(backlog_digest_query "$path" list --state in_flight --fields "$in_flight_fields" 2>&1); then
     err=$in_flight
-  elif ! held=$(tasks-axi list --file "$path" --state held --fields "$BACKLOG_FIELDS" 2>&1); then
+  elif ! held=$(backlog_digest_query "$path" list --state held --fields "$BACKLOG_FIELDS" 2>&1); then
     err=$held
-  elif ! blocked=$(tasks-axi list --file "$path" --state queued --blocked --fields "$BACKLOG_FIELDS" 2>&1); then
+  elif ! blocked=$(backlog_digest_query "$path" list --state queued --blocked --fields "$BACKLOG_FIELDS" 2>&1); then
     err=$blocked
-  elif ! ready=$(tasks-axi ready --file "$path" 2>&1); then
+  elif ! ready=$(backlog_digest_query "$path" ready 2>&1); then
     err=$ready
   else
     if [ "$REEMIT" -eq 1 ]; then
-      print_backlog_reemit_groups "$in_flight" "$held" "$blocked"
+      print_backlog_reemit_groups "$in_flight" "$held" "$blocked" "$backend"
     else
-      print_backlog_summary_groups "$in_flight" "$held" "$blocked" "$ready"
+      print_backlog_summary_groups "$in_flight" "$held" "$blocked" "$ready" "$backend"
     fi
     printf '\nready queued (dispatchable now):\n'
-    if fm_project_tiers_read "$CONFIG" 2>&1 && [ -n "$FM_PROJECT_TIERS" ]; then
-      printf '(higher project tier first, per %s)\n' "$FM_PROJECT_TIERS_FILE"
-      ready=$(printf '%s\n' "$ready" | fm_project_tiers_order_ready)
+    if [ -n "$path" ]; then
+      if fm_project_tiers_read "$CONFIG" 2>&1 && [ -n "$FM_PROJECT_TIERS" ]; then
+        printf '(higher project tier first, per %s)\n' "$FM_PROJECT_TIERS_FILE"
+        ready=$(printf '%s\n' "$ready" | fm_project_tiers_order_ready)
+      fi
+      print_ready_queued_bounded "$ready"
+    else
+      print_ready_queued_bounded "$(printf '%s\n' "$ready" | sed '/^drafts\[/,$d')"
+      drafts=$(printf '%s\n' "$ready" | strip_axi_help | sed -n '/^drafts\[/,$p')
+      if [ -n "$drafts" ]; then
+        printf '\ndrafts (not dispatchable):\n'
+        print_listing_bounded "$drafts" "draft item(s)" "bin/fm-tasks-axi.sh list --state draft"
+      fi
     fi
-    print_ready_queued_bounded "$ready"
     return 0
   fi
-  printf 'tasks-axi compact listing failed; falling back to title-line rendering.\n'
-  printf '%s\n' "$err"
-  print_backlog_manual_compact "$path" "fallback"
+  if [ -n "$path" ]; then
+    printf 'tasks-axi compact listing failed; falling back to title-line rendering.\n'
+    printf '%s\n' "$err"
+    print_backlog_manual_compact "$path" "fallback"
+  else
+    printf 'Backlog.md compact listing failed.\n%s\n' "$err"
+  fi
 }
 
 print_backlog_compact() {
   local path=$1 label=$2
+  if [ "$(fm_backlog_backend_value "$CONFIG")" = backlog-md ]; then
+    subsection "data/backlog (Backlog.md)"
+    print_backlog_backend_compact ""
+    printf 'Use bin/fm-tasks-axi.sh show <id> --full for task bodies, or the Backlog.md board for drafts.\n'
+    return
+  fi
   subsection "$label"
   if [ -f "$path" ]; then
     if [ -s "$path" ]; then
       if fm_tasks_axi_backend_available "$CONFIG"; then
-        print_backlog_tasks_axi_compact "$path"
+        print_backlog_backend_compact "$path"
       elif fm_backlog_backend_manual "$CONFIG"; then
         print_backlog_manual_compact "$path" "manual backend"
       else
@@ -745,8 +775,8 @@ if [ "$REEMIT" -eq 1 ]; then
 
 On this context re-emit CONTEXT is a manifest (path, byte size, hash) rather
 than full bodies, the backlog shows counts, the in-flight rows that are not
-held, and the bounded ready queue, but not held or blocked rows, and work
-under way skips the endpoint check.
+held, and the bounded ready and Backlog.md draft lists, but not held or
+blocked rows. Work under way skips the endpoint check.
 EOF
 fi
 

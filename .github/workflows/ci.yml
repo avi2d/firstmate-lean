@@ -567,6 +567,7 @@ jobs:
           PATH="$(npm prefix -g)/bin:$PATH"
           export PATH
           command -v tasks-axi >/dev/null || { echo "::error::tasks-axi is required for the stock Bash regressions"; exit 1; }
+          FM_TEST_BACKLOG_MESSAGE_LOCK_ONLY=1 /bin/bash tests/fm-tasks-axi.test.sh
 
           # Each suite declares its own TAP plan; the helper fails an early
           # exit 0 that does not reach FM_TEST_COMPLETE or whose ok count
