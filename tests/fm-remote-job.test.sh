@@ -101,6 +101,13 @@ cat > "$REMOTE_ROOT/bin/fm-touch-job.sh" <<'SH'
 #!/bin/bash
 printf 'ran\n' > "$1"
 SH
+cat > "$REMOTE_ROOT/bin/fm-hold-job.sh" <<'SH'
+#!/bin/bash
+set -eu
+printf '%s\n' "$FM_ROOT_OVERRIDE" > "$1"
+while [ ! -f "$2" ]; do sleep 0.05; done
+printf 'released\n'
+SH
 cat > "$REMOTE_ROOT/bin/fm-shutdown-job.sh" <<'SH'
 #!/bin/bash
 trap '' HUP INT TERM
@@ -436,25 +443,51 @@ fm_remote_job_worker_identity_matches "$REMOTE_ROOT" "$ACCOUNT_HOME" \
   || fail "the replacement worker did not publish the current code identity"
 pass "ensure replaces a live worker after its code changes"
 
-RELOCATED_ROOT="$TMP_ROOT/relocated-root"
-cp -R "$REMOTE_ROOT" "$RELOCATED_ROOT"
-OLD_WORKER_PID=$NEW_WORKER_PID
-OLD_WORKER_PGID=$(fm_remote_job_process_pgid "$OLD_WORKER_PID") \
-  || fail "the worker replacement fixture could not resolve its process group"
-fm_remote_job_ensure_worker "$RELOCATED_ROOT" "$ACCOUNT_HOME" \
-  || fail "$FM_REMOTE_JOB_ERROR"
-NEW_WORKER_PID=$(cat "$STATE_ROOT/worker.pid")
-[ "$NEW_WORKER_PID" != "$OLD_WORKER_PID" ] || fail "ensure retained a worker bound to a different code root"
-! kill -0 -- "-$OLD_WORKER_PGID" 2>/dev/null \
-  || fail "ensure left the replaced worker supervisor group alive"
-fm_remote_job_stage "$ACCOUNT_HOME" "$RELOCATED_ROOT" "$REMOTE_HOME" fm-probe-job.sh < /dev/null > /dev/null
-JOB_ID=$FM_REMOTE_JOB_ID
-fm_remote_job_wait "$ACCOUNT_HOME" "$JOB_ID" || fail "$FM_REMOTE_JOB_ERROR"
-[ "$FM_REMOTE_JOB_EXIT" -eq 0 ] || fail "the relocated worker rejected its configured code root"
-fm_remote_job_reap "$ACCOUNT_HOME" "$JOB_ID" || fail "the relocated-root probe could not be reaped"
-fm_remote_job_ensure_worker "$REMOTE_ROOT" "$ACCOUNT_HOME" || fail "$FM_REMOTE_JOB_ERROR"
-NEW_WORKER_PID=$(cat "$STATE_ROOT/worker.pid")
-pass "worker identity binds the canonical configured code root"
+(
+  unset FM_REMOTE_JOB_STATE_ROOT
+  other_root="$TMP_ROOT/other root"
+  other_home="$TMP_ROOT/other-home"
+  started="$TMP_ROOT/first-root-started"
+  release="$TMP_ROOT/first-root-release"
+  cp -R "$REMOTE_ROOT" "$other_root"
+  mkdir "$other_home"
+  FM_REMOTE_JOB_QUEUE_TIMEOUT=60
+  FM_REMOTE_JOB_TIMEOUT=60
+  FM_ROOT=$REMOTE_ROOT
+  fm_remote_job_ensure_worker "$FM_ROOT" "$ACCOUNT_HOME" || fail "$FM_REMOTE_JOB_ERROR"
+  first_state=$FM_REMOTE_JOB_STATE
+  first_pid=$(<"$first_state/worker.pid")
+  fm_remote_job_stage "$ACCOUNT_HOME" "$FM_ROOT" "$REMOTE_HOME" fm-hold-job.sh "$started" "$release" \
+    </dev/null >/dev/null || fail "$FM_REMOTE_JOB_ERROR"
+  first_id=$FM_REMOTE_JOB_ID
+  for _ in $(seq 1 300); do
+    [ ! -s "$started" ] || break
+    sleep 0.05
+  done
+  [ -s "$started" ] && [ "$(<"$started")" = "$REMOTE_ROOT" ] || fail "the first checkout never started its job"
+
+  FM_ROOT=$other_root
+  fm_remote_job_ensure_worker "$FM_ROOT" "$ACCOUNT_HOME" || fail "$FM_REMOTE_JOB_ERROR"
+  [ "$first_state" != "$FM_REMOTE_JOB_STATE" ] || fail "both roots share one default queue"
+  fm_remote_job_stage "$ACCOUNT_HOME" "$FM_ROOT" "$other_home" fm-probe-job.sh \
+    </dev/null >/dev/null || fail "$FM_REMOTE_JOB_ERROR"
+  fm_remote_job_wait "$ACCOUNT_HOME" "$FM_REMOTE_JOB_ID" || fail "$FM_REMOTE_JOB_ERROR"
+  [ "$FM_REMOTE_JOB_EXIT" -eq 0 ] || fail "the other checkout could not run its job"
+  assert_contains "$(<"$FM_REMOTE_JOB_STDOUT")" "root=$other_root" "the job ran in the wrong checkout"
+  fm_remote_job_reap "$ACCOUNT_HOME" "$FM_REMOTE_JOB_ID" || fail "the other checkout's job could not be reaped"
+
+  [ -f "$first_state/worker.pid" ] && [ "$(<"$first_state/worker.pid")" = "$first_pid" ] ||
+    fail "ensuring the other checkout replaced the first worker"
+  [ "$(fm_remote_job_read_state "$first_state/jobs/$first_id")" = running ] ||
+    fail "the first job did not keep running while the other checkout ran its job"
+  : > "$release"
+  FM_ROOT=$REMOTE_ROOT
+  fm_remote_job_wait "$ACCOUNT_HOME" "$first_id" || fail "$FM_REMOTE_JOB_ERROR"
+  [ "$FM_REMOTE_JOB_EXIT" -eq 0 ] && [ "$(<"$FM_REMOTE_JOB_STDOUT")" = released ] ||
+    fail "the first job could not finish after release"
+  fm_remote_job_reap "$ACCOUNT_HOME" "$first_id" || fail "the first checkout's job could not be reaped"
+) || exit 1
+pass "ensuring another code root does not replace a running worker or cancel its job"
 
 CRASHED_WORKER_PID=$NEW_WORKER_PID
 CRASHED_SUPERVISOR_PID=$(ps -o ppid= -p "$CRASHED_WORKER_PID" | tr -d '[:space:]')
