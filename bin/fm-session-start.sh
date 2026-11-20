@@ -856,37 +856,9 @@ fi
 # recoverable with one read, so it is the cheapest thing for a tail cut to take.
 stage context
 section "CONTEXT"
-if [ -f "$DATA/backlog/decisions/.fm-memory" ]; then
-  subsection "Current decisions"
-  if CURRENT_DECISIONS=$(node "$SCRIPT_DIR/fm-backlog-md/decisions.cjs" render "$DATA/backlog/decisions" 2>&1); then
-    if [ "$READ_ONLY" -eq 1 ]; then
-      printf '%s\n' "$CURRENT_DECISIONS"
-    else
-      CURRENT_FILE=$(mktemp "$DATA/.decision-current.XXXXXX") || exit 1
-      if printf '%s\n' "$CURRENT_DECISIONS" > "$CURRENT_FILE" && mv -f "$CURRENT_FILE" "$DATA/decision-current.md"; then
-        print_file_or_absent "$DATA/decision-current.md" "data/decision-current.md"
-      else
-        rm -f "$CURRENT_FILE"
-        printf '%s\n' 'Decision memory unavailable: could not write current view'
-      fi
-    fi
-  else
-    printf 'Decision memory unavailable: %s\n' "$CURRENT_DECISIONS"
-  fi
-else
-  print_file_or_absent "$DATA/projects.md" "data/projects.md"
-  print_file_or_absent "$DATA/captain.md" "data/captain.md"
-  print_file_or_absent "$DATA/learnings.md" "data/learnings.md"
-  if DECISIONS_UNFILED_OUT=$("$SCRIPT_DIR/fm-decisions-unfiled.sh" --captain "$DATA/captain.md" 2>&1); then
-    if [ -n "$DECISIONS_UNFILED_OUT" ]; then
-      subsection "Unfiled rulings (decisions harvest)"
-      printf '%s\n' "$DECISIONS_UNFILED_OUT"
-    fi
-  else
-    subsection "Unfiled rulings (decisions harvest)"
-    printf 'check unavailable (exit %s)\n' "$?"
-  fi
-fi
+print_file_or_absent "$DATA/projects.md" "data/projects.md"
+print_file_or_absent "$DATA/captain.md" "data/captain.md"
+print_file_or_absent "$DATA/learnings.md" "data/learnings.md"
 
 # --- 9. closing reminder -----------------------------------------------
 stage next-step

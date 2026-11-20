@@ -35,7 +35,7 @@ The digest prints its stages in this order, and the same names are the stage lis
 6. read-once: the contract that stops the next turn from reading the digested sources again.
 7. fleet-state: backlog counts and bounded listings, then one line per task under way with its endpoint liveness and latest status line.
 8. network-checks: the deferred network stage, read without waiting for it.
-9. context: data/projects.md, data/captain.md, and data/learnings.md, or the current decision memory view.
+9. context: data/projects.md, data/captain.md, and data/learnings.md.
 10. next-step: the closing reminder, which points back to the operating block and never arms the watcher itself.
 
 The lock comes first, so only the session that wins it touches shared mutable state.
