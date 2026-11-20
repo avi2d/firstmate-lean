@@ -1,57 +1,5 @@
 #!/usr/bin/env bash
-# fm-tasks-axi.sh - run tasks-axi against THIS home's backlog from any working directory.
-#
-# Usage: fm-tasks-axi.sh [<tasks-axi command> [args...]]
-#        fm-tasks-axi.sh --help
-#
-# Every routine firstmate backlog read or mutation goes through this command
-# rather than a bare `tasks-axi`; `fm-tasks-axi.sh <command> --help` prints
-# tasks-axi's own help. Arguments reach tasks-axi as given, apart from one
-# rewrite that keeps file arguments meaning what the caller meant: a relative
-# value of `--to` or any `--*-file` flag (`--body-file`, `--relation-file`, ...)
-# is made absolute against the caller's working directory, because tasks-axi
-# starts from the backlog root instead. `--report` stays as given: tasks-axi
-# stores it verbatim as a link, which lifecycle transitions record relative to
-# that same root.
-#
-# `show` (including `view`) and `list` decode stored captain-hold reasons
-# through bin/fm-hold-reason-lib.sh, which owns the field-only decoding contract.
-# Decoded reasons use quoted strings so embedded line breaks remain intact.
-#
-# Why it exists: a bare `tasks-axi` resolves the tracked `.tasks.toml` paths
-# against its working directory, so from the code root it forks the queue
-# whenever the home lives elsewhere; docs/configuration.md ("Backlog backend")
-# owns that rationale.
-#
-# Addressing is bin/fm-backlog-transition-lib.sh's fm_backlog_tasks_axi_addressing,
-# the same resolution the lifecycle transitions use: tasks-axi runs from the
-# configured data directory's parent, so that home's own `.tasks.toml` (or
-# tasks-axi's built-in defaults, which keep the archive beside the backlog)
-# supplies the adapter, done_keep, and the archive path; a markdown backlog is
-# additionally pinned to `<data>/backlog.md` through TASKS_AXI_FILE. The
-# environment carries the pin rather than a trailing --file so the no-command
-# dashboard works too. A configured non-markdown adapter is addressed by that
-# root alone, so an inherited TASKS_AXI_FILE is cleared for it.
-#
-# The data directory is FM_DATA_OVERRIDE, else $FM_HOME/data, else the code
-# root's data/ (FM_HOME unset keeps the single-home layout unchanged).
-#
-# Refusals (exit 2, nothing run):
-#   - tasks-axi missing from PATH;
-#   - a caller-supplied --file, because this command owns the addressing and
-#     tasks-axi would silently let the last --file win;
-#   - `add` (or its `create` alias) with --start, so neither spelling places a
-#     row In flight without the dispatch artifacts bin/fm-spawn.sh creates -
-#     the task record, status file, and inbox that go with the row - which such
-#     a row would lack, counting as live work nobody is doing that nothing
-#     later would notice (`start <id>` stays a documented direct transition);
-#   - a data directory that cannot be resolved, or whose backend configuration
-#     cannot be read (bin/fm-tasks-axi-lib.sh owns that diagnostic);
-#   - a markdown `<data>/backlog.md` that is itself a symlink, because the
-#     first write would replace the link with a private copy, exactly the fork
-#     this command exists to prevent. Lifecycle transitions refuse the same file.
-# Otherwise the exit status is tasks-axi's own, unless decoding a read fails;
-# in that case the decoder's nonzero status is returned.
+# Usage: fm-tasks-axi.sh [<command> [args...]]
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -69,11 +17,23 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 . "$SCRIPT_DIR/fm-project-tiers-lib.sh"
 
 usage() {
-  awk '
-    NR == 1 { next }
-    /^#/ { sub(/^# ?/, ""); print; next }
-    { exit }
-  ' "$0"
+  cat <<'EOF'
+Usage: fm-tasks-axi.sh [<command> [args...]]
+       fm-tasks-axi.sh <command> --help
+       fm-tasks-axi.sh add "<title>" --mint --prefix <project> [flags]
+       fm-tasks-axi.sh add <project>-<number> "<title>" [flags]
+
+Use --repo instead of --prefix to name the project when minting.
+An explicit new ID must match the next free <project>-<number> ID.
+create is an alias for add. Use fm-spawn.sh to dispatch queued work.
+
+This command addresses the current home's backlog and refuses --file.
+Relative --to and --*-file values are resolved against the caller's
+directory. --report is stored verbatim.
+show (including view) and list decode stored hold reasons.
+
+Data directory: FM_DATA_OVERRIDE, else $FM_HOME/data, else code-root data/.
+EOF
 }
 
 fail() {
@@ -138,7 +98,7 @@ fi
 if [ "$(fm_backlog_backend_value "$CONFIG")" = backlog-md ]; then
   command -v python3 >/dev/null 2>&1 || fail "Backlog.md requires python3 for its write lock"
   command -v node >/dev/null 2>&1 || fail "Backlog.md requires node"
-  BACKLOG=(python3 "$SCRIPT_DIR/fm-backlog-md/locked.py" "$DATA" "$SCRIPT_DIR/fm-backlog-md/cli.cjs")
+  BACKLOG=(python3 "$SCRIPT_DIR/fm-backlog-md/locked.py" "$DATA" .fm-backlog-md.lock "$SCRIPT_DIR/fm-backlog-md/cli.cjs")
 else
   command -v tasks-axi >/dev/null 2>&1 || fail "tasks-axi is not on PATH; run bin/fm-bootstrap.sh for the install command"
   FM_BACKLOG_TRANSITION_ERROR=
@@ -155,6 +115,14 @@ else
     unset TASKS_AXI_FILE
   fi
 
+  if [[ ${1:-} = add || ${1:-} = create ]]; then
+    command -v python3 >/dev/null 2>&1 || fail "add requires python3 for its ID allocation lock"
+    command -v node >/dev/null 2>&1 || fail "add requires node"
+    DATA=$(fm_backlog_data_absolute "$DATA") || fail "data directory cannot be resolved: $DATA"
+    cd "$FM_BACKLOG_AXI_ROOT" || fail "cannot enter the backlog root $FM_BACKLOG_AXI_ROOT"
+    exec python3 "$SCRIPT_DIR/fm-backlog-md/locked.py" "$DATA" .fm-tasks-axi-add.lock \
+      "$SCRIPT_DIR/fm-backlog-md/tasks-axi-add.cjs" "${ARGS[@]:1}"
+  fi
   cd "$FM_BACKLOG_AXI_ROOT" || fail "cannot enter the backlog root $FM_BACKLOG_AXI_ROOT"
   BACKLOG=(tasks-axi)
 fi

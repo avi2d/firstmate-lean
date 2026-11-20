@@ -1,6 +1,6 @@
 const fs = require('node:fs');
-const { randomBytes } = require('node:crypto');
-const { board, draftTicket, PR, SLUG, projectTask, holdRecord, saveHold, taskOrder, sectionBody, setSection } = require('./store.cjs');
+const { assignTaskId } = require('./task-id.cjs');
+const { board, draftTicket, PR, projectTask, holdRecord, saveHold, taskOrder, sectionBody, setSection } = require('./store.cjs');
 const { scalar, help, show, table, mutation, EXTRA, HOLD } = require('./output.cjs');
 
 const states = ['queued', 'in_flight', 'done', 'held'];
@@ -9,7 +9,7 @@ const baseFields = ['repo', 'kind'];
 const patchFields = [...baseFields, 'priority', 'body', 'body-file', 'pr', 'report'];
 const commands = {
   show: { args: '<id> [--full]', flags: [], switches: ['full'], count: 1 },
-  add: { args: '<id> "<title>" [flags]', flags: [...patchFields, 'blocked-by', 'prefix'], switches: ['queue', 'mint', 'json'], count: 2 },
+  add: { args: '("<title>" --mint --prefix <project> | <project>-<number> "<title>") [flags]', flags: [...patchFields, 'blocked-by', 'prefix'], switches: ['queue', 'mint', 'json'], count: 2 },
   list: { args: '[flags]', flags: [...baseFields, 'state', 'limit', 'fields'], switches: ['blocked'], count: 0 },
   ready: { args: '[--repo <name>] [--include-held]', flags: ['repo'], switches: ['include-held'], count: 0 },
   update: { args: '<id> [flags]', flags: ['title', ...patchFields], switches: ['archive-body', 'json'], count: 1 },
@@ -121,17 +121,18 @@ function unique(values) {
   return Array.from(new Set(values));
 }
 
-function mintedId(title, prefix) {
-  const slug = [prefix, title].filter(Boolean).join('-').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-  return `${slug.slice(0, 48) || 'task'}-${randomBytes(2).toString('hex')}`;
-}
-
 function add(book, positionals, options, now, project) {
   const title = (options.mint ? positionals[0] : positionals[1]).trim();
-  const id = options.mint ? mintedId(title, options.prefix) : positionals[0];
-  if (!SLUG.test(id)) {
-    reject(`Invalid id "${id}" - ids must be slug-shaped (letters, digits, "._-") with no spaces`,
-      'Use a slug like `homemux-h7`, or pass --mint to generate one');
+  if (!options.mint && options.prefix) reject('--prefix can only be used with --mint');
+  const repo = options.repo ?? (options.mint ? options.prefix : undefined);
+  const activeIds = Array.from(book.tickets.values()).filter(ticket => !ticket.archived).map(ticket => ticket.fields.id);
+  const reservedIds = Array.from(book.tickets.values()).filter(ticket => ticket.archived).map(ticket => ticket.fields.id);
+  reservedIds.push(...book.draftIds());
+  let id;
+  try {
+    id = assignTaskId({ id: options.mint ? undefined : positionals[0], repo, prefix: options.prefix }, activeIds, reservedIds);
+  } catch (error) {
+    reject(error.message);
   }
   if (!title || /[\r\n]/.test(title)) reject('Title must be a non-empty single line');
   if (options.priority && !isCanonicalPriority(options.priority)) reject('--priority must be an integer from 0 to 4');
@@ -145,7 +146,7 @@ function add(book, positionals, options, now, project) {
     ticket = book.add(draftTicket({
       id, title, status: 'Queued',
       ...(options.kind ? { type: options.kind } : {}),
-      ...(options.repo ? { project: options.repo } : {}),
+      ...(repo ? { project: repo } : {}),
       ...(options.priority ? { priority: `p${options.priority}` } : {}),
       assignee: [], labels: [], dependencies,
       ...(references.length > 0 ? { references } : {}),
@@ -155,7 +156,7 @@ function add(book, positionals, options, now, project) {
 
   const task = project(ticket);
   const kind = options.kind && options.kind !== 'task' ? options.kind : null;
-  const attributes = [kind, options.repo ? `repo ${options.repo}` : null].filter(Boolean);
+  const attributes = [kind, repo ? `repo ${repo}` : null].filter(Boolean);
   const status = { queued: 'Queued', in_flight: 'In flight', done: 'Done' }[task.state];
   const message = already ? `add ${id} already exists -> ${status}`
     : `added ${id}${attributes.length ? ` (${attributes.join(', ')})` : ''} -> ${status}`;
@@ -185,7 +186,7 @@ function describeTasks(tasks, options) {
     return [
       'count: 0',
       `tasks: 0 ${detail.length ? `${detail.join(' ')} ` : ''}tasks in this backlog`,
-      ...(filters && !state ? help([`Run \`tasks-axi add <id> "<title>" ${filters}\` to add a task`,
+      ...(filters && !state ? help([`Run \`bin/fm-tasks-axi.sh add "<title>" --mint ${filters}${options.repo ? '' : ' --prefix <project>'}\` to add a task`,
         `Run \`tasks-axi list --state done ${filters}\` to see completed work`]) : []),
     ].join('\n');
   }
