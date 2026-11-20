@@ -459,6 +459,78 @@ fm_test_run_spawn() {
     "$ROOT/bin/fm-spawn.sh" "$@" 2>&1
 }
 
+fm_test_make_single_herdr_spawn_fakebin() {
+  local fakebin
+  fakebin=$(fm_fakebin "$1")
+  cat > "$fakebin/herdr" <<'SH'
+#!/usr/bin/env bash
+set -eu
+if [ "$#" -ge 2 ] && [ "${@: -2:1}" = --session ]; then
+  [ "${@: -1}" = spawn-fixture ]
+  set -- "${@:1:$#-2}"
+else
+  [ "$*" = 'status --json' ]
+fi
+cwd_file="$(dirname "$0")/pane-cwd"
+case "$1 $2" in
+  'status --json')
+    printf '%s\n' '{"client":{"version":"0.9.5","protocol":22},"server":{"running":true,"version":"0.9.5","protocol":22}}'
+    ;;
+  'workspace list')
+    printf '%s\n' '{"result":{"workspaces":[{"workspace_id":"w1","label":"firstmate"}]}}'
+    ;;
+  'tab list')
+    printf '%s\n' '{"result":{"tabs":[]}}'
+    ;;
+  'tab create')
+    printf '%s\n' '{"result":{"tab":{"tab_id":"w1:t2"},"root_pane":{"pane_id":"w1:p2"}}}'
+    ;;
+  'pane run')
+    [ "$3" = w1:p2 ]
+    if [ "${4# }" = "cd -- '${FM_FAKE_PANE_PATH:?}'" ]; then
+      printf '%s' "$FM_FAKE_PANE_PATH" > "$cwd_file"
+    fi
+    ;;
+  'pane get')
+    [ "$3" = w1:p2 ]
+    jq -cn --arg cwd "$(cat "$cwd_file" 2>/dev/null || true)" '{result:{pane:{foreground_cwd:$cwd}}}'
+    ;;
+  'pane send-text'|'pane send-keys'|'pane close')
+    [ "$3" = w1:p2 ]
+    ;;
+  *)
+    printf 'unexpected fake Herdr command: %s %s\n' "$1" "$2" >&2
+    exit 2
+    ;;
+esac
+SH
+  cat > "$fakebin/treehouse" <<'SH'
+#!/usr/bin/env bash
+case "${1:-} ${2:-}" in
+  'get --lease') printf '%s\n' "${FM_FAKE_PANE_PATH:?}" ;;
+  'return --force') : ;;
+  *) exit 2 ;;
+esac
+SH
+  printf '#!/bin/sh\nexit 1\n' > "$fakebin/orc"
+  chmod +x "$fakebin/herdr" "$fakebin/treehouse" "$fakebin/orc"
+  fm_fake_exit0 "$fakebin" pi
+  printf '%s\n' "$fakebin"
+}
+
+fm_test_run_single_herdr_spawn() {
+  local home=$1 pane=$2 fakebin=$3
+  shift 3
+  mkdir -p "$home/user-home"
+  printf 'off\n' > "$home/config/herdr-presentation-spaces"
+  env -u HERDR_ENV -u HERDR_PANE_ID -u HERDR_WORKSPACE_ID -u HERDR_TAB_ID -u HERDR_SOCKET_PATH \
+    FM_ROOT_OVERRIDE='' FM_HOME="$home" HOME="$home/user-home" \
+    FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
+    FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
+    FM_BACKEND=herdr HERDR_SESSION=spawn-fixture FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$pane" \
+    PATH="$fakebin:$PATH" "$ROOT/bin/fm-spawn.sh" "$@" 2>&1
+}
+
 # --- send-world stubs -------------------------------------------------------
 
 # make_stubs <dir>
