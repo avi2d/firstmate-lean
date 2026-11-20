@@ -307,7 +307,7 @@ family_for_basename() {
     fm-lint-workflows.test.sh|\
     fm-operational-input.test.sh|fm-pi-primary-types.test.sh|fm-read-repetition.test.sh|\
     fm-harness-adapter-references.test.sh|fm-project-mode.test.sh|\
-    fm-send-popup-settle.test.sh|fm-send-settle.test.sh|\
+    fm-send-settle.test.sh|\
     fm-supervision-instructions.test.sh|fm-task-delivery.test.sh|\
     fm-timeout-lib.test.sh|\
     fm-trace-context-lib.test.sh|\
@@ -357,7 +357,6 @@ family_for_basename() {
       printf '%s\n' session-bootstrap
       ;;
     fm-harness-adapter-instructions-live-e2e.test.sh|\
-    fm-launch-prompt-signals-live-e2e.test.sh|\
     fm-herdr-version-floor-live-e2e.test.sh|\
     fm-herdr-projected-cd-live-e2e.test.sh|\
     fm-herdr-pi-stale-registration-live-e2e.test.sh|\
@@ -375,7 +374,7 @@ family_for_basename() {
     fm-calm-pi-queue-retention-live-e2e.test.sh|\
     fm-herdr-submit-confirm-live-e2e.test.sh|\
     fm-agent-sandbox-live-e2e.test.sh|\
-    fm-watch-wedge-cap-live.test.sh|fm-read-repetition-live.test.sh)
+    fm-read-repetition-live.test.sh)
       printf '%s\n' live-harness-optin
       ;;
     fm-backend-herdr.test.sh|fm-backend.test.sh|\
@@ -385,7 +384,7 @@ family_for_basename() {
     fm-spawn-dispatch-profile.test.sh|\
     fm-worker-account.test.sh|\
     fm-git-strip-ai-trailers.test.sh|fm-home-write-diff.test.sh|\
-    fm-trace-context-spawn.test.sh|fm-spawn-worktree-settle.test.sh|\
+    fm-trace-context-spawn.test.sh|\
     fm-spawn-compact-adviser-disable.test.sh|\
     fm-spawn-compact-adviser-disable-remote.test.sh|\
     fm-project-capacity.test.sh|\
@@ -505,7 +504,6 @@ tests/fm-lint.test.sh 377585
 tests/fm-pi-primary-types.test.sh 68901
 tests/fm-pr-merge.test.sh 300199
 tests/fm-review-diff.test.sh 4134
-tests/fm-send-popup-settle.test.sh 10180
 tests/fm-send-settle.test.sh 4224
 tests/fm-send-strict.test.sh 7673
 tests/fm-spawn-batch.test.sh 9781
@@ -720,7 +718,6 @@ tests/fm-inactive-reconcile.test.sh 60823
 tests/fm-inbox.test.sh 6062
 tests/fm-install-herdr.test.sh 1000
 tests/fm-jev-mem-guard.test.sh 336
-tests/fm-launch-prompt-signals-live-e2e.test.sh 50
 tests/fm-lavish-board-handoff.test.sh 603
 tests/fm-lint-workflows.test.sh 2717
 tests/fm-live-gate.test.sh 7452
@@ -822,7 +819,6 @@ tests/fm-spawn-manual-pr-text.test.sh 7284
 tests/fm-spawn-missing-harness.test.sh 1664
 tests/fm-spawn-pool-base-freshen.test.sh 68652
 tests/fm-spawn-remote-worker.test.sh 18689
-tests/fm-spawn-worktree-settle.test.sh 13206
 tests/fm-stalled-qa-escalation.test.sh 2616
 tests/fm-startup-growth-check.test.sh 5806
 tests/fm-startup-memory-budget.test.sh 14595
@@ -870,7 +866,6 @@ tests/fm-watch-triage-wedge-defer.test.sh 526980
 tests/fm-watch-triage.test.sh 592950
 tests/fm-watch-wedge-cap.test.sh 374225
 tests/fm-watch-wedge-cap-unconfigured-parity.test.sh 27763
-tests/fm-watch-wedge-cap-live.test.sh 74
 tests/fm-watcher-lock.test.sh 72022
 tests/fm-linux-load-gate.test.sh 30872
 tests/fm-worker-account-live-e2e.test.sh 3179
