@@ -102,7 +102,7 @@ init_changed_fixture_repo() {
     fm-test-run.test.sh \
     fm-test-fixtures.test.sh \
     fm-cd-pretool-check.test.sh \
-    fm-daemon.test.sh \
+    fm-watch-inbox-meta.test.sh \
     fm-harness-adapter-instructions-live-e2e.test.sh \
     fm-harness-adapter-references.test.sh \
     fm-backend-herdr-smoke.test.sh \
@@ -115,7 +115,7 @@ init_changed_fixture_repo() {
     fm-quota-choose.test.sh \
     fm-pi-watch-extension.test.sh \
     fm-pi-windows-shell-invocation.test.sh \
-    fm-afk-return.test.sh \
+    fm-watcher-lock.test.sh \
     fm-bearings-snapshot.test.sh \
     fm-control-herdr-smoke.test.sh \
     fm-unmapped-probe.test.sh; do
@@ -124,7 +124,7 @@ init_changed_fixture_repo() {
   done
   : >"$repo/tests/lib.sh"
   : >"$repo/tests/fm-backend-herdr-eventwait.test.py"
-  : >"$repo/bin/fm-supervisor-target-lib.sh"
+  : >"$repo/bin/fm-wake-lib.sh"
   : >"$repo/bin/fm-control-lib.sh"
   : >"$repo/bin/fm-timeout-lib.sh"
   : >"$repo/bin/fm-procevent-quota.sh"
@@ -151,17 +151,16 @@ init_changed_fixture_repo() {
   # shellcheck disable=SC2016  # literal fixture text: the reference must reach
   # the file verbatim so the changed-file scan can find it, not expand here.
   printf '. "$ROOT/bin/shared-probe-lib.sh"\n' >"$repo/bin/fm-watch-probe.sh"
-  printf '# .claude/settings.json\n# .pi/extensions/fm-primary-turnend-guard.ts\n' \
+  printf '# .pi/extensions/fm-primary-turnend-guard.ts\n' \
     >>"$repo/tests/fm-cd-pretool-check.test.sh"
   printf '# .pi/extensions/fm-primary-pi-watch.ts\n' >>"$repo/tests/fm-pi-watch-extension.test.sh"
   mkdir -p \
     "$repo/.agents/skills/example" \
     "$repo/.agents/skills/harness-adapters/references/common" \
-    "$repo/.claude" "$repo/.pi/extensions" "$repo/docs" "$repo/src"
+    "$repo/.pi/extensions" "$repo/docs" "$repo/src"
   : >"$repo/.agents/skills/example/SKILL.md"
   : >"$repo/.agents/skills/harness-adapters/SKILL.md"
   : >"$repo/.agents/skills/harness-adapters/references/common/dispatch.md"
-  : >"$repo/.claude/settings.json"
   : >"$repo/.pi/extensions/fm-primary-pi-watch.ts"
   : >"$repo/.pi/extensions/fm-primary-turnend-guard.ts"
   mkdir -p "$repo/.pi/extensions/lib"
@@ -404,24 +403,23 @@ test_changed_dependency_selection_and_unmapped_failure() {
   git -C "$repo" add tests/fm-backend-herdr-eventwait.test.py
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm eventwait-change
 
-  printf '\n' >>"$repo/bin/fm-supervisor-target-lib.sh"
+  printf '\n' >>"$repo/bin/fm-wake-lib.sh"
   listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
-  assert_contains "$listed" "tests/fm-daemon.test.sh" "supervisor target selects daemon coverage"
-  assert_contains "$listed" "tests/fm-afk-return.test.sh" "supervisor target selects afk coverage"
-  git -C "$repo" add bin/fm-supervisor-target-lib.sh
+  assert_contains "$listed" "tests/fm-watch-inbox-meta.test.sh" "wake helper selects inbox coverage"
+  assert_contains "$listed" "tests/fm-watcher-lock.test.sh" "wake helper selects watcher lock coverage"
+  git -C "$repo" add bin/fm-wake-lib.sh
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm supervisor-change
 
   printf '\n' >>"$repo/.agents/skills/example/SKILL.md"
-  printf '\n' >>"$repo/.claude/settings.json"
   printf '\n' >>"$repo/.pi/extensions/fm-primary-pi-watch.ts"
   printf '\n' >>"$repo/.pi/extensions/fm-primary-turnend-guard.ts"
   listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
   assert_contains "$listed" "tests/fm-ask-user-authority.test.sh" "skill source selects pure contract coverage"
-  assert_contains "$listed" "tests/fm-cd-pretool-check.test.sh" "Claude and Pi source selects hook coverage"
+  assert_contains "$listed" "tests/fm-cd-pretool-check.test.sh" "Pi guard source selects hook coverage"
   assert_contains "$listed" "tests/fm-pi-watch-extension.test.sh" "Pi source selects watcher coverage"
   assert_contains "$listed" "tests/fm-pi-windows-shell-invocation.test.sh" \
     "turn-end extension selects native-Windows shell coverage"
-  git -C "$repo" add .agents .claude .pi
+  git -C "$repo" add .agents .pi
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm non-bin-source-change
 
   printf '\n' >>"$repo/.pi/extensions/lib/fm-operational-input.ts"
@@ -592,7 +590,7 @@ test_changed_bin_reference_selects_per_script_not_per_family() {
       ;;
   esac
   # The curated consumer keeps its family-level coupling.
-  assert_contains "$listed" "tests/fm-daemon.test.sh" \
+  assert_contains "$listed" "tests/fm-watch-inbox-meta.test.sh" \
     "a curated consumer of the helper must still select its whole family"
   assert_contains "$listed" "tests/fm-pi-watch-extension.test.sh" \
     "a curated consumer of the helper must still select its whole family"
@@ -609,7 +607,7 @@ test_changed_uses_bounded_automatic_concurrency() {
   repo="$tmp/repo"
   init_changed_fixture_repo "$repo"
   cp "$ROOT/bin/fm-timeout-lib.sh" "$repo/bin/fm-timeout-lib.sh"
-  for script in fm-backend-herdr-smoke.test.sh fm-daemon.test.sh fm-pi-watch-extension.test.sh; do
+  for script in fm-backend-herdr-smoke.test.sh fm-watch-inbox-meta.test.sh fm-pi-watch-extension.test.sh; do
     cat >"$repo/tests/$script" <<'SH'
 #!/usr/bin/env bash
 sleep 1
@@ -810,7 +808,7 @@ test_family_proofs_run_in_separate_concurrent_phases() {
   cp "$ROOT/bin/fm-timeout-lib.sh" "$repo/bin/fm-timeout-lib.sh"
   chmod +x "$repo/bin/fm-test-run.sh"
   for script in \
-    fm-calm-pi-extension.test.sh fm-vendor-auth-probe.test.sh \
+    fm-calm-pi-extension.test.sh fm-brief.test.sh \
     fm-pr-check-security.test.sh fm-teardown.test.sh; do
     cat >"$repo/tests/$script" <<'SH'
 #!/usr/bin/env bash
@@ -822,7 +820,7 @@ SH
 
   (cd "$repo" && bin/fm-test-run.sh \
       tests/fm-pr-check-security.test.sh tests/fm-calm-pi-extension.test.sh \
-      tests/fm-teardown.test.sh tests/fm-vendor-auth-probe.test.sh --jobs 4) \
+      tests/fm-teardown.test.sh tests/fm-brief.test.sh --jobs 4) \
     >"$tmp/out" 2>"$tmp/err" \
     || fail "cross-family phase fixture failed: $(cat "$tmp/err")"
 
