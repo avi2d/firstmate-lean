@@ -33,6 +33,7 @@ jobs:
         run: |
           set +e -u
           python3 -I .github/diag/patch.py tests/lib.sh
+          xargs python3 -I .github/diag/split.py < .github/diag/files.txt
           grep -n 'DIAGFAIL' tests/lib.sh
           i=0
           while IFS= read -r f; do
