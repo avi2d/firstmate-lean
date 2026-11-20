@@ -20,7 +20,7 @@ FM_ROOT="${FM_ROOT_OVERRIDE:-$(CDPATH='' cd "$SCRIPT_DIR/.." && pwd -P)}"
 # selections alike.
 REQUIRED_TOOLS=()
 HARNESS_TOOLS=(pi pi-signed)
-OPTIONAL_TOOLS=(tmux no-mistakes gh)
+OPTIONAL_TOOLS=(no-mistakes gh)
 LAUNCH_AGENT_LABEL=dev.firstmate.herdr.fm-remote
 # The dedicated remote-secondmate session. The user's interactive Herdr work
 # remains in the separate default session, which this readiness check never

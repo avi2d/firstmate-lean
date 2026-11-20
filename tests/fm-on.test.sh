@@ -407,11 +407,11 @@ out=$(HOME="$DOCTOR_HOME" PATH="$DOCTOR_BIN:/usr/bin:/bin:/usr/sbin:/sbin" "$ROO
 rc=$?
 set -e
 assert_contains "$out" "required git=$DOCTOR_BIN/git" "the remote doctor did not report where the required tool resolved"
-doctor_tmux=$(PATH="$DOCTOR_BIN:/usr/bin:/bin:/usr/sbin:/sbin" command -v tmux 2>/dev/null || true)
-if [ -n "$doctor_tmux" ]; then
-  assert_contains "$out" "optional tmux=$doctor_tmux" "the remote doctor did not report the resolved optional tool"
+doctor_no_mistakes=$(PATH="$DOCTOR_BIN:/usr/bin:/bin:/usr/sbin:/sbin" command -v no-mistakes 2>/dev/null || true)
+if [ -n "$doctor_no_mistakes" ]; then
+  assert_contains "$out" "optional no-mistakes=$doctor_no_mistakes" "the remote doctor did not report the resolved optional tool"
 else
-  assert_contains "$out" 'optional tmux=absent' "the remote doctor did not report an absent optional tool"
+  assert_contains "$out" 'optional no-mistakes=absent' "the remote doctor did not report an absent optional tool"
 fi
 assert_contains "$out" "required herdr=$DOCTOR_BIN/herdr" "the remote doctor did not require herdr"
 assert_contains "$out" "required tasks-axi=$DOCTOR_BIN/tasks-axi" "the remote doctor did not require compatible tasks-axi"
