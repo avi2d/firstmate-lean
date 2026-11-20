@@ -29,7 +29,7 @@ The covering tests are `test_pi_seeded_secondmate_preapproves_project_trust`, `t
 ## Launch-prompt backstop signatures
 
 `bin/fm-busy-lib.sh`'s launch-prompt backstop (`fm_busy_launch_prompt_parked`) reclassifies a launch whose busy record is still pinned at the fm-spawn seed as `unknown launch-prompt`, rather than `busy fm-spawn`, when the captured pane matches that harness's own recognized trust, sign-in, or first-run dialog.
-Each signature below was live-verified against the real installed binary through `tests/fm-launch-prompt-signals-live-e2e.test.sh` (`FM_LAUNCH_PROMPT_SIGNALS_LIVE=1`), which is what refreshes this record after an upgrade.
+Each signature below was live-verified against the real installed binary; the live driver for that run is no longer shipped.
 
 An initial Pi signature sourced only from the installed binary's own UI strings ("Project trust", the internal panel-title component, never the dialog's own rendered heading) was wrong and never matched the real screen.
 This guard's first live run caught that before it shipped, which is the evidence for why this class of check must be driven end to end rather than read off strings or a component name.
@@ -361,12 +361,7 @@ Cross-session and contradictory bindings are covered deterministically in `tests
 
 ### Per-home and presentation topology
 
-Per-home behavior is owned by:
-
-```sh
-HERDR_LAB_HELPER=bin/fm-herdr-lab.sh \
-  tests/fm-backend-herdr-workspace-per-home-e2e.test.sh
-```
+The per-home lab driver for this run is no longer shipped.
 
 Observed guarantee: the primary and secondmate used distinct home workspaces, a child launched by the secondmate stayed in that secondmate workspace, list-live remained home-scoped, and exact cleanup did not affect sibling homes.
 
@@ -607,12 +602,7 @@ Real captures verified these active distinctions:
 - On a kiro pane only, a 256-colour index is luminance-tested as ghost content inside the 232-255 greyscale ramp, whose RGB is fixed by definition; every other index, and every index on another harness, is not tested at all.
 - A bare shell prompt has no safe agent-composer container and is unknown.
 
-The U+2063 operational and routed-request separators were exercised through a real Pi-on-Herdr path; the byte-exact active regression is:
-
-```sh
-FM_SEND_MARKER_HERDR_E2E=1 \
-  tests/fm-send-secondmate-marker-herdr-e2e.test.sh
-```
+The U+2063 operational and routed-request separators were exercised through a real Pi-on-Herdr path; that live regression is no longer shipped.
 
 ### Native blocked event
 
@@ -843,7 +833,7 @@ ok - real herdr 0.9.5 + nono 0.80.0 + pi 1.2.0: a sandboxed pi reads alive, refu
 ok - real herdr 0.9.5 + nono 0.80.0 + pi 1.2.0: a quit sandboxed pi reads dead and admits a launch
 ```
 
-`tests/fm-backend-herdr.test.sh` pins the same process layout portably, and `tests/fm-tmux-agent-liveness.test.sh` builds it in real tmux with `script`, which holds the pane's foreground while its child runs on a terminal of its own.
+`tests/fm-backend-herdr.test.sh` pins the same process layout portably.
 `tests/fm-control-relaunch.test.sh` pins the launch check on its own: a `dead` reading over a pane still running a harness refuses in both `fm-control relaunch` and `fm-spawn --relaunch` before anything is typed.
 `tests/fm-herdr-session-cleanup.test.sh` proves session cleanup leaves such a pane alone, and `tests/fm-composer-lib.test.sh` pins the Pi busy indicator from the captured row.
 
@@ -1321,8 +1311,7 @@ Lab teardown completed with exit `0`, including the default-session tripwire.
 The zero grace accelerates only the experiment; the normal grace remains unchanged.
 Without Firstmate's hooks, Herdr reported the question panel as `blocked`, which did not classify as busy; that is a different path and does not establish this regression.
 
-This live proof covers the watcher and queue boundary; it does not establish live daemon-consumer delivery.
-`bin/fm-test-run.sh tests/fm-daemon.test.sh` exercises that consumer routing separately with portable regressions for busy escalation and busy-bookkeeping failures in away and quiet mode.
+This live proof covers the watcher and queue boundary.
 Repeat the hooked-worker check above before publication if watcher or task-inbox busy code changes; `bin/fm-test-run.sh tests/fm-task-inbox.test.sh` refreshes the portable ladder regressions.
 
 ## Pi repeated-read containment

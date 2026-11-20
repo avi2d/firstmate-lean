@@ -39,20 +39,11 @@
 #       || and an export list. A count that is not a decimal number, or that
 #       leaves no room in git's signed-int count, exits nonzero with an error.
 #
-# WHY THIS EXISTS. Claude launches already carry attribution-off in their
-# per-launch --settings JSON. Cursor and other non-Claude runtimes inject a
-# Co-Authored-By trailer at the tooling layer AFTER the worker types a clean
-# message, so the typed message is not the commit object.
-# A prior per-machine ~/.cursor/cli-config.json attribution-off is not durable:
-# it does not travel with Firstmate, it defaults back to on when unset, and it
-# only feeds the CLI's request to the server - the trailer text is emitted by
-# the model, so the setting suppresses rather than prevents it. Verified live
-# on cursor-agent 2026.09.15 with attribution on: the trailer is already in
-# .git/COMMIT_EDITMSG when the commit-msg hook runs, so the spawn-owned hook is
-# the layer that sees the assembled message before the commit object is written.
-# Command Code adds `Co-authored-by: CommandCodeBot <noreply@commandcode.ai>`
-# to worker commits by default (seen live on 1.74.1); only its settings files can
-# turn that off, with no per-process switch, so this strip is its only layer.
+# WHY THIS EXISTS. A runtime can inject a Co-Authored-By trailer at the tooling
+# layer AFTER the worker types a clean message, so the typed message is not the
+# commit object. The trailer is already in .git/COMMIT_EDITMSG when the
+# commit-msg hook runs, so the spawn-owned hook is the layer that sees the
+# assembled message before the commit object is written.
 # Human Co-Authored-By trailers are left untouched. Author identity is not
 # rewritten.
 #

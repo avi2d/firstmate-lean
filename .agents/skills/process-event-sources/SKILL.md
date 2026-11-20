@@ -133,7 +133,6 @@ The crew-hosted recovery ordering and arm-and-acknowledge rule are owned by the 
 Supported by tests:
 
 - output that reached the runner is stored atomically at mode `0600` **before** any event referencing it is published;
-- the remote-reply adapter reads its append-only source non-destructively from an offset plus prefix hash, so a pre-capture retry can derive the same bytes again, while source truncation or replacement is detected rather than silently rebased;
 - proactive delivery, adapter-owned terminal retirement, and adapter-owned automatic application follow the operating contract in [`docs/configuration.md`](../../../docs/configuration.md);
 - a durably captured result with no handled acknowledgement remains eligible for bounded re-announcement across any number of drains and restarts, and repeat wakes retain the same source and sequence for deduplication;
 - the handled acknowledgement is generation-keyed to the exact source and sequence, private, path-safe, durable, and idempotent, and is the only thing that stops re-announcement;
@@ -151,7 +150,6 @@ Also never claim that a source cannot refresh its owning home's lease: that rule
 
 The currently published `lavish-axi poll` destructively clears feedback before returning it.
 A result lost after that clearing and before the runner reads the process output is unrecoverable, and no firstmate wrapper can close that source-side window.
-The remote-reply adapter removes that particular pre-capture window by never consuming its source, but it cannot recover bytes truly lost from the remote log itself.
 Say these boundaries plainly wherever the behavior is described.
 
 ## Talking to the user about it

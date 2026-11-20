@@ -12,6 +12,7 @@ tests/fm-classify-corr-token.test.sh
 tests/fm-pending-reply.test.sh
 ```
 
+Three of those roots no longer exist on main, so the measurement and its reproduction hold only at that commit.
 ShellCheck was the repository-pinned 0.11.0 Darwin arm64 build.
 The baseline was one source-aware invocation containing all seven roots.
 Option A used one process per root, omitted `--external-sources`, retained extended dataflow, and applied the local cross-file exclusion list.
