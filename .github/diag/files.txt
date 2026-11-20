@@ -1,3 +1,8 @@
+tests/fm-backend-autodetect-smoke.test.sh
+tests/fm-backend-herdr-focus-flash-e2e.test.sh
+tests/fm-backend-herdr-launcher-workspace-e2e.test.sh
+tests/fm-backend-herdr-presentation-e2e.test.sh
+tests/fm-backend-herdr-smoke.test.sh
 tests/fm-backend-herdr.test.sh
 tests/fm-backlog-atomicity.test.sh
 tests/fm-bootstrap-network-parallel.test.sh
@@ -18,6 +23,7 @@ tests/fm-control-relaunch.test.sh
 tests/fm-crew-state.test.sh
 tests/fm-day-review.test.sh
 tests/fm-dispatch-resolve.test.sh
+tests/fm-documentation-audiences.test.sh
 tests/fm-extension-binding.test.sh
 tests/fm-flake-watch.test.sh
 tests/fm-fleet-ledger.test.sh
@@ -46,6 +52,7 @@ tests/fm-project-capacity.test.sh
 tests/fm-quota-choose.test.sh
 tests/fm-record-export-remote-home.test.sh
 tests/fm-remote-delta-read.test.sh
+tests/fm-remote-home-header-herdr-e2e.test.sh
 tests/fm-remote-worker-control.test.sh
 tests/fm-remote-worker-local-e2e.test.sh
 tests/fm-remote-worker-main-plane.test.sh

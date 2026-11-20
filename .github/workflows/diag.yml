@@ -27,27 +27,20 @@ jobs:
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
           npm install -g tasks-axi@0.2.6 @earendil-works/pi-coding-agent@1.6.0
           npm ci --prefix bin/fm-backlog-md --no-audit --no-fund
-      - name: Run each test function alone
+      - name: Run every test function and keep going past failures
         env:
           SHARD: ${{ matrix.shard }}
         run: |
           set +e -u
+          python3 -I .github/diag/patch.py tests/lib.sh
+          grep -n 'DIAGFAIL' tests/lib.sh
           i=0
           while IFS= read -r f; do
             i=$((i + 1))
             [ $((i % 12)) -eq "$SHARD" ] || continue
-            copy="tests/.diag-$(basename "$f")"
-            names=$(python3 -I .github/diag/split.py "$f" "$copy") || echo "DIAG $f SPLIT-FAILED"
-            if [ -z "$names" ]; then
-              timeout 600 bash "$f" > "$RUNNER_TEMP/out" 2>&1; rc=$?
-              echo "DIAG $f WHOLE rc=$rc"
-              [ "$rc" -eq 0 ] || grep -E 'not ok|No such file|command not found|REFUSED|error' "$RUNNER_TEMP/out" | head -4 | cut -c1-400 | sed 's/^/  | /'
-              continue
-            fi
-            for n in $names; do
-              timeout 300 bash .github/diag/run1.sh "$copy" "$n" > "$RUNNER_TEMP/out" 2>&1; rc=$?
-              echo "DIAG $f $n rc=$rc"
-              [ "$rc" -eq 0 ] || grep -E 'not ok|No such file|command not found|REFUSED|error' "$RUNNER_TEMP/out" | head -4 | cut -c1-400 | sed 's/^/  | /'
-            done
+            timeout 1200 bash "$f" > "$RUNNER_TEMP/out" 2>&1; rc=$?
+            echo "DIAG $f WHOLE rc=$rc"
+            grep -E -B3 '^DIAGFAIL ' "$RUNNER_TEMP/out" | grep -E '^(DIAGFAIL|not ok|error|.*No such file|.*command not found)' | cut -c1-400 | sed 's/^/  | /'
+            [ "$rc" -eq 0 ] || tail -5 "$RUNNER_TEMP/out" | cut -c1-400 | sed 's/^/  T /'
           done < .github/diag/files.txt
           exit 0
