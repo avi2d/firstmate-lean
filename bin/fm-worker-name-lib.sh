@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# Derive a display name without changing the ticket ID.
 
 fm_worker_numbered_id() {
   [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*-[1-9][0-9]*$ ]]
 }
 
-fm_worker_name_valid() { # <id> <name>
+fm_worker_name_valid() {
   local id=$1 name=$2 suffix
   [ "$name" != "$id" ] || return 0
   fm_worker_numbered_id "$id" || return 1
@@ -14,15 +13,16 @@ fm_worker_name_valid() { # <id> <name>
   [[ "$suffix" =~ ^[a-z0-9]{1,16}(-[a-z0-9]{1,16}){0,2}$ ]]
 }
 
-fm_worker_name_from_brief() { # <id> <brief>
-  local id=$1 name
-  name=$(sed -n '1,3s/^Worker name: //p' "$2") || return 1
-  name=${name:-$id}
+fm_worker_name_from_brief() {
+  local id=$1 name record
+  record=$(sed -n '1,3{/^Worker name: /p;}' "$2") || return 1
+  name=$id
+  [ -z "$record" ] || name=${record#Worker name: }
   fm_worker_name_valid "$id" "$name" || return 1
   printf '%s\n' "$name"
 }
 
-fm_worker_name_from_ticket() { # <id> <data-dir>
+fm_worker_name_from_ticket() {
   local id=$1 data=$2 row suffix
   if fm_worker_numbered_id "$id" &&
      fm_backlog_source_present "$data" "$data" &&

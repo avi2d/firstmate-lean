@@ -671,7 +671,14 @@ spawn_remote_worker() {
   fi
   capabilities=(capabilities)
   [ "$WORKER_NAME" = "$ID" ] || capabilities+=(worker-name)
-  out=$("$SCRIPT_DIR/fm-on.sh" "$route" fm-remote-worker-control.sh "${capabilities[@]}" </dev/null) || return $?
+  rc=0
+  out=$("$SCRIPT_DIR/fm-on.sh" "$route" fm-remote-worker-control.sh "${capabilities[@]}" </dev/null) || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    if [ "$WORKER_NAME" != "$ID" ]; then
+      echo "error: could not confirm worker naming support on $host; check the route and update the remote code root before retrying" >&2
+    fi
+    return "$rc"
+  fi
   [ "$out" = fm-remote-worker-control.v2 ] || { echo "error: remote worker protocol v2 is unavailable (the remote code root is older than this home; update that host before dispatching workers to it)" >&2; return 1; }
   if [ -n "$CLAUDE_ACCOUNT" ]; then
     rc=0
@@ -2196,7 +2203,7 @@ if [ "$KIND" = ship ]; then
   # announced, not refused: the brief-vs-spawn agreement above already
   # guarantees the worker's instructions match the branch this spawn selected.
   STANDING_BRANCH=$("$FM_ROOT/bin/fm-project-mode.sh" --branch-prefix "$PROJ_NAME" 2>/dev/null) || STANDING_BRANCH=
-  if [ "$BRANCH" != "$STANDING_BRANCH$ID" ]; then
+  if [ "$BRANCH" != "$STANDING_BRANCH$WORKER_NAME" ]; then
     echo "notice: $ID ships branch=$BRANCH while $PROJ_NAME registers the ship-branch prefix '$STANDING_BRANCH' (branch $STANDING_BRANCH$WORKER_NAME) - the task's branch and PR will read as firstmate-authored; proceed only on a current explicit captain instruction or an intake judgment you can state" >&2
   fi
 fi
