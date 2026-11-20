@@ -2,10 +2,7 @@
 # Shared wake classifier: the common source of truth for captain-relevant status
 # tests, declared-external-wait vocabulary, and the working/paused absorb
 # classification that makes no-verb signal and stale-pane wakes safe to absorb.
-# Sourced by BOTH the always-on watcher
-# (bin/fm-watch.sh) and the away-mode daemon (bin/fm-supervise-daemon.sh) so the
-# overlapping triage policy lives in one place instead of two copies that can
-# drift apart.
+# Sourced by the always-on watcher (bin/fm-watch.sh).
 #
 # Most functions are pure, side-effect-free reads of status files: each takes
 # what it needs as arguments and touches no globals beyond the optional
@@ -116,16 +113,16 @@ FM_CLASSIFY_PAUSED_VERB_DEFAULT='paused'
 # recheck is a backstop, not progress, and an hourly one only produced nagging
 # (the 2026-09-07 away-window audit). A worker that knows when its wait clears
 # names it with `until` (status_paused_until below) and is rechecked at that
-# time or this cadence bound, whichever comes first. Both consumers read
+# time or this cadence bound, whichever comes first. Consumers read
 # FM_PAUSE_RESURFACE_SECS with this default so
 # the cadence has one owner. An item held for the captain is not rechecked at all
 # while the away-posture record exists (bin/fm-watch.sh owns that rule).
-# shellcheck disable=SC2034 # Read by the watcher and daemon (fm-watch.sh, fm-supervise-daemon.sh), not this lib.
+# shellcheck disable=SC2034 # Read by fm-watch.sh, not this lib.
 FM_PAUSE_RESURFACE_SECS_DEFAULT=14400
 
 # fm_utc_iso_to_epoch <YYYY-MM-DDTHH:MM[:SS]Z>: the one portable UTC ISO 8601
-# reader shared by the declared-wait vocabulary and the away-posture record
-# (bin/fm-afk-contract.sh). Prints epoch seconds; returns 1 on any other shape
+# reader shared by the declared-wait vocabulary and the away-posture record.
+# Prints epoch seconds; returns 1 on any other shape
 # so a malformed time is refused rather than read as "now".
 fm_utc_iso_to_epoch() {  # <timestamp>
   local ts=$1
@@ -498,8 +495,7 @@ status_stamp_width() {  # -> characters a stamp adds to a line
 
 # Strip the one well-formed time tag _fm_status_at_epoch accepts, for readers
 # that need a stamped line as the exact bytes it carried before stamping:
-# retry-dedup identity here, and the pending-reply escalation match in
-# bin/fm-pending-reply-lib.sh, which compares against its own literal spellings.
+# retry-dedup identity.
 # Every other [at=...] byte run - malformed, duplicate, or outside the canonical
 # bounds - is ordinary line bytes here, never a time tag, so a retry of it stays
 # a distinct event. A reader that instead asks where the HEAD ends owns a more
@@ -552,10 +548,8 @@ _fm_status_unstamped() {  # <status-line> <out-var> -> line with its stamp remov
 # already-recorded event can never read as a new one.
 # A match stays recorded for the life of the file, whatever follows it: a
 # later resolved line for the same key does not make the line new again, so a
-# caller that re-reads an unchanged source after an operator resolve (the
-# continuity break in bin/fm-procevent-remote-reply.sh, which does not advance
-# its cursor) appends nothing. A caller that owns evidence of a new episode
-# decides that itself, as bin/fm-pending-reply-lib.sh's escalation does.
+# caller that re-reads an unchanged source after an operator resolve appends
+# nothing. A caller that owns evidence of a new episode decides that itself.
 status_event_recorded() {  # <status-file> <new-status-line>
   local wanted line untimed
   [ -f "$1" ] || return 1
@@ -606,9 +600,8 @@ status_event_recorded() {  # <status-file> <new-status-line>
 # ends at the first tag rather than special-casing "[key=...]".
 #
 # Correlation tokens. That bracket rule already covers every BRACKETED tag,
-# including the "[corr=<16 hex>]" form bin/fm-secondmate-report.sh writes. It
-# does not cover the UNBRACKETED token that bin/fm-pending-reply-lib.sh writes
-# (fm_pending_reply_corr_token), which a secondmate answering a marked request
+# including the "[corr=<16 hex>]" form. It does not cover the UNBRACKETED
+# corr=<16 hex> token, which a secondmate answering a marked request
 # echoes on its parent status line ahead of the key tag (bin/fm-brief.sh), so a
 # real transition routinely arrives as
 #   needs-decision corr=<16 hex> [key=texte-du-mur]: <summary>
@@ -621,13 +614,7 @@ status_event_recorded() {  # <status-file> <new-status-line>
 # keeps that token, so its following word cannot impersonate a transition and
 # close a decision the captain is owed.
 #
-# The token grammar is OWNED by bin/fm-pending-reply-lib.sh
-# (fm_pending_reply_corr_token, FM_PENDING_REPLY_CORR_RE). That library sources
-# this one, so it cannot be sourced back here; the pattern below is a deliberate
-# second statement of the SHAPE alone, and tests/fm-classify-corr-token.test.sh
-# pins the two together through the real writers so they cannot drift.
-#
-# Recognition is deliberately narrow: EXACTLY the token that writer emits, whole
+# Recognition is deliberately narrow: EXACTLY the corr=<16 hex> token, whole
 # word, and nothing else. An arbitrary "<name>=<value>" token is NOT skipped.
 # Skipping unknown tokens would be the permissive road - it would let any
 # free-text word carrying an equals sign ("resolved x=1 [key=k]: ...") reduce to
@@ -640,8 +627,7 @@ status_event_recorded() {  # <status-file> <new-status-line>
 # extra words and therefore stays a non-transition, exactly as before.
 #
 # The 16 hex classes are written out literally rather than built from a
-# variable, the same way bin/fm-secondmate-report.sh validates the id it is
-# handed: a variable holding a glob is only re-read as a pattern under some
+# variable: a variable holding a glob is only re-read as a pattern under some
 # shells' expansion rules, and a safety parse must not turn on that.
 #
 # 0 if <word> is, in whole, an unbracketed correlation token this fleet's own
@@ -981,8 +967,7 @@ EOF
 # The subset of status_open_decisions the task raised about its own work: a
 # reserved-namespace key is raised by a supervisor library about the task (a
 # pending-reply escalation), a `remote-reply-continuity-` key is the parent's
-# own blocker about a broken remote reply mirror
-# (bin/fm-procevent-remote-reply.sh), and a `captain-hold-` key relays a child
+# own blocker about a broken remote reply mirror, and a `captain-hold-` key relays a child
 # decision a secondmate escalated to the captain (bin/fm-captain-hold.sh) while
 # it keeps working, so the task is not waiting on any of them. Pending-reply
 # recovery and a fire-and-forget retry ring consult this set and leave a task
@@ -1161,14 +1146,6 @@ EOF
   fi
   printf '%s' "$verb"
 }
-
-# The status file inside <state> that is this home's outbound parent channel
-# rather than a self-home task status log, printed; empty when there is none.
-# Only a remote mate home resolves one - its state/parent-replies.status is the
-# parent channel (bin/fm-parent-channel-lib.sh owns that resolution, sourced
-# lazily here because that library sources this one at its top level, so a
-# top-level source would be circular). A main home, a local mate - whose
-# channel lives in the parent home - or an unusable identity or binding keeps
 
 # Fleet-wide wrapper around status_open_decisions: scans every task's status
 # log under <state> and prefixes each still-open decision with its owning task

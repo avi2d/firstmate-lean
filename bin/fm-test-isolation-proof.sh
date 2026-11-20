@@ -115,26 +115,21 @@ exclusion_reason() {
     fm-herdr-session-cleanup.test.sh)
       printf '%s\n' 'session-start task/presentation lock matrix; keep serial until dedicated concurrent proof'
       ;;
-    fm-daemon.test.sh|fm-guard-stale-banner.test.sh|fm-pi-watch-extension.test.sh|\
-    fm-supervision-events.test.sh|fm-turnend-guard.test.sh|fm-wake-daemon-lifecycle-e2e.test.sh|\
+    fm-guard-stale-banner.test.sh|fm-pi-watch-extension.test.sh|\
+    fm-supervision-events.test.sh|fm-turnend-guard.test.sh|\
     fm-wake-queue.test.sh|fm-watch-triage.test.sh|\
     fm-watch-triage-pause.test.sh|fm-watch-triage-wedge-defer.test.sh|\
     fm-watcher-lock.test.sh)
       printf '%s\n' 'watcher/wake/lock family; intentional process locks and daemon races'
       ;;
-    fm-afk-inject-e2e.test.sh|fm-afk-return.test.sh|fm-afk-inject-herdr-e2e.test.sh|\
-    fm-afk-launch.test.sh)
-      printf '%s\n' 'AFK lifecycle / inject path; exclusive daemon and pane control'
-      ;;
-    fm-afk-pi-herdr-return-e2e.test.sh|\
-    fm-quota-array-dispatch-live-e2e.test.sh|fm-send-secondmate-marker-herdr-e2e.test.sh)
+    fm-quota-array-dispatch-live-e2e.test.sh)
       printf '%s\n' 'live harness opt-in; never default parallel CI'
       ;;
     fm-backend-autodetect-smoke.test.sh|fm-backend-herdr-eventwait-smoke.test.sh|\
     fm-backend-herdr-presentation-e2e.test.sh|fm-backend-herdr-prune-safety-e2e.test.sh|\
     fm-backend-herdr-respawn-idem-e2e.test.sh|fm-backend-herdr-smoke.test.sh|\
     fm-backend-herdr-agent-exit-shell-e2e.test.sh|\
-    fm-backend-herdr-workspace-per-home-e2e.test.sh|fm-herdr-session-cleanup-e2e.test.sh)
+    fm-herdr-session-cleanup-e2e.test.sh)
       printf '%s\n' 'real Herdr-gated; Herdr lane is a later phase'
       ;;
     *)
@@ -185,7 +180,6 @@ fm-pr-check-security.test.sh
 fm-teardown.test.sh
 fm-watcher-lock.test.sh
 fm-wake-queue.test.sh
-fm-afk-inject-e2e.test.sh
 fm-backend-herdr-smoke.test.sh
 fm-quota-array-dispatch-live-e2e.test.sh
 EOF

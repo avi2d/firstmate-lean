@@ -134,7 +134,7 @@ FM_BACKEND_HERDR_PRESENTATION_FLOOR_MARKER_PREFIX=".herdr-presentation-floor-"
 # Per-pane escalation dedupe marker prefix, under the state dir
 # (bin/fm-transition-lib.sh owns the dedupe contract).
 FM_BACKEND_HERDR_ESCALATED_PREFIX=".herdr-escalated-"
-# .fm-secondmate-home is written by bin/fm-home-seed.sh (AGENTS.md section 6)
+# .fm-secondmate-home, when present, sits
 # at a seeded secondmate home's root, containing exactly that secondmate's id.
 # The primary firstmate home never carries this marker.
 # The presentation projection is intentionally separate from the authoritative
@@ -3571,8 +3571,7 @@ fm_backend_herdr_composer_state() {  # <target> -> empty|pending|pending-unprove
 }
 
 # fm_backend_herdr_rendered_busy_state: busy|idle|unknown from the pane's
-# RENDERED busy footer, the same delivery-only signal bin/fm-tmux-lib.sh's
-# fm_pane_busy_state reads, scanning the same 40-line tail folded to its last
+# RENDERED busy footer, a delivery-only signal read from a 40-line tail folded to its last
 # 12 non-blank rows. This is NOT a worker-state source: herdr's native
 # agent-state (fm_backend_herdr_busy_state) stays the semantic owner, and this
 # read exists only so the submit core below can confirm a delivery for a
@@ -3654,9 +3653,8 @@ fm_backend_herdr_rendered_busy_state() {  # <target> [harness] -> busy|idle|unkn
 # composer that holds no user text at all and every steer reported delivery
 # unconfirmed on a message that had actually landed.
 # The escape is the SAME semantic signal the idle-baseline path uses, read from
-# the pane's verified busy footer instead of native agent-state, and it is the
-# rendered-footer twin of the tmux submit core's turn-started confirmation
-# (bin/fm-tmux-lib.sh): an idle-to-busy transition ACROSS our Enter is proof the
+# the pane's verified busy footer instead of native agent-state: an
+# idle-to-busy transition ACROSS our Enter is proof the
 # harness accepted the submission. The baseline is taken before the first Enter
 # and only when the native baseline was not legibly idle, so the idle-baseline
 # path still never reads pane content until native stays idle. A pane already

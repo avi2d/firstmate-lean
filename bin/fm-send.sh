@@ -83,7 +83,7 @@
 # Parent-owned pending-reply expectation: every newly marked secondmate request
 # except an explicit --fire-and-forget delivery receives a privacy-safe
 # correlation id and a durable parent record under state/pending-replies/ before
-# delivery (bin/fm-pending-reply-lib.sh). Delivery
+# delivery. Delivery
 # success and reply success are separate facts: delivery never resolves the
 # expectation. On the inbox plane the durable enqueue IS delivery to the task's
 # record, so the expectation is marked delivered at enqueue time; when that
@@ -102,7 +102,7 @@
 # idempotent while allowing a later identical instruction to be distinct.
 #
 # Remote secondmate delivery: the send crosses fm-on.sh to a host-local leg
-# (bin/fm-remote-secondmate-control.sh cmd_send_stdin) that writes the message as a
+# that writes the message as a
 # durable record into the remote home's steering inbox and rings the remote
 # doorbell, best-effort. The message body travels on the leg's stdin, never as
 # an SSH exec argument, so its size is not bounded by remote argv limits; the

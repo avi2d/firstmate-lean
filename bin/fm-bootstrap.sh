@@ -98,8 +98,8 @@
 #          retention an interrupted cleanup recorded, and marks In flight any
 #          item this home already owns a worker for. The worker-record sweep
 #          never starts a captain-held or closed item, and reconciliation never
-#          reads or writes another home; the fleet snapshot's classifier and
-#          bin/fm-secondmate-reconcile.sh's nudge stay as backstops. Replayed
+#          reads or writes another home; the fleet snapshot's classifier stays
+#          as a backstop. Replayed
 #          transitions and restored In-flight rows print BOOTSTRAP_INFO facts.
 #          The `code-root <file>` variant is a detect-only local check that runs
 #          even in a read-only session; detect_code_root_backlog_fork owns what
@@ -571,9 +571,8 @@ crew_dispatch_validate() {
 # (bin/fm-backlog-transition-lib.sh), so remaining recovery cases include a
 # process killed mid-transition and drift this home was already carrying. Heal
 # this home's OWN books on its own
-# restart rather than waiting for a parent's cross-home nudge; the fleet
-# snapshot's classifier and bin/fm-secondmate-reconcile.sh's nudge stay as
-# backstops for what this cannot see. Never reads or writes another home.
+# restart; the fleet snapshot's classifier stays as a backstop for what this
+# cannot see. Never reads or writes another home.
 backlog_record_reconcile() {
   local marker meta control_lock meta_lock id row label has_record=0 gate_status
   # A fresh home with no state directory has no physical task records to pair.

@@ -257,7 +257,7 @@ fm_watcher_healthy() {
 
 # fm_watcher_healthy above is the PID-STRICT primitive: true only when a live,
 # identity-matched watcher PROCESS holds this home's lock with a fresh beacon. The
-# arm layer (bin/fm-watch-arm.sh, bin/fm-claude-stop-autoarm.sh) needs exactly
+# arm layer (bin/fm-watch-arm.sh) needs exactly
 # that - it decides whether to start, attach to, or replace a real watcher
 # process, so a leftover beacon must never satisfy it. bin/fm-turnend-guard.sh
 # also keeps this strict check because it fires at the turn boundary where the
@@ -1767,8 +1767,8 @@ fm_treehouse_pool_slot() {  # <project-dir> <worktree>
 #
 # Treehouse can record ownership durably: `treehouse get --lease --lease-holder`
 # reserves a slot under a label until `treehouse return --if-lease-holder`
-# releases it, and Firstmate uses exactly that for secondmate homes
-# (bin/fm-home-seed.sh). Herdr crewmate spawns take that path too; the other
+# releases it, and Firstmate uses exactly that for secondmate homes.
+# Herdr crewmate spawns take that path too; the other
 # crewmate spawns acquire their slot through the interactive pane-driven
 # `treehouse get`, whose state
 # entry is a live process lease (owner_pid plus owner_started_at, and `treehouse
@@ -1868,8 +1868,7 @@ fm_treehouse_slot_owner_release() {  # <worktree> <task-id>
 # <first-state>; <own-meta> need not exist. Sets FM_WORKTREE_OTHER_ID,
 # FM_WORKTREE_OTHER_META and FM_WORKTREE_OTHER_FIELD. Returns 0 when one is
 # found, 1 when none is, and 2 with FM_LOCAL_FIRSTMATE_ERROR when the homes
-# cannot be enumerated. Requires bin/fm-secondmate-registry-lib.sh and
-# bin/fm-backend.sh to be sourced first.
+# cannot be enumerated. Requires bin/fm-backend.sh to be sourced first.
 fm_worktree_other_record() {  # <first-state> <own-meta> <worktree>
   local first=$1 own=$2 worktree=$3 slot state_dir other field other_path other_slot
   FM_WORKTREE_OTHER_ID=
@@ -2000,8 +1999,8 @@ fm_failure_episode_reset() {
 }
 
 # --- Claude Stop auto-arm generation claims -----------------------------------
-# Both Stop-event participants (bin/fm-claude-stop-autoarm.sh and
-# bin/fm-turnend-guard.sh --claude) coordinate through the epoch ledger
+# Stop-event participants (bin/fm-turnend-guard.sh --claude) coordinate
+# through the epoch ledger
 # state/.claude-autoarm-epoch, whose monotonic epoch sequence IS the claim
 # generation. This is an optimistic, generation-based single-flight design:
 #
@@ -2043,8 +2042,7 @@ fm_failure_episode_reset() {
 #     The reachability test is what makes a claim deliverable: a hook whose
 #     session exited mid-cycle stays alive, reparented to init, with no parent
 #     to receive its exit 2, so deferring to it leaves the home deaf until a
-#     captain turn (tests/fm-claude-stop-autoarm.test.sh,
-#     test_orphaned_claim_from_dead_session_is_superseded_by_replacement). Such
+#     captain turn. Such
 #     an orphan fails both signals: it no longer descends from the replacement's
 #     lock pid, and its recorded lock-holder identity is the dead session's,
 #     whichever id the sidecar carries after lock recovery. An entry written by

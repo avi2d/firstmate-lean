@@ -161,7 +161,7 @@ usage_warner_read() {
 # Post a macOS Notification Center banner. `display notification` is OS-level,
 # independent of any terminal pane. The summary is passed as an argv item
 # (never interpolated into the AppleScript source) so its text can never break
-# the script, matching bin/fm-supervise-daemon.sh's own osascript notifier.
+# the script.
 usage_warner_notify() {  # <summary>
   local summary=$1
   command -v osascript >/dev/null 2>&1 || {

@@ -183,7 +183,7 @@
 #                          same guarded fm-spawn.sh --secondmate path the
 #                          session-start sweep uses; one wake per relaunch, and
 #                          state/.secondmate-relaunch-<id> keeps the durable
-#                          per-mate count (bin/fm-secondmate-liveness-lib.sh)
+#                          per-mate count
 #   check: secondmate <id> auto-relaunch failed after <cause>: <detail>
 #                          the same verdict authorized recovery but the
 #                          relaunch itself failed; the attempt is ledgered and
@@ -2853,8 +2853,8 @@ fm_wait_tmp_cleanup() {
 # One queued signal row per distinct file in a <sentinel>\t<sig>\t<file> list,
 # its payload naming only that file. The payload prefix is "needs-decision:"
 # for a file in FM_SIGNAL_NEEDS_DECISION_FILES and "signal:" otherwise; the Pi
-# branch dispatcher (fm-branch-dispatch.ts, fm-primary-pi-watch.ts) and the
-# away daemon's handle_wake (bin/fm-supervise-daemon.sh) branch on that prefix.
+# branch dispatcher (fm-branch-dispatch.ts, fm-primary-pi-watch.ts) branches on
+# that prefix.
 queue_signal_rows() {  # <pending-list>
   local pending=$1 sf f payload queued=" "
   while IFS=$(printf '\t') read -r sf _ f; do
@@ -3405,7 +3405,7 @@ resurface_after_downtime() {
 while :; do
   wait_items=
   # Native Codex may tear down the async hook and its watchdog together.
-  # fm-codex-stop-park.sh owns this optional identity binding. Self-expiry
+  # FM_CODEX_PARK_OWNER_PID is an optional identity binding. Self-expiry
   # closes the normal recovery generation and lets the arm/host exit too.
   if [ -n "${FM_CODEX_PARK_OWNER_PID:-}" ] \
     && { ! fm_pid_alive "$FM_CODEX_PARK_OWNER_PID" \

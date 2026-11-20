@@ -4,9 +4,8 @@
 # ONE owner of the "which verified-harness process holds this home's session
 # lock, and does the current process run inside that same session?" decision.
 # bin/fm-lock.sh uses it to acquire and inspect state/.lock and its
-# state/.lock-session sidecar; bin/fm-claude-stop-autoarm.sh uses it to prove a
-# Stop hook fires inside the lock-owning primary session before it may arm or
-# rewake. Two signals decide ownership, either one sufficient: the recorded pid
+# state/.lock-session sidecar. Two signals decide ownership, either one
+# sufficient: the recorded pid
 # is a member of this process's contiguous harness ancestry, or the trusted
 # Claude session id below matches the id recorded beside a live lock. Neither
 # signal ever fails open: no id, no sidecar, an untrusted id, or a different
@@ -25,8 +24,7 @@ FM_HARNESS_RE='claude|codex|opencode|grok|kimi|^pi$|^pi-signed$|^omp$|^agy$'
 
 # The same harnesses as exact executable names. Keep in sync with
 # FM_HARNESS_RE. Used only for the stricter path evidence below, where the
-# loose regex would also match ordinary firstmate paths such as
-# bin/fm-claude-stop-autoarm.sh.
+# loose regex would also match ordinary paths that contain a harness name.
 FM_HARNESS_NAMES=(claude codex opencode grok kimi pi-signed pi omp agy)
 
 # Print the exact harness name carried by executable path $1 - its own basename
@@ -36,7 +34,7 @@ FM_HARNESS_NAMES=(claude codex opencode grok kimi pi-signed pi omp agy)
 # executable by its version (~/.local/share/claude/versions/2.1.220), so the
 # basename identifies nothing while the install path still says claude. Matching
 # whole path components only is what keeps that widening safe: an ordinary path
-# such as bin/fm-claude-stop-autoarm.sh or ~/.claude/hooks/notify.sh has no
+# such as ~/.claude/hooks/notify.sh has no
 # "claude" component and is correctly not a harness process.
 fm_harness_path_name() {  # <path>
   local path=$1 name
@@ -336,8 +334,8 @@ fm_os_proc_triple() {  # <pid>
   local -a argv
   case "$(uname -s 2>/dev/null)" in
     Linux)
-      # The repo's other /proc readers (bin/fm-cursor-lib.sh,
-      # bin/fm-wake-lib.sh, bin/fm-teardown.sh) all take
+      # The repo's other /proc readers (bin/fm-wake-lib.sh,
+      # bin/fm-teardown.sh) all take
       # FM_PROC_ROOT_OVERRIDE so a fixture tree can drive them; this
       # reader honors the same hook for the same reason.
       proc_root=${FM_PROC_ROOT_OVERRIDE:-/proc}

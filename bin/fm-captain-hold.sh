@@ -215,8 +215,8 @@
 # Parent channel: inside a secondmate home a task held for the captain, and its
 # answer, are captain-facing facts the moment they are recorded, so `hold`
 # publishes `needs-decision [key=captain-hold-<task>-<n>]` and `answer` (and
-# `answers`) the matching `resolved` line on the parent channel through
-# bin/fm-parent-channel-lib.sh, whether or not the mate model appends anything.
+# `answers`) the matching `resolved` line on the parent channel, whether or
+# not the mate model appends anything.
 # <n> is the count of resolution records the body already carries plus one, so
 # a released and re-held task opens and closes a distinct parent decision with
 # no new persisted state, and an exact retry republishes the same line, which

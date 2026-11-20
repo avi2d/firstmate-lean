@@ -8,8 +8,7 @@
 # path.
 #
 # The destination is the home's role, never the caller's choice:
-#   - a secondmate home reports upward on its parent channel, resolved and
-#     appended through bin/fm-parent-channel-lib.sh under its channel contract;
+#   - a secondmate home reports upward on its parent channel;
 #   - a main home reports to the captain through the durable wake queue.
 # A poll observed in a secondmate home also receives a local durable wake after
 # the upward write, so the mate can handle its own poll observation.

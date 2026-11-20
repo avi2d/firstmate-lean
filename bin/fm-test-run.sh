@@ -346,8 +346,7 @@ family_for_basename() {
     fm-remote-doctor.test.sh|fm-remote-herdr-guard.test.sh|fm-remote-job.test.sh|fm-remote-job-orphan-reap.test.sh|fm-remote-job-process-start.test.sh|\
     fm-remote-job-idle-forks.test.sh|fm-remote-job-settled-cadence.test.sh|\
     fm-remote-transport-lanes.test.sh|\
-    fm-startup-memory-budget.test.sh|\
-    fm-shared-captain-inheritance.test.sh)
+    fm-startup-memory-budget.test.sh)
       printf '%s\n' secondmate
       ;;
     fm-backlog-atomicity.test.sh|\
@@ -1500,9 +1499,7 @@ families_for_changed_path() {
       printf '%s\n' secondmate
       printf '%s\n' session-bootstrap
       ;;
-    bin/fm-remote*|bin/fm-on.sh|\
-    bin/fm-config-inherit-lib.sh|bin/fm-config-push.sh|bin/fm-shared*|\
-    bin/fm-stow-cascade.sh)
+    bin/fm-remote*|bin/fm-on.sh)
       printf '%s\n' secondmate
       ;;
     bin/fm-session-start.sh|bin/fm-fleet-sync.sh|\

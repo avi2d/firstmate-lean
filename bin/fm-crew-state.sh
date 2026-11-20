@@ -40,7 +40,7 @@
 #      recording remote_host= is a remote secondmate: its worktree and endpoint
 #      live on that host, so the local worktree and pane reads are skipped and
 #      the remote host is asked for the endpoint's recovery-grade state
-#      (fm-on.sh + fm-remote-secondmate-control.sh state). alive falls through
+#      (through fm-on.sh). alive falls through
 #      to the routed status log; dead/missing report the remote verdict; an
 #      unreachable or unreadable remote reports unknown-remote, never a false
 #      gone/dead.

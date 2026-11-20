@@ -932,17 +932,14 @@ ROOT_GRACE=${FM_LINT_ROOT_GRACE:-5}
 # address space, not resident memory; ShellCheck's GHC runtime reserves about
 # a third of that space, leaving ~8 GiB usable heap per root. Measured x86_64
 # demand for the heaviest roots is near 5.5-6 GiB: the 8 GiB address-space
-# cap's ~5.33 GiB wall caught bin/fm-spawn.sh, bin/fm-teardown.sh,
-# tests/fm-pending-reply.test.sh, and
-# tests/fm-launch-prompt-signals-live-e2e.test.sh. CI runs one root per
+# cap's ~5.33 GiB wall caught bin/fm-spawn.sh and bin/fm-teardown.sh. CI runs one root per
 # lint job, so worst-case resident demand is ~8 GiB plus runner overhead,
 # inside the 16 GiB runner. Local lint defaults to two workers; two such
 # caps allow ~16 GiB resident plus host overhead, so use FM_LINT_JOBS=1 on
 # smaller local machines. A root that exceeds its cap fails by name.
 # Never disable, narrow, or redirect source-following to fit a root under
 # the cap. The roots sidecar records each root's peak RSS; roots peaking
-# above about 3 GiB resident are reduction candidates,
-# bin/fm-pending-reply-lib.sh first (its separate dedup fix is PR 5753).
+# above about 3 GiB resident are reduction candidates.
 ROOT_MEMORY_KIB=${FM_LINT_ROOT_MEMORY_KIB:-12582912}
 for bound_pair in \
   "FM_LINT_ROOT_SECONDS=$ROOT_SECONDS" \

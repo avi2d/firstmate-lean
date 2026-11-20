@@ -220,8 +220,7 @@ backlog_json() (  # [<backlog-path>] - defaults to this home's $BACKLOG
     # explicit kind to read. Without this fallback a scout whose title starts
     # with SCOUT reports kind null, its
     # recorded report stops counting as a delivery, and it drops out of Recently
-    # Landed - the defect this selector exists to fix. Pinned by
-    # the producer word-boundary regression in tests/fm-bearings-snapshot.test.sh.
+    # Landed - the defect this selector exists to fix.
     def kind_of($rest):
       metadata($rest; "kind") as $kind
       | if $kind != null then $kind

@@ -780,8 +780,6 @@ export default function (pi: ExtensionAPI) {
   }
 
   function offerWakeToBranch(message: string): Promise<void> | null {
-    // lib/fm-branch-dispatch.ts owns the offer rule for one close, shared with
-    // the supervision host off Pi (bin/fm-branch-dispatch.mjs offer).
     const { scope, heartbeat, eligible } = branchOfferForWake(state, message);
     const offer = createBranchDispatchOffer(message, scope.projects, heartbeat, eligible);
     pi.events?.emit?.(FM_BRANCH_DISPATCH_EVENT, offer);
