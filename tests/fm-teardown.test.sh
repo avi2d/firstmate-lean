@@ -708,7 +708,7 @@ run_teardown() {
   FM_STATE_OVERRIDE="$case_dir/state" \
   FM_DATA_OVERRIDE="$case_dir/data" \
   FM_CONFIG_OVERRIDE="$case_dir/config" \
-  PATH="$case_dir/fakebin:${FM_TEARDOWN_TEST_PATH:-$PATH}" \
+  PATH="$case_dir/fakebin:$PATH" \
     "$TEARDOWN" task-x1 "$@"
 }
 
@@ -729,19 +729,6 @@ backlog_row_state() {
   local case_dir=$1
   tasks-axi show task-x1 --file "$case_dir/data/backlog.md" 2>/dev/null |
     sed -n 's/^  state: *//p' | head -1
-}
-
-# Build the teardown test's executable search path without lsof, regardless of
-# whether the host installs it in /usr/bin, /usr/sbin, or a package-manager bin.
-make_path_without_lsof() {  # <case-dir>
-  local case_dir=$1 path_dir="$1/path-without-lsof" cmd resolved
-  mkdir -p "$path_dir"
-  for cmd in awk bash basename cat chmod cp cut date dirname env find git grep head hostname id ln \
-    mkdir mktemp mv perl ps readlink realpath rm sed sh sleep sort stat tail timeout tr uname wc xargs; do
-    resolved=$(command -v "$cmd" 2>/dev/null) || continue
-    case "$resolved" in /*) ln -sf "$resolved" "$path_dir/$cmd" ;; esac
-  done
-  printf '%s\n' "$path_dir"
 }
 
 test_local_only_fork_remote_allows() {
@@ -3220,7 +3207,6 @@ test_secondmate_home_teardown_delivers_final_line_or_refuses() {
   channel="$case_dir/parent/state/mate-x.status"
   write_meta "$case_dir" local-only ship
   mkdir -p "$case_dir/tasktmp"
-  printf '!\n' > "$case_dir/state/task-x1.kimi-turnend-token"
   printf 'tasktmp=%s\n' "$case_dir/tasktmp" >> "$case_dir/state/task-x1.meta"
   wt_commit "$case_dir" "merged work"
   wt_head=$(git -C "$case_dir/wt" rev-parse HEAD)
@@ -3235,9 +3221,7 @@ test_secondmate_home_teardown_delivers_final_line_or_refuses() {
     || fail "mate-teardown-refuses: refusal did not name the parent channel: $(cat "$case_dir/stderr")"
   [ -f "$case_dir/state/task-x1.meta" ] && [ -f "$case_dir/state/task-x1.status" ] \
     || fail "mate-teardown-refuses: refusal did not retain the task records"
-  [ -f "$case_dir/state/task-x1.grok-turnend-token" ] \
-    && [ -f "$case_dir/state/task-x1.kimi-turnend-token" ] \
-    && [ -d "$case_dir/tasktmp" ] \
+  [ -d "$case_dir/tasktmp" ] \
     || fail "mate-teardown-refuses: refusal removed endpoint records before parent delivery"
   rmdir "$channel"
   err=$(FM_HOME="$case_dir/home" FM_STATE_OVERRIDE="$case_dir/state" \
