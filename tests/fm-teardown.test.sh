@@ -6586,6 +6586,37 @@ test_local_only_pushed_branch_ignores_open_pr() {
   pass "a local-only task on a pushed branch is cleaned up whatever PR its branch has"
 }
 
+test_automatic_cleanup_preserves_dirty_merged_worker() {
+  local case_dir out
+  case_dir=$(make_case auto-dirty)
+  write_meta "$case_dir" direct-PR ship
+  printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
+  add_gh_pr_merged_for_head "$case_dir" "$(git -C "$case_dir/wt" rev-parse HEAD)"
+  printf '%s\n' dirty > "$case_dir/wt/uncommitted"
+  out=$(FM_HOME="$case_dir" FM_STATE_OVERRIDE="$case_dir/state" FM_DATA_OVERRIDE="$case_dir/data" \
+    FM_CONFIG_OVERRIDE="$case_dir/config" PATH="$case_dir/fakebin:$PATH" \
+    "$ROOT/bin/fm-finished-cleanup.sh" sweep 2>&1) || true
+  assert_present "$case_dir/state/task-x1.meta" "automatic cleanup removed a dirty worker"
+  assert_present "$case_dir/wt/uncommitted" "automatic cleanup discarded uncommitted work"
+  printf '%s\n' "$out" | grep -F 'REFUSED' >/dev/null || fail "automatic cleanup did not report its refusal: $out"
+  pass "automatic cleanup reports refusal and preserves a dirty merged worker"
+}
+
+test_automatic_cleanup_retires_merged_worker() {
+  local case_dir out
+  case_dir=$(make_case auto-merged)
+  write_meta "$case_dir" direct-PR ship
+  printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
+  add_gh_pr_merged_for_head "$case_dir" "$(git -C "$case_dir/wt" rev-parse HEAD)"
+  out=$(FM_HOME="$case_dir" FM_STATE_OVERRIDE="$case_dir/state" FM_DATA_OVERRIDE="$case_dir/data" \
+    FM_CONFIG_OVERRIDE="$case_dir/config" PATH="$case_dir/fakebin:$PATH" \
+    "$ROOT/bin/fm-finished-cleanup.sh" sweep 2>&1) || fail "automatic cleanup failed: $out"
+  assert_absent "$case_dir/state/task-x1.meta" "automatic cleanup left the merged worker open: $out"
+  pass "automatic cleanup retires a merged worker"
+}
+
+test_automatic_cleanup_preserves_dirty_merged_worker
+test_automatic_cleanup_retires_merged_worker
 test_scout_board_is_preserved_via_export
 test_scout_board_falls_back_to_plain_copy
 test_scout_board_copy_failure_refuses_cleanup
