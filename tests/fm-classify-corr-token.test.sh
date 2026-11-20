@@ -337,7 +337,9 @@ test_crew_state_case_arms_read_through_the_token() {
 
 test_pending_reply_escalation_matching_is_unaffected() {
   # The reserved pending-reply key namespace stays closed to a correlated line.
+  # No namespace is reserved by default, so this opts one in.
   local dir state out view
+  local -x FM_CLASSIFY_RESERVED_KEY_PREFIXES=pending-reply-
   dir=$(make_case pending-reply-namespace)
   state="$dir/state"
   out="$dir/drain.out"
