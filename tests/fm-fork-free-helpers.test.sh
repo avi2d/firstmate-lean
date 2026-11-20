@@ -162,7 +162,7 @@ SH
 test_window_to_task_matches_the_meta_pipeline() {
   local script="$TMP_ROOT/window.sh" state="$TMP_ROOT/window-state"
   mkdir -p "$state"
-  printf 'window=sess:w1\nbackend=tmux\n' > "$state/alpha.meta"
+  printf 'window=sess:w1\nbackend=herdr\n' > "$state/alpha.meta"
   printf 'window=old\nwindow=sess:w2\n' > "$state/beta.meta"
   printf 'terminal=term-3\nwindow=\n' > "$state/gamma.meta"
   printf 'window=a=b=c' > "$state/delta.meta"
