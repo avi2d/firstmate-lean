@@ -793,12 +793,6 @@ scout_captain_gate_verify() {
   return 1
 }
 
-# An execution home holds no backlog and no captain-call inventory: the
-# supervising home verifies the gate before it asks this home to clean up.
-home_is_execution_home() {
-  [ -f "$FM_HOME/.fm-exec-home" ] && [ ! -L "$FM_HOME/.fm-exec-home" ]
-}
-
 # The host-side teardown owns the landed-work test, the slot return, and the
 # pane close. A 255 or 124 leaves its completion unknown, so nothing local changes.
 remote_worker_teardown() {
@@ -2253,7 +2247,7 @@ if [ "$KIND" = scout ] && [ "$FORCE" != "--force" ]; then
     echo "Add a \"## References\" heading listing the sources the findings rely on, then run teardown again." >&2
     exit 1
   fi
-  home_is_execution_home || scout_captain_gate_verify || exit 1
+  fm_home_is_execution_home || scout_captain_gate_verify || exit 1
 fi
 
 TEARDOWN_PR_RESULT=

@@ -3061,7 +3061,7 @@ test_environment_selected_adapter_is_not_forced_to_markdown() {
 }
 
 test_manual_backend_home_dispatches_and_completes_without_touching_the_backlog() {
-  local case_dir id data data_resolved out
+  local case_dir id data data_resolved out rc=0
   id=atomic-manual-b12
   case_dir=$(make_home manual-backend "$id")
   printf '%s\n' manual > "$(home_of "$case_dir")/config/backlog-backend"
@@ -3070,11 +3070,19 @@ test_manual_backend_home_dispatches_and_completes_without_touching_the_backlog()
   mv "$(home_of "$case_dir")/data" "$data"
   data_resolved=$(cd "$data" && pwd -P)
   make_tasks_axi_incompatible "$case_dir"
-  # Deliberately no backlog item: on a manual home the operator owns the file,
-  # so neither half of the lifecycle may hard-fail over its contents.
+  out=$(FM_DATA_OVERRIDE="$data" run_ship_spawn "$case_dir" "$id") || rc=$?
+  [ "$rc" -ne 0 ] || fail "manual-backend spawn dispatched work no backlog item owns"
+  assert_contains "$out" "no backlog item in this home" \
+    "manual-backend spawn refused without naming the missing backlog item"
+  assert_absent "$(home_of "$case_dir")/state/$id.meta" \
+    "refused manual-backend dispatch still left a record behind"
+
+  tasks-axi add "$id" "item for $id" --kind ship --file "$data/backlog.md" >/dev/null
   out=$(FM_DATA_OVERRIDE="$data" run_ship_spawn "$case_dir" "$id") \
     || fail "manual-backend spawn failed: $out"
   assert_contains "$out" "spawned $id" "manual-backend spawn did not report success"
+  [ "$(tasks-axi show "$id" --file "$data/backlog.md" 2>/dev/null | sed -n 's/^  state: *//p' | head -1)" = queued ] \
+    || fail "manual-backend spawn moved the operator's backlog row"
 
   out=$(FM_DATA_OVERRIDE="$data" run_teardown "$case_dir" "$id") \
     || fail "manual-backend teardown failed: $out"
@@ -3082,7 +3090,7 @@ test_manual_backend_home_dispatches_and_completes_without_touching_the_backlog()
     "manual-backend teardown did not name its configured backlog path"
   assert_absent "$(home_of "$case_dir")/state/$id.backlog-close" \
     "manual-backend teardown recorded a close it never owed"
-  pass "a manual-backlog home dispatches and completes without a hard failure"
+  pass "a manual-backlog home refuses an id with no item, then dispatches and completes without moving the row"
 }
 
 test_a_secondmate_home_keeps_its_own_books() {

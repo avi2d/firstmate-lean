@@ -9,7 +9,7 @@ const baseFields = ['repo', 'kind'];
 const patchFields = [...baseFields, 'priority', 'body', 'body-file', 'pr', 'report'];
 const commands = {
   show: { args: '<id> [--full]', flags: [], switches: ['full'], count: 1 },
-  add: { args: '<id> "<title>" [flags]', flags: [...patchFields, 'blocked-by', 'prefix'], switches: ['queue', 'mint', 'json'], count: 2 },
+  add: { args: '<id> "<title>" [flags]', flags: [...patchFields, 'blocked-by', 'prefix', 'parent'], switches: ['queue', 'mint', 'json'], count: 2 },
   list: { args: '[flags]', flags: [...baseFields, 'state', 'limit', 'fields'], switches: ['blocked'], count: 0 },
   ready: { args: '[--repo <name>] [--include-held]', flags: ['repo'], switches: ['include-held'], count: 0 },
   update: { args: '<id> [flags]', flags: ['title', ...patchFields], switches: ['archive-body', 'json'], count: 1 },
@@ -141,6 +141,10 @@ function add(book, positionals, options, now, project) {
   let ticket = existing;
   if (!already) {
     dependencies.forEach(by => checkBlocker(book.tickets, id, by));
+    const parent = options.parent ? book.tickets.get(options.parent) : null;
+    if (options.parent && (!parent || parent.archived)) {
+      reject(`parent "${options.parent}" not found`, 'Name an existing open task as the parent');
+    }
     const references = requestedReferences(options);
     ticket = book.add(draftTicket({
       id, title, status: 'Queued',
@@ -148,6 +152,7 @@ function add(book, positionals, options, now, project) {
       ...(options.repo ? { project: options.repo } : {}),
       ...(options.priority ? { priority: `p${options.priority}` } : {}),
       assignee: [], labels: [], dependencies,
+      ...(options.parent ? { parent_task_id: options.parent } : {}),
       ...(references.length > 0 ? { references } : {}),
       created_date: now,
     }, requestedBody(options)));
