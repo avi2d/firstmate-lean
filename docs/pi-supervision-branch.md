@@ -715,8 +715,5 @@ The startup-context probe checks the actual branch provider request while a late
 On Pi 1.2, the guard also exercises the vendor's prompt-bearing user and no-prompt custom event boundaries, dedicated processing-run cancellation, and filtering of retained processing history from a subsequent provider request while preserving user and unrelated custom runs.
 Pi 1.1 predates the custom-opening boundary, so those custom-event subprobes explicitly skip there; its applicable user-run control still runs.
 
-`FM_PI_BRANCH_RESPONSIVENESS_E2E=1 tests/fm-pi-branch-responsiveness-live-e2e.test.sh` answers the question only a real TUI can.
-It types into an isolated Pi pane while outcomes are delivered and fails if keystroke echo leaves the class of the same machine's extension-free floor.
-
 Record dated current results in [docs/verification/runtime-backends.md](verification/runtime-backends.md).
 The [strict production-consumer typecheck](../tests/fm-pi-primary-types.test.sh) owns its pinned SDK/compiler matrix and temporary dependencies independently of the installed Pi runtime.

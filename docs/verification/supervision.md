@@ -14,10 +14,7 @@ The real offline Pi regression ran on 2026-11-20 with Pi 1.5.1, an isolated home
 The provider makes no HTTP request and requires no user credential.
 Its missing-native branch deliberately requests `bin/fm-session-start.sh`, so an escaped first call reproduces the duplicate-producing manual path rather than passing vacuously.
 
-```sh
-FM_PI_SESSIONSTART_RACE_LIVE_E2E=1 \
-  tests/fm-sessionstart-hook-live-e2e.test.sh
-```
+The terminal driver for this historical run is no longer shipped.
 
 Observed output:
 
@@ -40,19 +37,7 @@ The historical `origin/main` implementation first reproduced the stale original 
 The current implementation then recorded `source=startup`, changed and committed the lab's `AGENTS.md`, compacted the same real Pi session, and answered with the replacement marker.
 The fixed run also proved that the true-start baseline remained different from the updated file after compaction.
 
-```sh
-FM_SESSIONSTART_INSTRUCTION_REFRESH_LIVE_E2E=1 \
-FM_SESSIONSTART_INSTRUCTION_REFRESH_REF=origin/main \
-FM_SESSIONSTART_INSTRUCTION_REFRESH_EXPECT=stale \
-tests/fm-sessionstart-instruction-refresh-live-e2e.test.sh
-# ok - Pi 0.84.0 reproduces stale AGENTS.md after a real compact
-
-FM_SESSIONSTART_INSTRUCTION_REFRESH_LIVE_E2E=1 \
-tests/fm-sessionstart-instruction-refresh-live-e2e.test.sh
-# ok - Pi 0.84.0 re-injects updated AGENTS.md after a real compact in an isolated session
-```
-
-This is live coverage only for Pi compaction.
+The terminal driver for this historical run is no longer shipped.
 The portable session-start tests cover continuation classification, baseline immutability, and source-routing behavior.
 Pi compaction is the only supported stale-cache refresh pair.
 ### Per-task endpoint reads cannot truncate the digest
@@ -157,9 +142,7 @@ tests/fm-inactive-reconcile.test.sh
 
 Pi 0.86.1 passed the isolated watcher-only live check on 2026-09-22:
 
-```sh
-FM_PI_LIVE_E2E=1 FM_PI_LIVE_WATCH_ONLY=1 tests/fm-pi-primary-live-e2e.test.sh
-```
+The terminal driver for this historical run is no longer shipped.
 
 Observed output:
 

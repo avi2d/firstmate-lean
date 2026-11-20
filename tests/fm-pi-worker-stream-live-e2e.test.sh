@@ -36,9 +36,6 @@ for case_label in $cases; do
   fm_test_spawn_home "$home" pi
   fm_git_worktree "$project" "$wt" "stream-$case_label"
   fm_test_spawn_brief "$home" stream
-  # Each case gets its own spawn world, like every other spawn suite here. A
-  # shared fake tmux records the window it created, so the next case's spawn of
-  # the same task id would be refused as a duplicate window instead of running.
   fakebin=$(make_spawn_fakebin "$TMP_ROOT/fake-$case_label")
   spawn_root=$ROOT fault_dir=''
   if [ "$case_label" = stalled ]; then

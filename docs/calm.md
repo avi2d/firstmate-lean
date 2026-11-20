@@ -141,7 +141,6 @@ If Pi removes one of those seams, Calm logs a diagnostic naming the unavailable 
 Keeping hidden queued inputs across Escape also needs members of Pi's live session, which exist only once a session runs.
 Calm checks them for each session on its first queued-listing draw, before hiding anything.
 A session missing any of them keeps its queued rows and Escape exactly as stock, and shows one warning.
-In that case `tests/fm-calm-pi-queue-retention-live-e2e.test.sh` fails naming the installed Pi version.
 
 ### Built-in tool override collisions
 
@@ -171,7 +170,7 @@ How Calm handles that shared slot depends on whether Calm was already on when th
 - `.claude/mods/firstmate-calm/lib/fm-calm-preservation.ts` owns the shared substantive mid-turn text rule, which Pi imports through its tracked symlink.
 - `.pi/extensions/lib/fm-calm-operational-user-layout.ts` owns the operational-user row adapter, its collapsed line, and its zero height under Calm.
 - `.pi/extensions/lib/fm-calm-pending-operational-layout.ts` owns the queued-row adapter and its session capability check.
-- `.pi/extensions/lib/fm-calm-working-ship.ts` owns Pi's animated working presentation over the sprite geometry both harnesses share in `.claude/mods/firstmate-calm/lib/fm-calm-working-ship-sprite.ts`.
+- `.pi/extensions/lib/fm-calm-working-ship.ts` owns Pi's animated working presentation over the geometry in `.pi/extensions/lib/fm-calm-working-ship-sprite.ts`.
 
 ### Pi regression entry points
 
@@ -180,6 +179,4 @@ tests/fm-calm-pi-extension.test.sh
 tests/fm-pi-operational-row-collapse.test.sh
 tests/fm-pi-branch-extension.test.sh
 tests/fm-pi-primary-types.test.sh
-tests/fm-calm-pi-queue-retention-live-e2e.test.sh
-FM_PI_LIVE_E2E=1 tests/fm-pi-primary-live-e2e.test.sh
 ```

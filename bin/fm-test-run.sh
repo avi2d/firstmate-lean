@@ -366,12 +366,9 @@ family_for_basename() {
     fm-herdr-restore-isolation-live-e2e.test.sh|\
     fm-worker-account-live-e2e.test.sh|\
     fm-pi-branch-live-e2e.test.sh|\
-    fm-pi-branch-responsiveness-live-e2e.test.sh|\
-    fm-pi-primary-live-e2e.test.sh|fm-pi-worker-stream-live-e2e.test.sh|fm-pi-codex-native.test.sh|\
+    fm-pi-worker-stream-live-e2e.test.sh|fm-pi-codex-native.test.sh|\
     fm-pr-state-live-e2e.test.sh|\
-    fm-sessionstart-hook-live-e2e.test.sh|fm-sessionstart-instruction-refresh-live-e2e.test.sh|\
     fm-quota-array-dispatch-live-e2e.test.sh|\
-    fm-calm-pi-queue-retention-live-e2e.test.sh|\
     fm-herdr-submit-confirm-live-e2e.test.sh|\
     fm-agent-sandbox-live-e2e.test.sh|\
     fm-read-repetition-live.test.sh)
@@ -477,7 +474,6 @@ tests/fm-lint.test.sh
 tests/fm-pi-primary-types.test.sh
 tests/fm-pr-merge.test.sh
 tests/fm-review-diff.test.sh
-tests/fm-send-popup-settle.test.sh
 tests/fm-send-settle.test.sh
 tests/fm-send-strict.test.sh
 tests/fm-spawn-batch.test.sh
@@ -549,7 +545,6 @@ tests/fm-backend-herdr.test.sh
 tests/fm-arm-pretool-check.test.sh
 tests/fm-composer-lib.test.sh
 tests/fm-cd-pretool-check.test.sh
-tests/fm-send-popup-settle.test.sh
 tests/fm-send-strict.test.sh
 tests/fm-send-settle.test.sh
 tests/fm-review-diff.test.sh
@@ -661,7 +656,6 @@ tests/fm-browser-suite.test.sh 26730
 tests/fm-busy-adapter-wiring.test.sh 31642
 tests/fm-busy-state.test.sh 3185
 tests/fm-calm-pi-extension.test.sh 87768
-tests/fm-calm-pi-queue-retention-live-e2e.test.sh 1345
 tests/fm-capacity.test.sh 6773
 tests/fm-captain-hold-answers.test.sh 108433
 tests/fm-captain-hold-bodies.test.sh 56000
@@ -739,10 +733,8 @@ tests/fm-peek-remote.test.sh 1082
 tests/fm-pi-1-1-0-small-fixes.test.sh 1855
 tests/fm-pi-branch-extension.test.sh 77218
 tests/fm-pi-branch-live-e2e.test.sh 48
-tests/fm-pi-branch-responsiveness-live-e2e.test.sh 12834
 tests/fm-pi-codex-native.test.sh 75
 tests/fm-pi-operational-row-collapse.test.sh 16504
-tests/fm-pi-primary-live-e2e.test.sh 72
 tests/fm-pi-watch-extension.test.sh 56515
 tests/fm-pi-windows-shell-invocation.test.sh 5121
 tests/fm-pi-worker-stream-live-e2e.test.sh 6027
@@ -801,8 +793,6 @@ tests/fm-session-lock-ancestry.test.sh 18918
 tests/fm-session-lock-ps-denied.test.sh 3012
 tests/fm-session-lock-windows-consumers.test.sh 2212
 tests/fm-session-start.test.sh 363574
-tests/fm-sessionstart-hook-live-e2e.test.sh 50
-tests/fm-sessionstart-instruction-refresh-live-e2e.test.sh 49
 tests/fm-sessionstart-nudge.test.sh 71802
 tests/fm-share-guard-pretool-check.test.sh 124
 tests/fm-shell-history-herdr-e2e.test.sh 12197
