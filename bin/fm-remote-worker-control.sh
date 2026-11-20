@@ -8,6 +8,8 @@ TARGET_HOME=${FM_HOME:?FM_HOME is required}
 . "$SCRIPT_DIR/fm-backend.sh"
 # shellcheck source=bin/fm-dod-lib.sh
 . "$SCRIPT_DIR/fm-dod-lib.sh"
+# shellcheck source=bin/fm-worker-name-lib.sh
+. "$SCRIPT_DIR/fm-worker-name-lib.sh"
 # shellcheck source=bin/fm-busy-lib.sh
 . "$SCRIPT_DIR/fm-busy-lib.sh"
 # shellcheck source=bin/fm-pane-hash-lib.sh
@@ -358,6 +360,7 @@ launch() {
   local id=$1 project=$2 kind=$3 mode=$4 yolo=$5 prefix=$6 base=$7 harness=$8 model=$9
   shift 9
   local effort=$1 backend=$2 account=${3:-} temp session out rc contract token forge=none shape='' pr=auto data_existed=0
+  local worker_name
   local -a brief_args spawn_args contract_fields
   validate_home
   case "$id" in ''|.|-*|*[!A-Za-z0-9._-]*|*..*) die "invalid task or project id" ;; esac
@@ -371,6 +374,7 @@ launch() {
   trap 'rm -rf -- "$REMOTE_WORKER_TEMP"' EXIT
   head -c 1048577 > "$temp/input"
   [ "$(wc -c < "$temp/input")" -le 1048576 ] || die "brief exceeds size limit"
+  worker_name=$(fm_worker_name_from_brief "$id" "$temp/input") || die "brief worker name is invalid"
   fm_brief_task_content_valid "$temp/input" || die "brief task sections are invalid"
   fm_brief_task_placeholders_present "$temp/input" && die "brief contains unfilled task placeholders"
   fm_brief_task_heading_body "$temp/input" "## Captain's intent" > "$temp/intent"
@@ -400,7 +404,7 @@ launch() {
   [ "$effort" = - ] || spawn_args+=(--effort "$effort")
   [ -z "$account" ] || spawn_args+=(--claude-account "$account")
   [ ! -e "$TARGET_HOME/data/$id" ] && [ ! -L "$TARGET_HOME/data/$id" ] || data_existed=1
-  FM_HOME="$TARGET_HOME" "$SCRIPT_DIR/fm-brief.sh" "${brief_args[@]}" >&2 || die "host-local scaffold failed"
+  FM_HOME="$TARGET_HOME" FM_BRIEF_WORKER_NAME="$worker_name" "$SCRIPT_DIR/fm-brief.sh" "${brief_args[@]}" >&2 || die "host-local scaffold failed"
   awk -v intent="$temp/intent" -v spec="$temp/spec" '
     $0 == "{TASK}" { while ((getline line < intent) > 0) print line; close(intent); next }
     $0 == "{FIRSTMATE_SPEC}" { while ((getline line < spec) > 0) print line; close(spec); next }
@@ -430,7 +434,7 @@ launch() {
 
 case "${1:-}" in
   capabilities)
-    [ "$#" -eq 1 ] || die "capabilities takes no arguments"
+    case "$#:${2:-}" in 1:|2:worker-name) ;; *) die "unsupported capability" ;; esac
     validate_home
     printf '%s\n' 'fm-remote-worker-control.v2'
     ;;

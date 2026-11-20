@@ -175,6 +175,7 @@ Closing its last tab can remove the workspace, and the next spawn recreates it.
 
 Each new worker or scout is placed in a disposable one-task workspace by default, on Herdr 0.8.0 and newer.
 This section calls that one-task workspace the projection.
+A projection uses the [worker name from the brief](configuration.md#add-numbered-tasks) in its label when the brief supplies one.
 Without the projection, tasks use the ordinary flat layout described under [Watching and task containers](#watching-and-task-containers).
 
 ### Setting values

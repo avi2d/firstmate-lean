@@ -178,6 +178,8 @@ esac
 . "$SCRIPT_DIR/fm-dod-lib.sh"
 # shellcheck source=bin/fm-role-lib.sh
 . "$SCRIPT_DIR/fm-role-lib.sh"
+# shellcheck source=bin/fm-worker-name-lib.sh
+. "$SCRIPT_DIR/fm-worker-name-lib.sh"
 PAUSED_VERB=${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}
 IFS= read -r -d '' CREWMATE_PAUSE_INSTRUCTIONS <<EOF || true
    Use \`$PAUSED_VERB: {why}\` - distinct from \`blocked:\` - when deliberately waiting for work or an external condition expected to clear on its own, including your own validation round.
@@ -400,7 +402,22 @@ if [ "$KIND" = ship ] && [ "$MODE" != local-only ] && [ "$PROJECT_DIR_SET" -eq 1
   esac
 fi
 ID=${POS[0]}
-BRANCH="$BRANCH_PREFIX$ID"
+WORKER_NAME=$ID
+if [ "$KIND" != secondmate ]; then
+  if [ -n "${FM_BRIEF_WORKER_NAME:-}" ]; then
+    WORKER_NAME=$FM_BRIEF_WORKER_NAME
+  elif fm_worker_numbered_id "$ID"; then
+    # shellcheck source=bin/fm-tasks-axi-lib.sh
+    . "$SCRIPT_DIR/fm-tasks-axi-lib.sh"
+    # shellcheck source=bin/fm-backlog-transition-lib.sh
+    . "$SCRIPT_DIR/fm-backlog-transition-lib.sh"
+    WORKER_NAME=$(fm_worker_name_from_ticket "$ID" "$DATA") || exit 1
+  fi
+  fm_worker_name_valid "$ID" "$WORKER_NAME" || { echo "error: invalid worker name for $ID" >&2; exit 1; }
+fi
+WORKER_NAME_HEADER=
+[ "$WORKER_NAME" = "$ID" ] || printf -v WORKER_NAME_HEADER '\nWorker name: %s' "$WORKER_NAME"
+BRANCH="$BRANCH_PREFIX$WORKER_NAME"
 if ! git check-ref-format --branch "$BRANCH" >/dev/null 2>&1; then
   echo "error: --branch-prefix and task id must form a valid git branch (got '$BRANCH')" >&2
   exit 1
@@ -655,7 +672,7 @@ else
   LAVISH_LINE='Lavish is unavailable (lavish-axi is missing or below its supported version floor), so deliver your findings as a text report without Lavish, even for a visual deliverable.'
 fi
 cat > "$BRIEF" <<EOF
-You are a crewmate: an autonomous worker agent managed by firstmate. Work on your own; do not wait for a human.
+You are a crewmate: an autonomous worker agent managed by firstmate. Work on your own; do not wait for a human.$WORKER_NAME_HEADER
 
 $TASK_SECTION
 
@@ -736,7 +753,7 @@ RULE1=$(fm_ship_rule_one "$MODE" "$ID" "$BRANCH" "$FORGE" "$BASE_BRANCH") || exi
 DOD=$(fm_dod_block "$MODE" "$ID" "$BRANCH" "$FORGE" "$BASE_BRANCH" "$UPSTREAM_CONSENT" "$PR_TEXT") || exit 1
 
 cat > "$BRIEF" <<EOF
-You are a crewmate: an autonomous worker agent managed by firstmate. Work on your own; do not wait for a human.
+You are a crewmate: an autonomous worker agent managed by firstmate. Work on your own; do not wait for a human.$WORKER_NAME_HEADER
 
 $TASK_SECTION
 
