@@ -834,13 +834,10 @@ FM_BACKLOG_FOLLOWUP_ID=
 FM_BACKLOG_FOLLOWUP_CREATED=0
 FM_BACKLOG_FOLLOWUP_LOG_ERROR=
 
-# Files one follow-up a worker reported on <parent> as its own queued item and
-# logs it in the parent's messages. The id derives from the status line, so a
-# drain that presents the same line again finds the item instead of filing a
-# second one.
-fm_backlog_file_followup() {  # <config-dir> <data-dir> <parent-id> <status-line>
-  local config=$1 data=$2 parent=$3 line=$4 title digest id
-  local -a link=()
+fm_backlog_file_followup() {
+  local config=$1 authorized_data=$2 parent=$3 line=$4 project_path=${5:-}
+  local data title digest key repo out id script_dir parent_number
+  local -a link=() add_command=()
   FM_BACKLOG_FOLLOWUP_ID=
   FM_BACKLOG_FOLLOWUP_CREATED=0
   FM_BACKLOG_FOLLOWUP_LOG_ERROR=
@@ -850,19 +847,51 @@ fm_backlog_file_followup() {  # <config-dir> <data-dir> <parent-id> <status-line
     FM_BACKLOG_TRANSITION_ERROR="the followup line names no work"
     return 1
   fi
-  digest=$(printf '%s' "$line" | cksum | cut -d' ' -f1)
-  id="$parent-fu-$(printf '%08x' "$digest")"
-  FM_BACKLOG_FOLLOWUP_ID=$id
-  if fm_backlog_row_probe "$data" "$id"; then
-    return 0
-  fi
-  if [ "$FM_BACKLOG_ROW_RESULT" != not_found ]; then
-    FM_BACKLOG_TRANSITION_ERROR=$FM_BACKLOG_ROW_ERROR
+  data=$(fm_backlog_data_absolute "$authorized_data") || {
+    FM_BACKLOG_TRANSITION_ERROR="data directory cannot be resolved: $authorized_data"
+    return 1
+  }
+  fm_backlog_source_present "$data" "$authorized_data" || return
+  if ! out=$(fm_backlog_row_show "$data" "$parent" 2>&1); then
+    FM_BACKLOG_TRANSITION_ERROR=${out%%$'\n'*}
     return 1
   fi
+  repo=$(printf '%s\n' "$out" | sed -n 's/^  repo: //p' | head -n 1)
+  if [[ $repo = \"* ]]; then repo=$(printf '%s\n' "$repo" | jq -r .) || repo=; fi
+  if [ -z "$repo" ] || [ "$repo" = - ]; then
+    project_path=${project_path%/}
+    repo=${project_path##*/}
+  fi
+  if [ -z "$repo" ] && [[ $parent = *-* ]]; then
+    parent_number=${parent##*-}
+    case "$parent_number" in
+      ''|*[!0-9]*) ;;
+      *) repo=${parent%-*} ;;
+    esac
+  fi
+  if [ -z "$repo" ]; then
+    FM_BACKLOG_TRANSITION_ERROR="no project is recorded for follow-ups to $parent"
+    return 1
+  fi
+  digest=$(printf '%s' "$line" | cksum | cut -d' ' -f1)
+  key="$parent-fu-$(printf '%08x' "$digest")"
   [ "$(fm_backlog_backend_value "$config")" != backlog-md ] || link=(--parent "$parent")
-  fm_backlog_mutate "$data" add "$id" "$title" ${link[@]+"${link[@]}"} \
-    --body "Follow-up reported by the worker on $parent." || return
+  script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+  add_command=(bash "$script_dir/fm-tasks-axi.sh" add "$title" --mint --repo "$repo" --json \
+    --followup-key "$key" --body "Follow-up reported by the worker on $parent." ${link[@]+"${link[@]}"})
+  if [ -n "${FM_TASKS_AXI_TIMEOUT:-}" ]; then
+    add_command=(fm_exec_timed "$FM_TASKS_AXI_TIMEOUT" "$FM_TASKS_AXI_TIMEOUT" "${add_command[@]}")
+  fi
+  if ! out=$(FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" "${add_command[@]}" 2>&1); then
+    FM_BACKLOG_TRANSITION_ERROR=${out%%$'\n'*}
+    return 1
+  fi
+  if ! id=$(printf '%s\n' "$out" | jq -er 'select(.ok) | .task.id | strings'); then
+    FM_BACKLOG_TRANSITION_ERROR="add returned no follow-up ID for $parent"
+    return 1
+  fi
+  FM_BACKLOG_FOLLOWUP_ID=$id
+  if printf '%s\n' "$out" | jq -e '.already == true' >/dev/null; then return 0; fi
   FM_BACKLOG_FOLLOWUP_CREATED=1
   fm_backlog_append_message "$data" "$parent" worker "follow-up filed as $id: $title" \
     || FM_BACKLOG_FOLLOWUP_LOG_ERROR=$FM_BACKLOG_TRANSITION_ERROR

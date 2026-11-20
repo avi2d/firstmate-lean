@@ -2512,7 +2512,7 @@ fm_backlog_item_gate "$CONFIG" "$DATA" "$ID" "$KIND" || BACKLOG_GATE_STATUS=$?
 case "$BACKLOG_GATE_STATUS" in
   0) ;;
   1)
-    echo "error: $FM_BACKLOG_ITEM_ERROR, so dispatching it would leave a worker no record owns; add it first (bin/fm-tasks-axi.sh add $ID '<title>' --kind $KIND) and re-run" >&2
+    echo "error: $FM_BACKLOG_ITEM_ERROR, so dispatching it would leave a worker no record owns; file it first (see bin/fm-tasks-axi.sh add --help), then dispatch using the filed ID" >&2
     exit 1
     ;;
   2)

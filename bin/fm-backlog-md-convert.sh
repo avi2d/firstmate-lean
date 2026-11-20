@@ -27,6 +27,6 @@ if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then usage >&2; exit 2; fi
 
 runner="$(dirname "${BASH_SOURCE[0]}")/fm-backlog-md"
 if [ -n "$destination" ]; then
-  exec python3 "$runner/locked.py" "$destination" "$runner/convert.cjs" "$@"
+  exec python3 "$runner/locked.py" "$destination" .fm-backlog-md.lock "$runner/convert.cjs" "$@"
 fi
 exec node "$runner/convert.cjs" '' "$@"

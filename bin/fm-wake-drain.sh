@@ -425,7 +425,7 @@ EOF
 # prints the outcome to append to the line. A home whose backlog does not own
 # the task files nothing.
 file_followup() {  # <task> <status-line>
-  local task=$1 line=$2 config="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}" data="${FM_DATA_OVERRIDE:-$FM_HOME/data}" gate=0 kind
+  local task=$1 line=$2 config="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}" data="${FM_DATA_OVERRIDE:-$FM_HOME/data}" gate=0 kind project
   kind=$(sed -n 's/^kind=//p' "$STATE/$task.meta" 2>/dev/null | head -n 1)
   fm_backlog_item_gate "$config" "$data" "$task" "$kind" || gate=$?
   if [ "$gate" -ne 0 ]; then
@@ -433,7 +433,8 @@ file_followup() {  # <task> <status-line>
     return 0
   fi
   [ "$FM_BACKLOG_ITEM_TRACKED" = 1 ] || return 0
-  if ! fm_backlog_file_followup "$config" "$data" "$task" "$line"; then
+  project=$(sed -n 's/^project=//p' "$STATE/$task.meta" 2>/dev/null | head -n 1)
+  if ! fm_backlog_file_followup "$config" "$data" "$task" "$line" "$project"; then
     printf ' -> NOT filed as %s: %s; file it with bin/fm-tasks-axi.sh add' "${FM_BACKLOG_FOLLOWUP_ID:-a backlog item}" "$FM_BACKLOG_TRANSITION_ERROR"
   elif [ "$FM_BACKLOG_FOLLOWUP_CREATED" = 1 ]; then
     printf ' -> filed backlog item %s' "$FM_BACKLOG_FOLLOWUP_ID"

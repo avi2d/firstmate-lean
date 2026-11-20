@@ -392,6 +392,16 @@ User rows have no Beads due semantics, so that create path waives a Beads `due.r
 
 Do not register a Beads `types.custom` `captain` type for this: user is a hold kind, and the fleet Beads `due.required` policy for ordinary work stays in the federated beads config.
 
+### Add numbered tasks
+
+To file a new task, run `bin/fm-tasks-axi.sh add "<title>" --mint --prefix <project>` and use the ID it returns.
+The command uses the highest number for that project in the backlog, including drafts and archived tasks, then adds one.
+It starts at 1 when the project has no numbered tasks.
+If you pass an explicit ID, use the next number for that project.
+Pass `--repo <project>` to identify the project when the ID does not already name it.
+An ID refusal tells you the next ID once the project is known.
+Existing tasks keep their IDs, including IDs that end in words instead of a number.
+
 ### Automatic dispatch and completion
 
 When the automatic transition gate applies, dispatch and completion each move the work item in the same run that creates or removes its task record.
@@ -418,7 +428,8 @@ A failed append is reported after delivery and never undoes it, so do not resend
 If the backlog cannot be read, the message is still sent with a warning.
 
 A worker reports a correction or follow-up it found as `followup [at=<epoch>]: <one-line title>` in its status file.
-The wake drain files each such line once as a queued item named `<task>-fu-<hash>` and logs it in the parent item's messages.
+The wake drain files each such line once as a numbered queued item and logs it in the parent item's messages.
+An existing follow-up with a slug ID counts as filed.
 On the Backlog.md backend the item is a subtask of its task.
 The drain's `UNREAD STATUS` line says whether the item was filed or could not be filed.
 

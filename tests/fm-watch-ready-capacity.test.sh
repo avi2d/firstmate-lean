@@ -67,8 +67,8 @@ make_ready_home() {  # <name>; prints the home dir
   (cd "$home/projects/projA" && git init -q)
   printf 'projA 5
 ' > "$home/config/project-capacity"
-  FM_HOME="$home" "$ROOT/bin/fm-tasks-axi.sh" add task-one "First task" --repo projA >/dev/null
-  FM_HOME="$home" "$ROOT/bin/fm-tasks-axi.sh" add task-two "Second task" --repo projA >/dev/null
+  tasks-axi add task-one "First task" --repo projA --file "$home/data/backlog.md" >/dev/null
+  tasks-axi add task-two "Second task" --repo projA --file "$home/data/backlog.md" >/dev/null
   printf '%s
 ' "$home"
 }
@@ -205,7 +205,7 @@ test_watcher_changed_set_fires() {
   pid=$!
   wait_for_exit "$pid" 100 || { reap "$pid"; fail "changed-set fixture did not fire first: $(cat "$out")"; }
   ack_queue "$home" || fail "changed-set fixture could not acknowledge the first wake"
-  FM_HOME="$home" "$ROOT/bin/fm-tasks-axi.sh" add task-three "Third task" --repo projA >/dev/null
+  tasks-axi add task-three "Third task" --repo projA --file "$home/data/backlog.md" >/dev/null
   rm -f "$out"
   set_mtime $(( $(date +%s) - 7200 )) "$home/state/.last-heartbeat"
   watch_home_bg "$home" "$out"
