@@ -134,6 +134,5 @@ Whenever the digest is incomplete, this approved containment keeps the prefix an
 ## Regression coverage
 
 `tests/fm-sessionstart-nudge.test.sh` exercises source routing and the Pi extension.
-`tests/fm-sessionstart-hook-live-e2e.test.sh` verifies real Pi session-open events.
 
 [Supervision verification](verification/supervision.md#native-session-start-delivery) records the commands and observed results.

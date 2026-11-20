@@ -1,6 +1,7 @@
 # Firstmate test isolation proof
 
-This record owns concurrent isolation evidence for the portable parallel candidate set and admitted runner families.
+This is a dated record of isolation checks.
+Some listed tests have been removed.
 `bin/fm-test-isolation-proof.sh` is the authoritative harness and `docs/fm-test-isolation-proof.json` is the portable pool's machine-readable result.
 `bin/fm-test-run.sh` owns production lane partitioning and family concurrency admission.
 

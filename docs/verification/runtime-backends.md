@@ -9,14 +9,11 @@ Exact task chronology, branch names, temporary homes, local paths, process ids, 
 ## Pi project trust
 
 [`fm-spawn.sh --help`](../../bin/fm-spawn.sh) owns the project-trust approval contract and compatibility fallback.
-The live guard below isolates Pi's trust-gate behavior across seeded-secondmate and ordinary worktree directories.
+The historical run below isolated Pi project trust across seeded homes and ordinary task copies.
 Portable launch-command coverage separately verifies that spawn selects the flag for the intended launches.
 
-Verified 2026-10-02 on pi 0.82.0 through the default-on live guard (disposable `PI_CODING_AGENT_DIR` / `HOME` only; never `~/.pi`):
-
-```sh
-bash tests/fm-pi-seeded-home-trust-live-e2e.test.sh
-```
+Verified 2026-10-02 on Pi 0.82.0 with a disposable `PI_CODING_AGENT_DIR` and `HOME`.
+The live script has since been removed.
 
 ```
 # live pi version: 0.82.0
