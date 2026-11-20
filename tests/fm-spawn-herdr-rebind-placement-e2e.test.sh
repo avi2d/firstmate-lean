@@ -79,6 +79,10 @@ chmod +x "$HERDR_BIN/herdr"
 # task's tab or workspace.
 cat > "$HARNESS_BIN/pi" <<SH
 #!/bin/sh
+if [ "\${1:-}" = --version ]; then
+  printf '%s\\n' 1.5.1
+  exit 0
+fi
 printf '\\033]0;nono\\007'
 : > "$TMP_ROOT/agent-launched"
 sleep 1
