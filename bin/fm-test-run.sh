@@ -321,7 +321,6 @@ family_for_basename() {
     fm-supervision-events.test.sh|fm-turnend-guard.test.sh|\
     fm-wake-drain-unread-status.test.sh|\
     fm-tool-update-check.test.sh|\
-    fm-turnend-foreign-owner-arm-fix.test.sh|\
     fm-wake-queue.test.sh|fm-watch-arm.test.sh|fm-watch-recovery-loop.test.sh|\
     fm-watch-inbox-meta.test.sh|fm-watch-open-decisions.test.sh|\
     fm-watch-triage.test.sh|fm-watch-triage-pause.test.sh|\
@@ -853,7 +852,6 @@ tests/fm-timeout-lib.test.sh 36444
 tests/fm-tool-update-check.test.sh 14383
 tests/fm-trace-context-lib.test.sh 717
 tests/fm-trace-context-spawn.test.sh 57488
-tests/fm-turnend-foreign-owner-arm-fix.test.sh 5575
 tests/fm-turnend-guard.test.sh 34727
 tests/fm-update.test.sh 11894
 tests/fm-usage-warner.test.sh 27618
