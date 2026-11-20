@@ -261,7 +261,7 @@ test_malformed_machine_setting_refuses() {
   pass "a malformed machine setting refuses a heavy start rather than guessing the limit"
 }
 
-test_waiting_holders_free_heavy_places_then_resume_retakes_them() {
+test_terminal_and_waiting_holders_free_heavy_places_then_resume_retakes_them() {
   local case_dir home out rc=0 i=0
   case_dir=$(make_case waiting task-c task-d)
   home="$case_dir/home"
@@ -270,6 +270,10 @@ test_waiting_holders_free_heavy_places_then_resume_retakes_them() {
     write_live "$home" "live-$i" "$case_dir/project"
     printf 'working: doing heavy work %s\n' "$i" > "$home/state/live-$i.status"
   done
+  write_live "$home" finished "$case_dir/project"
+  printf 'working: building\ndone: complete\n' > "$home/state/finished.status"
+  write_live "$home" failed "$case_dir/project"
+  printf 'working: building\nfailed: error\n' > "$home/state/failed.status"
   write_live "$home" wait-captain "$case_dir/project"
   printf 'needs-decision: which API shape, A or B?\n' > "$home/state/wait-captain.status"
   write_live "$home" wait-time "$case_dir/project"
@@ -327,7 +331,7 @@ test_local_record_still_counts_beside_remote_records() {
 
 test_high_average_defers_then_clear_admits
 test_full_heavy_cap_defers_one_more_then_release_admits
-test_waiting_holders_free_heavy_places_then_resume_retakes_them
+test_terminal_and_waiting_holders_free_heavy_places_then_resume_retakes_them
 test_remote_records_hold_no_heavy_place
 test_local_record_still_counts_beside_remote_records
 test_handed_off_and_secondmate_records_do_not_count

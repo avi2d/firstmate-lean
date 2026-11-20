@@ -151,7 +151,7 @@ fm_heavy_holder_waiting() {  # <state-dir> <task-id>
   last=$(last_status_line "$status")
   status_line_verb "$last" verb
   case "$verb" in
-    needs-decision|blocked) return 0 ;;
+    needs-decision|blocked|done|failed) return 0 ;;
   esac
   return 1
 }
