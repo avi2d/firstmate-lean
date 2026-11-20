@@ -17,8 +17,8 @@
 #                        open captain call (bin/fm-captain-hold.sh `open`), so
 #                        cleanup never retires the captain's own question
 #   bin/fm-bootstrap.sh  replays whatever a crash left behind, THIS HOME ONLY.
-# bin/fm-fleet-snapshot.sh's classifier and bin/fm-secondmate-reconcile.sh's
-# cross-home nudge stay defense in depth, not the primary mechanism.
+# bin/fm-fleet-snapshot.sh's classifier stays defense in depth, not the
+# primary mechanism.
 #
 # SCOPE. fm_backlog_transition_applies is the single gate. It excludes
 # secondmates (persistent agents are never backlog items, AGENTS.md section 10),

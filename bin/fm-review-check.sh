@@ -16,7 +16,7 @@
 # remote, the worker copy's HEAD must already be on that remote's backup
 # namespace.
 # In a secondmate home it publishes the child's review-ready line to the parent
-# channel (bin/fm-parent-channel-lib.sh); a main home has no channel and this is
+# channel; a main home has no channel and this is
 # a silent no-op there.
 # Usage: fm-review-check.sh <task-id> <review-url>
 set -eu

@@ -18,7 +18,7 @@ make_remote_home() {  # <name>
   touch "$home/state/.last-watcher-beat"
   printf 'manual\n' > "$home/config/backlog-backend"
   fakebin=$(fm_fakebin "$TMP_ROOT/$name")
-  fm_fake_exit0 "$fakebin" treehouse tmux gh gh-axi no-mistakes
+  fm_fake_exit0 "$fakebin" treehouse herdr gh gh-axi no-mistakes
 
   git init -q --bare "$origin"
   git -C "$origin" symbolic-ref HEAD refs/heads/main

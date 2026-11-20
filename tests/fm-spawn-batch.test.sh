@@ -2,7 +2,7 @@
 # Behavior tests for fm-spawn.sh batch dispatch (`id=repo` pairs).
 #
 # These exercise argument routing only: each spawn attempt fails fast at the
-# missing-brief check, which is reached before any tmux/treehouse side effect, so
+# missing-brief check, which is reached before any Herdr/treehouse side effect, so
 # the tests create no windows or worktrees. FM_SPAWN_NO_GUARD=1 keeps them off the
 # live watcher guard / state. Parser and path-scoping cases are table-driven; the
 # only behavior asserted on its own is "a multi-pair batch does not stop after the
@@ -14,11 +14,11 @@ set -u
 
 SPAWN="$ROOT/bin/fm-spawn.sh"
 TMP_ROOT=$(fm_test_tmproot fm-spawn-batch)
-export FM_BACKEND=tmux
+export FM_BACKEND=herdr
 # Routing never launches (missing briefs stop each pair), but resolution still requires the binary present.
 BATCH_FAKEBIN="$TMP_ROOT/fakebin"
 mkdir -p "$BATCH_FAKEBIN"
-fm_fake_exit0 "$BATCH_FAKEBIN" claude codex opencode grok gemini
+fm_fake_exit0 "$BATCH_FAKEBIN" pi
 PATH="$BATCH_FAKEBIN:$PATH"
 
 # Clear ambient firstmate overrides so the behavior test owns its environment.
@@ -94,14 +94,14 @@ test_projects_path_scoping() {
     if [ "$use_override" = yes ]; then
       out=$(FM_ROOT_OVERRIDE='' FM_STATE_OVERRIDE='' FM_DATA_OVERRIDE='' FM_CONFIG_OVERRIDE='' \
         FM_HOME="$home" FM_PROJECTS_OVERRIDE="$projects" FM_SPAWN_NO_GUARD=1 \
-        "$SPAWN" "$id" projects/alpha codex --mode no-mistakes --yolo off 2>&1)
+        "$SPAWN" "$id" projects/alpha pi --mode no-mistakes --yolo off 2>&1)
     else
       mkdir -p "$home/projects/alpha"
       git -C "$home/projects/alpha" init -q || fail "$label: could not initialize home project fixture"
       git -c user.name=test -c user.email=test@example.com -C "$home/projects/alpha" commit -q --allow-empty -m init || fail "$label: could not commit home project fixture"
       out=$(FM_ROOT_OVERRIDE='' FM_STATE_OVERRIDE='' FM_DATA_OVERRIDE='' FM_PROJECTS_OVERRIDE='' FM_CONFIG_OVERRIDE='' \
         FM_HOME="$home" FM_SPAWN_NO_GUARD=1 \
-        "$SPAWN" "$id" projects/alpha codex --mode no-mistakes --yolo off 2>&1)
+        "$SPAWN" "$id" projects/alpha pi --mode no-mistakes --yolo off 2>&1)
     fi
     status=$?
     [ "$status" -ne 0 ] || fail "$label: spawn with missing brief should fail"

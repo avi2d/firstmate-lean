@@ -4,9 +4,8 @@
 # ONE owner of the "which verified-harness process holds this home's session
 # lock, and does the current process run inside that same session?" decision.
 # bin/fm-lock.sh uses it to acquire and inspect state/.lock and its
-# state/.lock-session sidecar; bin/fm-claude-stop-autoarm.sh uses it to prove a
-# Stop hook fires inside the lock-owning primary session before it may arm or
-# rewake. Two signals decide ownership, either one sufficient: the recorded pid
+# state/.lock-session sidecar. Two signals decide ownership, either one
+# sufficient: the recorded pid
 # is a member of this process's contiguous harness ancestry, or the trusted
 # Claude session id below matches the id recorded beside a live lock. Neither
 # signal ever fails open: no id, no sidecar, an untrusted id, or a different
@@ -16,16 +15,6 @@
 # delegate that question instead of re-deriving liveness from the fields.
 # This file is sourced by scripts and has no side effects on source.
 
-# Cursor process identity is NOT expressible as a command-name pattern and is
-# deliberately not added to the tables below: Cursor's installed names are
-# cursor-agent and the far-too-generic legacy alias `agent`, and it runs as a
-# bundled node script. bin/fm-cursor-lib.sh is the fleet's single owner of that
-# decision, so this file delegates to it rather than widening the name match.
-_FM_SESSION_LOCK_LIB_DIR=${BASH_SOURCE[0]%/*}
-[ "$_FM_SESSION_LOCK_LIB_DIR" != "${BASH_SOURCE[0]}" ] || _FM_SESSION_LOCK_LIB_DIR=.
-# shellcheck source=bin/fm-cursor-lib.sh
-. "${_FM_SESSION_LOCK_LIB_DIR:-/}/fm-cursor-lib.sh"
-unset _FM_SESSION_LOCK_LIB_DIR
 
 # Known harness command names; extend when a new adapter is verified. omp and
 # agy are anchored exactly like pi: their process names are the bare words `omp`
@@ -35,8 +24,7 @@ FM_HARNESS_RE='claude|codex|opencode|grok|kimi|^pi$|^pi-signed$|^omp$|^agy$'
 
 # The same harnesses as exact executable names. Keep in sync with
 # FM_HARNESS_RE. Used only for the stricter path evidence below, where the
-# loose regex would also match ordinary firstmate paths such as
-# bin/fm-claude-stop-autoarm.sh.
+# loose regex would also match ordinary paths that contain a harness name.
 FM_HARNESS_NAMES=(claude codex opencode grok kimi pi-signed pi omp agy)
 
 # Print the exact harness name carried by executable path $1 - its own basename
@@ -46,7 +34,7 @@ FM_HARNESS_NAMES=(claude codex opencode grok kimi pi-signed pi omp agy)
 # executable by its version (~/.local/share/claude/versions/2.1.220), so the
 # basename identifies nothing while the install path still says claude. Matching
 # whole path components only is what keeps that widening safe: an ordinary path
-# such as bin/fm-claude-stop-autoarm.sh or ~/.claude/hooks/notify.sh has no
+# such as ~/.claude/hooks/notify.sh has no
 # "claude" component and is correctly not a harness process.
 fm_harness_path_name() {  # <path>
   local path=$1 name
@@ -105,7 +93,6 @@ fm_ps_ppid() {  # <pid> -> parent pid
 #      name and ignores argv[0] entirely, so a version-named Claude Code binary
 #      is identified by its install path on macOS and by argv[0] on Linux.
 #   3. a bare interpreter (node, python) running a harness script path.
-#   4. Cursor's own structural identity, owned by bin/fm-cursor-lib.sh.
 FM_HARNESS_IS_CLAUDE=0
 fm_harness_process_matches() {  # <comm> <args>
   local comm=$1 args=$2 base argv0 name
@@ -129,11 +116,6 @@ fm_harness_process_matches() {  # <comm> <args>
       fi
       ;;
   esac
-  # Cursor: its own owner decides, from Cursor's name or versioned install tree
-  # in the command path or argv[0]. Without this a Cursor primary can never
-  # locate its own harness in the ancestry, so every session start refuses the
-  # fleet lock as read-only and the park can never arm.
-  fm_cursor_process_matches "$comm" "$args" "$argv0" && return 0
   return 1
 }
 
@@ -318,7 +300,7 @@ fm_linux_stat_triple() {  # <stat-line> <cmdline-args>
   local line=$1 args=$2 rest comm ppid
   # stat_fields, like the /proc/<pid>/stat readers in
   # bin/fm-remote-job-lib.sh and bin/fm-teardown.sh: ShellCheck follows
-  # sources, and bin/backends/rex.sh assigns a string to `fields`, so an
+  # sources, and other sourced scripts assign a string to `fields`, so an
   # array of that name here trips SC2178/SC2128 over there.
   case $line in
     *"("*") "*) ;;
@@ -352,8 +334,8 @@ fm_os_proc_triple() {  # <pid>
   local -a argv
   case "$(uname -s 2>/dev/null)" in
     Linux)
-      # The repo's other /proc readers (bin/fm-cursor-lib.sh,
-      # bin/fm-wake-lib.sh, bin/fm-teardown.sh) all take
+      # The repo's other /proc readers (bin/fm-wake-lib.sh,
+      # bin/fm-teardown.sh) all take
       # FM_PROC_ROOT_OVERRIDE so a fixture tree can drive them; this
       # reader honors the same hook for the same reason.
       proc_root=${FM_PROC_ROOT_OVERRIDE:-/proc}

@@ -131,8 +131,6 @@ PRIMARY_HARNESS=$("$SCRIPT_DIR/fm-harness.sh" 2>/dev/null || printf unknown)
 . "$SCRIPT_DIR/fm-backend.sh"
 # shellcheck source=bin/fm-tasks-axi-lib.sh
 . "$SCRIPT_DIR/fm-tasks-axi-lib.sh"
-# shellcheck source=bin/fm-public-followup-lib.sh
-. "$SCRIPT_DIR/fm-public-followup-lib.sh"
 # shellcheck source=bin/fm-trace-context-lib.sh
 . "$SCRIPT_DIR/fm-trace-context-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
@@ -509,8 +507,7 @@ agents_baseline_drifted() {  # <rebuilding-session-pid>
 }
 
 # Only run-tier source pairs with both a stale native instruction cache and a
-# working Firstmate delivery path arrive here. Claude fresh-reads on reset, and
-# Codex has no tracked interactive reset delivery path.
+# working Firstmate delivery path arrive here.
 agents_refresh_required() {  # <rebuilding-session-pid>
   local lock_pid=$1
   case "$PRIMARY_HARNESS:$SESSION_SOURCE" in
@@ -543,7 +540,7 @@ fi
 
 if [ "$REEMIT" -eq 1 ]; then
   # First in the output on purpose: a harness that spills a large hook output
-  # delivers only a short head inline (Claude: about 2,000 characters), and
+  # can only deliver a short head inline, and
   # CONTEXT prints last, so this cue is the part that must survive the spill.
   printf 'RE-EMIT CUE: if this output ends with "Output too large ... Full output saved to <path>",\n'
   printf 'read that whole file now, before acting. The CONTEXT section below is a manifest (path, size,\n'
@@ -696,8 +693,6 @@ fi
 
 # --- 4. supervision operating instructions ----------------------------------
 stage supervision-instructions
-X_MODE_PRESENT=0
-[ -f "$CONFIG/x-mode.env" ] && X_MODE_PRESENT=1
 
 if [ "$PRIMARY_HARNESS" = pi ] || [ "$PRIMARY_HARNESS" = pi-signed ]; then
   PI_EXT="$FM_ROOT/.pi/extensions/fm-primary-pi-watch.ts"
@@ -714,41 +709,9 @@ if [ "$PRIMARY_HARNESS" = pi ] || [ "$PRIMARY_HARNESS" = pi-signed ]; then
     printf 'PI_WATCH_EXTENSION: not loaded - approve Pi project trust once per clone, then restart %s so %s and %s auto-load for turn-end guard and background wake coverage; use -e %s -e %s only if project hooks are not trusted\n' "$PI_RESTART_COMMAND" "$PI_TURNEND_EXT" "$PI_EXT" "$PI_TURNEND_EXT" "$PI_EXT"
   fi
 fi
-# omp (Oh My Pi) has no project-trust gate: it auto-discovers <cwd>/.omp/extensions
-# with no dialog, so the only ways both tracked primary extensions fail to load
-# are a session started outside this home, an extension disabled in the omp
-# config, or a build older than the tracked file. The markers carry the loaded
-# build plus the loading pid, exactly as the Pi ones do (bin/fm-wake-lib.sh).
-if [ "$PRIMARY_HARNESS" = omp ]; then
-  OMP_EXT="$FM_ROOT/.omp/extensions/fm-primary-omp-watch.ts"
-  OMP_TURNEND_EXT="$FM_ROOT/.omp/extensions/fm-primary-turnend-guard.ts"
-  OMP_WATCH_MARKER="$STATE/.omp-watch-extension-loaded"
-  OMP_TURNEND_MARKER="$STATE/.omp-turnend-extension-loaded"
-  OMP_LOCK="$STATE/.lock"
-  OMP_WATCH_VERSION=$(fm_pi_extension_version "$OMP_EXT" || printf '')
-  OMP_TURNEND_VERSION=$(fm_pi_extension_version "$OMP_TURNEND_EXT" || printf '')
-  if ! fm_pi_extension_loaded "$OMP_WATCH_MARKER" "$OMP_WATCH_VERSION" "$OMP_LOCK" \
-    || ! fm_pi_extension_loaded "$OMP_TURNEND_MARKER" "$OMP_TURNEND_VERSION" "$OMP_LOCK"; then
-    OMP_HOME_PHYS=$(cd -P "$FM_HOME" 2>/dev/null && pwd -P || printf '%s' "$FM_HOME")
-    OMP_ROOT_PHYS=$(cd -P "$FM_ROOT" 2>/dev/null && pwd -P || printf '%s' "$FM_ROOT")
-    if [ "$OMP_HOME_PHYS" = "$OMP_ROOT_PHYS" ]; then
-      printf 'OMP_WATCH_EXTENSION: not loaded - restart omp with this home as its working directory so %s and %s auto-load from .omp/extensions/ for turn-end guard and background wake coverage; pass -e %s -e %s only when omp must start from another directory, never together with auto-discovery (omp loads a file named both ways twice)\n' "$OMP_TURNEND_EXT" "$OMP_EXT" "$OMP_TURNEND_EXT" "$OMP_EXT"
-    else
-      # shellcheck disable=SC2016  # backticks are literal text in the diagnostic
-      printf 'OMP_WATCH_EXTENSION: not loaded - exit omp and relaunch through `fm <project>` (the launcher sets FM_HOME and --cwd) so %s and %s auto-load for this home; a bare omp or /resume from the firstmate checkout does not register the extensions for this home\n' "$OMP_TURNEND_EXT" "$OMP_EXT"
-    fi
-    # Warning only: name the cause when existing facts establish it.
-    OMP_MARKER_PID=$(sed -n '2p' "$OMP_WATCH_MARKER" 2>/dev/null || true)
-    OMP_CURRENT_PID=${REBUILDING_SESSION_PID:-$(sed -n '1p' "$OMP_LOCK" 2>/dev/null || true)}
-    if [ -n "$OMP_MARKER_PID" ] && [ -n "$OMP_CURRENT_PID" ] && [ "$OMP_MARKER_PID" != "$OMP_CURRENT_PID" ]; then
-      printf 'OMP_WATCH_CAUSE: the extension marker %s names pid %s, which is not this session (pid %s)\n' "$OMP_WATCH_MARKER" "$OMP_MARKER_PID" "$OMP_CURRENT_PID"
-    fi
-  fi
-fi
 "$SCRIPT_DIR/fm-supervision-instructions.sh" \
   --harness "$PRIMARY_HARNESS" \
-  --read-only "$READ_ONLY" \
-  --x-mode "$X_MODE_PRESENT"
+  --read-only "$READ_ONLY"
 
 # --- 5. read-once contract -------------------------------------------------
 # Ahead of the two digests it governs, not after them: a truncated tail is
@@ -839,23 +802,6 @@ for status in "$STATE"/*.status; do
 done
 [ "$ORPHAN_STATUS_FOUND" -eq 1 ] || printf '(none)\n'
 
-# Public commitments made through the myfirstmate relay. A promise to reply in a
-# public thread must survive compaction and restart, so it is surfaced from disk
-# here rather than from conversation memory. fm-public-followup-lib.sh owns both
-# gates: a home that never opted into the relay runs one [ -f ] test, prints no
-# subsection, and never reaches fm-public-followup.sh.
-if fm_pf_relay_active "$FM_HOME" \
-  && { fm_pf_has_registrations "$STATE" || fm_pf_has_events "$STATE"; }; then
-  PUBLIC_FOLLOWUP=$("$SCRIPT_DIR/fm-public-followup.sh" pending 2>/dev/null) || PUBLIC_FOLLOWUP=
-  if [ -n "$PUBLIC_FOLLOWUP" ]; then
-    subsection "Public commitments"
-    printf '%s\n' "$PUBLIC_FOLLOWUP"
-    printf '\nEach line is a public loop this home still holds: a reply still owed, or an open loop with nothing owed.\n'
-    printf 'Reconcile terminal results with %s/bin/fm-public-followup.sh consume, then deliver a ready one with\n' "$FM_ROOT"
-    printf '%s/bin/fm-public-followup.sh deliver <id>. Hand a delivered loop on with rechain, or close it with\n' "$FM_ROOT"
-    printf '%s/bin/fm-public-followup.sh retire <id> --reason "...". Load fmx-respond for the procedure.\n' "$FM_ROOT"
-  fi
-fi
 
 # --- 7. network checks ------------------------------------------------------
 # Deliberately here and not later: these lines are actionable (a stuck clone, a
@@ -920,13 +866,6 @@ if [ "$READ_ONLY" -eq 1 ]; then
 This session did not acquire the fleet lock. Stay read-only: do not arm,
 drain, spawn, steer, merge, or repair fleet state from here. Only a session
 with verified fleet-lock ownership may perform mutable follow-up.
-
-EOF
-elif [ -f "$CONFIG/x-mode.env" ]; then
-  cat <<EOF
-Follow the supervision operating instructions block above for harness '$PRIMARY_HARNESS'.
-X mode is active, so the emitted block's cadence instruction applies.
-This script never starts supervision itself.
 
 EOF
 else

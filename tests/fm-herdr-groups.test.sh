@@ -16,6 +16,7 @@ command -v jq >/dev/null 2>&1 || { echo "skip: jq not found (required by the her
 # A Herdr pane identity leaked in from the developer's own terminal must never
 # route a call anywhere; every call here goes to the scripted fake.
 herdr_forget_inherited_pane
+. "$ROOT/bin/fm-timeout-lib.sh"
 
 TMP_ROOT=$(fm_test_tmproot fm-herdr-groups)
 TOKEN_A='AbCdEfGhIjKlMnOpQrStUv'
@@ -135,7 +136,7 @@ test_on_groups_by_project_and_sorts_by_status_rank() {
   add_task api-new ship /p/api-server w7
   add_task api-resolved ship /p/api-server w8 "$(printf 'needs-decision [key=a]: q\nresolved [key=a]: answered')"
   add_task mate secondmate /p/api-server w9 'working: go'
-  printf 'window=t:1\nproject=/p/api-server\nkind=ship\n' > "$HOME_DIR/state/tmux-task.meta"
+  printf 'window=t:1\nproject=/p/api-server\nkind=ship\n' > "$HOME_DIR/state/unknown-backend-task.meta"
   out=$(groups plan 2>&1) || fail "plan failed: $out"
   assert_contains "$out" $'web-ask\tstorefront\tneeds-captain\t000.storefront.1.web-ask\t000.storefront' "open decision"
   assert_contains "$out" $'web-fail\tstorefront\tproblem\t' "failed task"
@@ -145,7 +146,7 @@ test_on_groups_by_project_and_sorts_by_status_rank() {
   assert_contains "$out" $'api-new\tapi-server\trunning\t' "task without a status log"
   assert_contains "$out" $'api-resolved\tapi-server\trunning\t' "resolved decision"
   assert_not_contains "$out" "mate" "a secondmate pane is not a grouped task"
-  assert_not_contains "$out" "tmux-task" "a non-Herdr task is not grouped"
+  assert_not_contains "$out" "unknown-backend-task" "a non-Herdr task is not grouped"
   sorted=$(printf '%s\n' "$out" | sort -t $'\t' -k4,4 | cut -f1 | tr '\n' ' ')
   assert_equals "api-held api-new api-resolved web-ask web-fail web-run web-done " "$sorted" \
     "sort keys must order by group, then needs-captain, problem, running, done"
@@ -366,21 +367,21 @@ PY
   pass "agent view helper: exactly agent.view.set and agent.view.clear for source firstmate"
 }
 
-test_watcher_poll_tags_tasks() {
-  local out
+test_watcher_poll_does_not_omit_task_group_tags() {
+  local out rc=0
   new_home watcher
   printf 'on\n' > "$HOME_DIR/config/herdr-project-groups"
   printf '%s\n' "$$" > "$HOME_DIR/state/.lock"
   touch "$HOME_DIR/state/.last-watcher-beat"
   add_task web-run ship /p/storefront w2 'working: go'
   write_live_lists 0
-  out=$(env FM_ROOT_OVERRIDE='' FM_HOME="$HOME_DIR" FM_STATE_OVERRIDE="$HOME_DIR/state" \
+  out=$(fm_run_timed 10 env FM_ROOT_OVERRIDE='' FM_HOME="$HOME_DIR" FM_STATE_OVERRIDE="$HOME_DIR/state" \
     FM_CONFIG_OVERRIDE="$HOME_DIR/config" FM_DATA_OVERRIDE="$HOME_DIR/data" \
     PATH="$FAKEBIN:$PATH" FAKE_DIR="$FAKE_DIR" FAKE_HERDR_LOG="$FAKE_HERDR_LOG" \
     FAKE_VIEW_LOG="$FAKE_VIEW_LOG" FM_HERDR_GROUPS_AGENT_VIEW="$FAKEBIN/agent-view" \
     FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 \
-    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 2 2>&1)
-  case "$out" in *"checkpoint:"*|*"signal:"*|*"stale:"*) ;; *) fail "watcher checkpoint did not run: $out" ;; esac
+    "$ROOT/bin/fm-watch.sh" 2>&1) || rc=$?
+  case "$rc" in 0|124) ;; *) fail "watcher returned $rc before the poll: $out" ;; esac
   assert_contains "$(reports pane)" "pane report-metadata w2:p2 --source firstmate --token fm_group=storefront" \
     "the watcher poll tagged the task pane"
   assert_contains "$(cat "$FAKE_VIEW_LOG")" "set" "the watcher poll set the agents view"
@@ -397,4 +398,4 @@ test_sync_skips_an_unverified_protocol_with_one_warning
 test_clear_removes_tokens_and_the_view_even_when_off
 test_sidebar_config_apply_backs_up_and_refuses_twice
 test_agent_view_helper_sends_only_the_whitelisted_requests
-test_watcher_poll_tags_tasks
+test_watcher_poll_does_not_omit_task_group_tags

@@ -27,19 +27,6 @@ make_case() {
 printf '%s\n' "$*" >> "${FM_FAKE_TREEHOUSE_LOG:-/dev/null}"
 exit 0
 SH
-  cat > "$fakebin/tmux" <<'SH'
-#!/usr/bin/env bash
-set -u
-if [ "${1:-}" = "list-windows" ]; then
-  if [ -n "${FM_FAKE_TMUX_WINDOWS:-}" ]; then
-    printf '%s\n' "$FM_FAKE_TMUX_WINDOWS"
-  elif [ -n "${FM_FAKE_TMUX_WINDOW:-}" ]; then
-    printf '%s\n' "${FM_FAKE_TMUX_WINDOW#*:}"
-  fi
-  exit 0
-fi
-exit 1
-SH
   cat > "$fakebin/gh-axi" <<'SH'
 #!/usr/bin/env bash
 case "${1:-} ${2:-}" in
@@ -57,7 +44,7 @@ SH
 #!/usr/bin/env bash
 exit 0
 SH
-  chmod +x "$fakebin/treehouse" "$fakebin/tmux" "$fakebin/gh-axi" "$fakebin/gh" "$fakebin/no-mistakes"
+  chmod +x "$fakebin/treehouse" "$fakebin/gh-axi" "$fakebin/gh" "$fakebin/no-mistakes"
   git init -q --bare "$case_dir/origin.git"
   git -C "$case_dir/origin.git" symbolic-ref HEAD refs/heads/main
   git clone -q "$case_dir/origin.git" "$case_dir/_seed" 2>/dev/null

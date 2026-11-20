@@ -14,7 +14,7 @@ set -eu
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 TMP_ROOT=$(fm_test_tmproot fm-assertions)
-printf 'backend=tmux\n' > "$TMP_ROOT/meta"
+printf 'backend=herdr\n' > "$TMP_ROOT/meta"
 assert_no_regex '^mode=' "$TMP_ROOT/meta" 'absent field failed'
 : > "$TMP_ROOT/empty"
 assert_no_regex '^backend=' "$TMP_ROOT/empty" 'empty file failed'

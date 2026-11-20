@@ -11,8 +11,8 @@
 # In a secondmate home every `scan` invocation, which is every watcher poll,
 # first runs the LEDGER-FIRST parent delivery: a direct child whose status
 # ledger ends in a whole `done:` or `failed:` line has stated its own outcome,
-# so that line is published on the parent channel at once through
-# bin/fm-parent-channel-lib.sh from this unstamped payload:
+# so that line is published on the parent channel at once from this
+# unstamped payload:
 #   <state> [key=child-outcome-<child>-<state>-<fp8>]: child <child> <state>: <note> [pr=<url>] [mode=<mode>] [yolo=<posture>] [report=data/<child>/report.md]
 # carrying the child's recorded PR, delivery mode, merge posture, and scout
 # report pointer, without consulting fm-crew-state.sh. A ship `done:` is
@@ -82,8 +82,8 @@
 #
 # A terminal-outcomes/<fingerprint>.pending record remains until its upstream
 # receipt is durable.
-# In a secondmate home, that receipt is an idempotent parent-channel append
-# through bin/fm-parent-channel-lib.sh; the ledger-first path and the inactive
+# In a secondmate home, that receipt is an idempotent parent-channel append;
+# the ledger-first path and the inactive
 # path share the same receipt store.
 # In a main home, a presentation-stage record is acknowledged by fm-wake-drain
 # only after its corresponding inactive-outcome wake is handled.

@@ -26,7 +26,7 @@ TMP_ROOT=$(cd "$TMP_ROOT" && pwd)
 # the foreground cwd with it. The fake treehouse opens that nested shell for
 # the interactive form, which is exactly what must not be used.
 make_lease_case() {
-  local name=$1 harness=${2:-codex} dir home proj wt fb d
+  local name=$1 dir home proj wt fb d
   dir="$TMP_ROOT/$name"
   home="$dir/home"
   proj="$dir/project"
@@ -34,7 +34,7 @@ make_lease_case() {
   d="$dir/fake"
   fb="$dir/fakebin"
   mkdir -p "$d" "$fb" "$dir/user-home"
-  fm_test_spawn_home "$home" "$harness"
+  fm_test_spawn_home "$home" pi
   fm_git_init_commit "$proj"
   git clone -q "$proj" "$wt"
   fm_test_spawn_brief "$home" "$name" "Exercise the Herdr task-copy lease for $name."
@@ -67,7 +67,7 @@ fi
 [ "${1:-}" != server ] || exit 0
 case "${1:-} ${2:-}" in
   'session list')
-    [ ! -f "$D/session-lockable" ] || printf '{"sessions":[{"name":"default","running":true,"socket_path":"%s/herdr.sock"}]}\n' "$D"
+    [ ! -f "$D/session-lockable" ] || printf '{"sessions":[{"name":"fixture-lease","running":true,"socket_path":"%s/herdr.sock"}]}\n' "$D"
     exit 0 ;;
   'pane close') : > "$D/pane-gone"; exit 0 ;;
   'pane get')
@@ -122,15 +122,8 @@ case "${1:-} ${2:-}" in
 esac
 exit 0
 SH
-  cat > "$fb/polytoken" <<'SH'
-#!/usr/bin/env bash
-case "$*" in
-  *"print models"*) printf 'zai/glm-5.3-flash\nzai/glm-5.3-flash(low)\n' ;;
-esac
-exit 0
-SH
-  chmod +x "$fb/treehouse" "$fb/herdr" "$fb/polytoken"
-  fm_fake_exit0 "$fb" codex
+  chmod +x "$fb/treehouse" "$fb/herdr"
+  fm_fake_exit0 "$fb" pi
   fm_test_fake_sleep_noop "$fb"
   printf '%s\n' "$dir"
 }
@@ -141,9 +134,9 @@ run_lease_spawn() {  # <case-dir> <id> [extra spawn args...]
   env -u HERDR_ENV -u HERDR_PANE_ID -u HERDR_SESSION -u HERDR_SOCKET_PATH \
     -u HERDR_TAB_ID -u HERDR_WORKSPACE_ID \
     PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
-    FM_FAKE_SLOT="$dir/slot" HOME="$dir/user-home" CLAUDE_CONFIG_DIR='' \
+    FM_FAKE_SLOT="$dir/slot" HOME="$dir/user-home" HERDR_SESSION=fixture-lease \
     FM_SPAWN_NO_GUARD=1 \
-    "$SPAWN" "$id" "$dir/project" --backend herdr --mode no-mistakes --yolo off "$@" 2>&1
+    "$SPAWN" "$id" "$dir/project" --backend herdr --harness pi --mode no-mistakes --yolo off "$@" 2>&1
 }
 
 test_fresh_spawn_leases_and_moves_the_top_level_shell() {
@@ -204,28 +197,22 @@ test_rolled_back_spawn_after_launch_names_the_lease_it_keeps() {
   pass "a spawn rolled back after its launch keeps the lease and names the command that releases it"
 }
 
-# abort_polytoken_spawn <id> <dirty|launch-fails> [session-lockable]: a
-# polytoken spawn aborts, either before its launch into a dirty copy or after a
-# launch that was not delivered into a clean copy, and asks Herdr to close its
-# own pane. Herdr closes it only when the session's presentation lock can be
-# taken, which needs the session's socket; without it the kill refuses and the
-# pane stays.
-abort_polytoken_spawn() {
+abort_pi_spawn() {
   local id=$1 dir
-  dir=$(make_lease_case "$id" polytoken)
+  dir=$(make_lease_case "$id")
   case "$2" in
     dirty) echo dirty >> "$dir/slot/README.md" ;;
     launch-fails) : > "$dir/fake/launch-send-fails" ;;
   esac
   [ -z "${3:-}" ] || : > "$dir/fake/session-lockable"
-  LEASE_OUT=$(run_lease_spawn "$dir" "$id" --model zai/glm-5.3-flash --effort low)
+  LEASE_OUT=$(run_lease_spawn "$dir" "$id")
   LEASE_STATUS=$?
   LEASE_DIR=$dir
 }
 
 test_abort_returns_a_clean_lease_once_the_pane_is_gone() {
   local id=lease-pane-gone
-  abort_polytoken_spawn "$id" launch-fails session-lockable
+  abort_pi_spawn "$id" launch-fails session-lockable
   [ "$LEASE_STATUS" -ne 0 ] || fail "spawn succeeded although its launch was not delivered"$'\n'"$LEASE_OUT"
   [ ! -e "$LEASE_DIR/home/state/$id.meta" ] || fail "the failed spawn kept its task record"
   assert_grep 'pane close' "$LEASE_DIR/fake/herdr-log" "the abort did not close its pane"$'\n'"$LEASE_OUT"
@@ -235,7 +222,7 @@ test_abort_returns_a_clean_lease_once_the_pane_is_gone() {
 
 test_abort_keeps_a_dirty_lease_once_the_pane_is_gone() {
   local id=lease-pane-gone-dirty
-  abort_polytoken_spawn "$id" dirty session-lockable
+  abort_pi_spawn "$id" dirty session-lockable
   [ "$LEASE_STATUS" -ne 0 ] || fail "spawn launched into a dirty leased copy"$'\n'"$LEASE_OUT"
   assert_grep 'pane close' "$LEASE_DIR/fake/herdr-log" "the abort did not close its pane"$'\n'"$LEASE_OUT"
   [ ! -e "$LEASE_DIR/fake/returned" ] || fail "the abort returned a copy holding uncommitted work"
@@ -246,7 +233,7 @@ test_abort_keeps_a_dirty_lease_once_the_pane_is_gone() {
 
 test_abort_keeps_the_lease_while_the_pane_is_present() {
   local id=lease-close-refused
-  abort_polytoken_spawn "$id" dirty
+  abort_pi_spawn "$id" dirty
   [ "$LEASE_STATUS" -ne 0 ] || fail "spawn launched into a dirty leased copy"$'\n'"$LEASE_OUT"
   ! grep -q 'pane close' "$LEASE_DIR/fake/herdr-log" || fail "the kill closed the pane without its presentation lock"
   [ ! -e "$LEASE_DIR/fake/returned" ] || fail "the abort returned the lease while its pane is still present"
@@ -282,7 +269,7 @@ test_never_moving_worktree_entry() {
   out=$(run_lease_spawn "$dir" "$id"); status=$?
   [ "$status" -ne 0 ] || fail "a pane that never moves was accepted"
   assert_contains "$out" "not its recorded worktree" "wrong cwd did not refuse"
-  assert_contains "$out" "Herdr pane 'default:%9'" "refusal did not identify the pane"
+  assert_contains "$out" "Herdr pane 'fixture-lease:%9'" "refusal did not identify the pane"
   assert_contains "$out" "last foreground_cwd='$dir/project'" "refusal lost the last cwd"
   assert_contains "$out" "agent_status='shell-starting'" "refusal lost agent status"
   [ "$(cat "$dir/fake/cd-sends")" = 2 ] || fail "a stuck pane received more than one retry"

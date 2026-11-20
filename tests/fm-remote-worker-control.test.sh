@@ -10,13 +10,16 @@ out=$(FM_HOME="$HOME_DIR" bash "$ROOT/bin/fm-remote-worker-control.sh" capabilit
 [ "$out" = 'fm-remote-worker-control.v2' ] || fail "capability handshake differs from protocol"
 pass "remote worker advertises launch protocol"
 mkdir -p "$HOME_DIR/state"
-printf 'window=lab:fm-scout-a\nworktree=/tmp/worktree\nproject=/tmp/project\nkind=scout\nharness=pi\n' > "$HOME_DIR/state/scout-a.meta"
+fm_write_meta "$HOME_DIR/state/scout-a.meta" \
+  "window=fm-remote:w1:p1" "endpoint_task_id=scout-a" \
+  "backend=herdr" "herdr_session=fm-remote" "herdr_workspace_id=w1" "herdr_tab_id=w1:t1" "herdr_pane_id=w1:p1" \
+  "worktree=$TMP_ROOT/worktree" "project=$TMP_ROOT/project" "kind=scout" "harness=pi"
 out=$(FM_HOME="$HOME_DIR" bash "$ROOT/bin/fm-remote-worker-control.sh" route scout-a)
-printf '%s\n' "$out" | grep -Fx 'target=lab:fm-scout-a' >/dev/null || fail "route loses its recorded target"
-printf '%s\n' "$out" | grep -Fx 'backend=tmux' >/dev/null || fail "route loses its backend"
+printf '%s\n' "$out" | grep -Fx 'target=fm-remote:w1:p1' >/dev/null || fail "route loses its recorded target"
+printf '%s\n' "$out" | grep -Fx 'backend=herdr' >/dev/null || fail "route loses its backend"
 pass "remote route reads the task endpoint"
 mkdir -p "$HOME_DIR/config"
-printf 'fm-lab-test\n' > "$HOME_DIR/config/herdr-session"
+printf 'fm-remote\n' > "$HOME_DIR/config/herdr-session"
 printf 'window=fm-other:pane1\nworktree=/tmp/worktree\nproject=/tmp/project\nbackend=herdr\nendpoint_task_id=scout-wrong\nherdr_session=fm-other\nherdr_workspace_id=workspace1\nherdr_tab_id=tab1\nherdr_pane_id=pane1\nkind=scout\nharness=pi\n' > "$HOME_DIR/state/scout-wrong.meta"
 if FM_HOME="$HOME_DIR" bash "$ROOT/bin/fm-remote-worker-control.sh" route scout-wrong >/dev/null 2>&1; then fail "route accepted an endpoint outside the execution home session"; fi
 pass "route rejects an endpoint from a different Herdr session"
@@ -25,8 +28,8 @@ out=$(FM_HOME="$HOME_DIR" bash "$ROOT/bin/fm-remote-worker-control.sh" state abs
 if FM_HOME="$HOME_DIR" bash "$ROOT/bin/fm-remote-worker-control.sh" capture scout-a 101 >/dev/null 2>&1; then fail "capture accepted an unbounded line count"; fi
 pass "state reports an absent task and capture bounds its output"
 mkdir -p "$TMP_ROOT/fake-bin"
-printf '#!/usr/bin/env bash\nexit 1\n' > "$TMP_ROOT/fake-bin/tmux"
-chmod +x "$TMP_ROOT/fake-bin/tmux"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$TMP_ROOT/fake-bin/herdr"
+chmod +x "$TMP_ROOT/fake-bin/herdr"
 if PATH="$TMP_ROOT/fake-bin:$PATH" FM_HOME="$HOME_DIR" bash "$ROOT/bin/fm-remote-worker-control.sh" capture scout-a >/dev/null 2>&1; then fail "capture reported success when the backend refused"; fi
 pass "capture propagates backend failure"
 printf 'needs-decision [key=pick] [at=1700000000]: pick one\n' > "$HOME_DIR/state/scout-a.status"

@@ -2,15 +2,10 @@
 # Safe, home-scoped (re-)arm of the firstmate watcher, with honest verification.
 #
 # The watcher (bin/fm-watch.sh) blocks until it has an actionable wake to
-# surface, then prints one reason line and exits. While state/.afk exists the
-# daemon owns triage and the watcher exits on every wake for the daemon to
-# classify. Reliability depends on arming through a mechanism that SURVIVES the
+# surface, then prints one reason line and exits. Reliability depends on arming through a mechanism that SURVIVES the
 # call and NOTIFIES on exit, so firstmate must run this script as the harness's
-# own tracked background task (e.g. run_in_background), or - for a Claude
-# primary - inside the Stop asyncRewake hook's foreground process tree
-# (bin/fm-claude-stop-autoarm.sh), where the harness owns the process group and
-# the hook's exit-2 rewake is the notification. Run it as its own standalone
-# background task, never bundled onto the tail of another command.
+# own tracked background task (e.g. run_in_background). Run it as its own
+# standalone background task, never bundled onto the tail of another command.
 # NEVER fire it and forget with a shell `&` inside another call: that backgrounded
 # child is reaped when the call returns, leaving NO watcher running and a false
 # "already running" off the dying process. That exact mistake silently took
@@ -87,8 +82,8 @@
 # (secondmate homes run the same script) and would kill siblings.
 #
 # --take-over <arm-pid>: own the cycle that arm <arm-pid> owns, for an owner
-# that left a successor cycle running through main's turn and now parks again
-# (bin/fm-supervision-host.sh). Only when this home's healthy watcher is that
+# that left a successor cycle running through main's turn and now parks again.
+# Only when this home's healthy watcher is that
 # arm's own child, it stops that watcher by its locked identity: a cycle that
 # delivered a reason before the stop landed reports it exactly as an attached
 # arm would, and otherwise this arm owns a fresh cycle as a plain arm does.
@@ -98,8 +93,8 @@
 # is attached to exactly as a plain arm attaches.
 #
 # --stop: the same home-scoped stop without re-arming, for an owner that ends
-# its own supervision cycle on purpose (the supervision host's park boundary,
-# bin/fm-supervision-host.sh). The stopped watcher publishes downtime exactly
+# its own supervision cycle on purpose (the supervision host's park boundary).
+# The stopped watcher publishes downtime exactly
 # as any watcher close does; prints "watcher: stopped pid=<N>" or
 # "watcher: none running" and exits 0, or exits 1 when the watcher outlived
 # the stop.
@@ -151,14 +146,9 @@ fi
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 
-# Home-local watcher tuning is independent of Relay's generated cadence
-# artifact. Relay, when active, is sourced second so its required 30s cadence
-# remains authoritative for an opted-in home.
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 # shellcheck source=/dev/null
 [ -f "$CONFIG/watch.env" ] && . "$CONFIG/watch.env"
-# shellcheck source=/dev/null
-[ -f "$CONFIG/x-mode.env" ] && . "$CONFIG/x-mode.env"
 
 WATCH="$SCRIPT_DIR/fm-watch.sh"
 ARM_SCRIPT="$SCRIPT_DIR/${BASH_SOURCE[0]##*/}"

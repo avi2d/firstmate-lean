@@ -86,9 +86,8 @@
 #     appended when boot_id differs from the previously published document's),
 #   watcher_beat_age_s (age of state/.last-watcher-beat, null when absent),
 #   reserve {flag not-configured|absent|present, label},
-#   captain not-configured|present|idle|away|unknown (captain-idle: away while
-#     an away record exists, else macOS HID idle time under the threshold is
-#     present and at or over it idle; anything unreadable is unknown),
+#   captain not-configured|present|idle|unknown (captain-idle: macOS HID idle
+#     time under the threshold is present and at or over it idle; anything unreadable is unknown),
 #   quota null | {provider, runway} (the all_models runway status from
 #     quota-axi --json --provider <p> --max-age 15m, bounded to 5 s; unknown
 #     when it cannot be read),

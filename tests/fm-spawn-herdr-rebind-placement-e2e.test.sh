@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Every Herdr call goes through bin/fm-herdr-lab.sh on one named session, and no
-# real agent starts: the test skips unless lab panes resolve grok to the stand-in.
+# real agent starts: the test skips unless lab panes resolve pi to the stand-in.
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -77,13 +77,17 @@ chmod +x "$HERDR_BIN/herdr"
 
 # The stand-in agent titles its terminal `nono`, which must not relabel the
 # task's tab or workspace.
-cat > "$HARNESS_BIN/grok" <<SH
+cat > "$HARNESS_BIN/pi" <<SH
 #!/bin/sh
+if [ "\${1:-}" = --version ]; then
+  printf '%s\\n' 1.5.1
+  exit 0
+fi
 printf '\\033]0;nono\\007'
 : > "$TMP_ROOT/agent-launched"
 sleep 1
 SH
-chmod +x "$HARNESS_BIN/grok"
+chmod +x "$HARNESS_BIN/pi"
 
 PATH="$HARNESS_BIN:$PATH" "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" \
   || fail "could not provision the isolated Herdr lab session"
@@ -111,11 +115,11 @@ LAUNCHER_PANE=$(printf '%s' "$LAUNCHER_OUT" | jq -r '.result.root_pane.pane_id /
 [ -n "$LAUNCHER_WS" ] && [ -n "$LAUNCHER_PANE" ] || fail "the launcher workspace returned incomplete ids"
 LAUNCHER_TABS_BEFORE=$(lab tab list --workspace "$LAUNCHER_WS" | jq -c '[.result.tabs[]?.tab_id] | sort')
 
-lab pane run "$LAUNCHER_PANE" "command -v grok > '$TMP_ROOT/agent-path'" >/dev/null \
-  || fail "could not ask a lab pane which grok it resolves"
-wait_for_file "$TMP_ROOT/agent-path" || fail "a lab pane did not report which grok it resolves"
-if [ "$(cat "$TMP_ROOT/agent-path")" != "$HARNESS_BIN/grok" ]; then
-  echo "skip: lab panes resolve grok to '$(cat "$TMP_ROOT/agent-path")', not the stand-in, so a relaunch could start a real agent"
+lab pane run "$LAUNCHER_PANE" "command -v pi > '$TMP_ROOT/agent-path'" >/dev/null \
+  || fail "could not ask a lab pane which pi it resolves"
+wait_for_file "$TMP_ROOT/agent-path" || fail "a lab pane did not report which pi it resolves"
+if [ "$(cat "$TMP_ROOT/agent-path")" != "$HARNESS_BIN/pi" ]; then
+  echo "skip: lab panes resolve pi to '$(cat "$TMP_ROOT/agent-path")', not the stand-in, so a relaunch could start a real agent"
   exit 0
 fi
 
@@ -175,7 +179,7 @@ OLD_TOKEN=$(grep '^projection_id=' "$JOURNAL" | cut -d= -f2-)
   echo "endpoint_task_id=$ID"
   echo "worktree=$WT"
   echo "project=$PROJ"
-  echo "harness=grok"
+  echo "harness=pi"
   echo "kind=ship"
   echo "mode=no-mistakes"
   echo "yolo=off"
@@ -196,7 +200,7 @@ fi
 : > "$HERDR_CALL_LOG"
 OUT=$(env HERDR_ENV=1 HERDR_PANE_ID="$LAUNCHER_PANE" HERDR_SESSION="$HERDR_LAB_SESSION" \
   HERDR_SOCKET_PATH="$LAB_SOCKET" PATH="$HERDR_BIN:$HARNESS_BIN:$PATH" \
-  FM_HOME="$HOME_DIR" GROK_HOME="$TMP_ROOT/grok-home" FM_SPAWN_NO_GUARD=1 FM_GATE_REFUSE_BYPASS=1 \
+  FM_HOME="$HOME_DIR" FM_SPAWN_NO_GUARD=1 FM_GATE_REFUSE_BYPASS=1 \
   FM_MAC_LOAD_MOCK_5MIN=1.0 \
   "$ROOT/bin/fm-spawn.sh" "$ID" --relaunch 2>&1) \
   || fail "relaunching a task whose endpoint is gone failed: $OUT"

@@ -33,7 +33,6 @@ The helper's header owns its provider mapping and quota selection mechanics.
 An `exhausted_now` runway vetoes the candidate.
 The helper selects a candidate only when its applicable quota has a known `effectivePercentRemaining` greater than zero.
 This is an optional narrow helper with a known limitation: it maps each harness to one primary provider family only, so a candidate whose established provider differs from that primary family is checked against the wrong quota row.
-omp has no primary family, so the helper keys an `omp:` candidate on its model prefix, mapping only `openai-codex/` and `claude-bridge/` and refusing every other prefix; the helper's header owns that mapping.
 Authoritative multi-provider routing - including provider discovery from the harness catalog and quota matching by that explicit provider - stays owned by this skill's intake procedure above and AGENTS.md section 4, not by the helper.
 Use it only when the brief already fixed the candidate order and every candidate's provider is the harness's primary family.
 It does not replace the reasoning-class, runway-feasibility, or authentication gates above.
@@ -95,10 +94,9 @@ Uncertainty and ineligibility are different findings:
 - Only concrete contradictory evidence blocks: an authoritative catalog proving the model unsupported, or proof that the credential the candidate actually selects is unusable.
 - Reserve login wording for that proven-unusable case, and name the harness, model, surface, and evidence.
 
-When a credential's local classification is the only thing standing between a candidate and a block, get ground truth before blocking.
-`bin/fm-vendor-auth-probe.sh` is the only approved vendor-credential probe; its `--help` owns the registered probes and mechanics.
-It takes no harness, model, or provider and returns a fact, not a route: only `authenticated` and `unauthenticated` are ground truth, while `indeterminate`, `timeout`, and `unavailable` establish nothing and must never be read as either outcome.
-Never launch a vendor CLI yourself, and never probe a credential store the candidate does not use.
+If the candidate's credential is uncertain, report the uncertainty and name the evidence needed to resolve it.
+Use only the candidate's Pi provider and account evidence.
+Never launch a standalone vendor CLI or read credential files for a dispatch check.
 Grok prepaid `credits` are unrelated to paid-window headroom; never read them as exhaustion.
 
 Malformed configuration is an actionable error, not a candidate to rank around.
@@ -116,14 +114,14 @@ Read `runway` from the `quota[]` row: `through_reset` passes this generic feasib
 `exhausted_now` is zero, and `projected_exhaustion` uses the matching `exhaustion[]` row's `usableRunwaySeconds`.
 A high `spendPriority` on a nearly empty window that will exhaust soon must not route into a mid-task stall.
 Unknown or unmeasurable runway stays eligible with disclosed uncertainty and is never assumed to pass.
-Do not invent a generic percentage floor, and honor an explicit captain floor for a candidate when one exists.
+Do not invent a generic percentage floor, and honor an explicit user floor for a candidate when one exists.
 
 ## Rank by spendPriority
 
 Among candidates that pass all three gates, first apply the optional top-level `preferred_provider` from `config/crew-dispatch.json`.
 Its schema is owned by [Crew dispatch profiles](../../../docs/configuration.md#crew-dispatch-profiles-configcrew-dispatchjson).
 Within the already matched rule or default, restrict ranking to eligible candidates of that family when any remain.
-Do not introduce other profiles, change a Claude-only rule, or override an explicit captain choice or approval requirement.
+Do not introduce other profiles, change a Claude-only rule, or override an explicit user choice or approval requirement.
 Only concrete evidence that every matched preferred candidate is ineligible authorizes fallback to other families.
 Unknown quota, missing account evidence, and unrankable scalars do not establish ineligibility.
 If preferred candidates remain eligible but none can be ranked, escalate with that uncertainty instead of switching families.
@@ -145,7 +143,7 @@ Do not compare headroom against runway by hand.
 Do not use pace or signed reserve as a later tie-break layer.
 Do not read `aheadWindowIds`, `behindWindowIds`, `onPaceWindowIds`, `limitingWindowIds`, or other window-id lists to reconstruct what `spendPriority` already computed.
 
-Genuine ties: stop and report every tied candidate for captain choice.
+Genuine ties: stop and report every tied candidate for user choice.
 Do not select by array order, harness name, or another arbitrary identity ordering.
 Report duplicate concrete profiles as a configuration error.
 
@@ -160,16 +158,16 @@ Walk the candidates in array order through the three gates against the one intak
 `spendPriority` is still read and shown as evidence, but it neither ranks the array nor overrides the order.
 A candidate that fails a gate, such as an `exhausted_now` runway, a catalog that does not list the model, a proven-unusable credential, the wrong reasoning class, or known runway short of the completion horizon, is skipped to the next one with its reason recorded.
 Unknown quota, an unknown `spendPriority`, or unmeasurable runway keeps the candidate eligible, so it is chosen with that uncertainty stated rather than skipped.
-An explicit captain floor that cannot be verified for the first passing candidate is the one unknown that stops the walk: report it rather than choosing that candidate or skipping past it.
+An explicit user floor that cannot be verified for the first passing candidate is the one unknown that stops the walk: report it rather than choosing that candidate or skipping past it.
 Order settles every comparison, so there are no ties in this branch.
 If no candidate passes, stop and report every candidate with its failing gate.
 The duty to account for every candidate, including those after the chosen one, is unchanged.
 
 Account for every candidate visibly before selecting or escalating, naming its catalog evidence, provider relation, applicable quota and authentication facts, remaining uncertainty, fit and reasoning class, `spendPriority`, and runway-versus-horizon result.
-A blocked credential report must name `harness`, `model`, authentication surface, and concrete failure evidence; never emit a bare `Grok unauthenticated` statement.
+A blocked credential report must name `harness`, `model`, authentication surface, and concrete failure evidence; never emit a provider name without the account and failure evidence.
 Never conclude with an unexplained "best quota" label.
 Save that accounting as the task selection record at `data/<id>/dispatch-selection.md` when it drives the launch, because `fm-spawn.sh` refuses a launch its proof does not cover.
 The record names the matched rule by index such as `rule_1` or `default` for the default array, carries exactly one `candidate:` line per entry of that rule's `use` array, and ends with the `chosen:` profile.
-Each candidate line names its entry's harness and model with the quota reading, for example `candidate: grok:grok-4 provider=grok remaining=50% spendPriority=10 runway=through_reset -> eligible`.
+Each candidate line names its entry's harness and model with the quota reading, for example `candidate: pi:openrouter/anthropic/claude-sonnet-4.6 provider=openrouter remaining=50% spendPriority=10 runway=through_reset -> eligible`.
 The chosen profile must be one of those candidates and equal the launch, and a stated `override:` reason line is the only way to launch a profile outside the listed candidates.
 [`docs/configuration.md`](../../../docs/configuration.md#crew-dispatch-profiles-configcrew-dispatchjson) owns the proof contract.

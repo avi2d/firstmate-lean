@@ -145,9 +145,7 @@ run_spawn() {
   local home=$1 wt=$2 fakebin=$3 launchlog=$4
   shift 4
   : > "$launchlog"
-  # A claude spawn pre-registers workspace trust in the launching user's own
-  # store (bin/fm-claude-trust.sh), so it runs against a throwaway HOME;
-  # without it this suite would write the developer's real ~/.claude.json.
+  # A throwaway HOME keeps a spawn from writing the developer's real home.
   mkdir -p "$home/user-home"
   env -u FM_TRACE_CONTEXT \
     FM_ROOT_OVERRIDE='' FM_HOME="$home" HOME="$home/user-home" CLAUDE_CONFIG_DIR='' \
@@ -167,9 +165,7 @@ run_spawn_tc() {
   local tc=$1 home=$2 wt=$3 fakebin=$4 launchlog=$5
   shift 5
   : > "$launchlog"
-  # A claude spawn pre-registers workspace trust in the launching user's own
-  # store (bin/fm-claude-trust.sh), so it runs against a throwaway HOME;
-  # without it this suite would write the developer's real ~/.claude.json.
+  # A throwaway HOME keeps a spawn from writing the developer's real home.
   mkdir -p "$home/user-home"
   env FM_TRACE_CONTEXT="$tc" \
     FM_ROOT_OVERRIDE='' FM_HOME="$home" HOME="$home/user-home" CLAUDE_CONFIG_DIR='' \
@@ -241,9 +237,7 @@ run_two_level() {
   smlog="$base/sm-launch.log"
   smfake=$(make_spawn_fakebin "$base/sm-fake")
   : > "$smlog"
-  # A claude secondmate spawn pre-registers workspace trust for the HOME it
-  # launches into (bin/fm-claude-trust.sh), so this runs against a throwaway
-  # HOME; without it this suite would write the developer's real ~/.claude.json.
+  # A throwaway HOME keeps a spawn from writing the developer's real home.
   mkdir -p "$base/user-home"
   env FM_TRACE_CONTEXT="$penv" \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$prim" HOME="$base/user-home" CLAUDE_CONFIG_DIR='' \
@@ -419,9 +413,7 @@ test_duplicate_secondmate_spawn_does_not_converge_trace_context() {
   git -C "$sm" init -q -b main
   fake=$(make_spawn_fakebin "$base/fake")
 
-  # A claude secondmate spawn pre-registers workspace trust for the HOME it
-  # launches into (bin/fm-claude-trust.sh), so this runs against a throwaway
-  # HOME; without it this suite would write the developer's real ~/.claude.json.
+  # A throwaway HOME keeps a spawn from writing the developer's real home.
   mkdir -p "$base/user-home"
   out=$(env -u FM_TRACE_CONTEXT \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$prim" HOME="$base/user-home" CLAUDE_CONFIG_DIR='' \

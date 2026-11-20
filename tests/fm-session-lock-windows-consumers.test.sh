@@ -1,10 +1,4 @@
 #!/usr/bin/env bash
-# Readers of a Windows session lock: the supervision host's main-session key and
-# the Claude auto-arm (claim pin, claim read-back, mid-turn health) must accept
-# the tagged win:<pid> holder bin/fm-session-lock-lib.sh writes on Git Bash, and
-# must still fail closed when that Windows process is gone, is a different
-# executable, or the tag appears off Windows. Every untagged value must reach
-# the generic numeric helpers unchanged, so POSIX behaviour stays identical.
 # shellcheck disable=SC2016 # single quotes are deliberate: each expression expands inside the fixture child
 set -u
 
@@ -102,30 +96,7 @@ lib_eval() {  # <windows|posix> <home> <expression> [$0 [args...]]
         printf "bash\0-c\0" > "$FM_PROC_ROOT_OVERRIDE/$BASHPID/cmdline"
       }
       . "$FM_ROOT_OVERRIDE/bin/fm-wake-lib.sh" || exit 97
-      . "$FM_ROOT_OVERRIDE/bin/fm-supervision-engine-lib.sh" || exit 98
       '"$expr" "$@"
-}
-
-test_supervision_main_key_reads_a_windows_session_lock() {
-  local home key
-  home=$(make_home main-key win:7204)
-  key=$(lib_eval windows "$home" 'fm_supervision_host_main_key "$FM_STATE_OVERRIDE"') \
-    || fail "the supervision host found no main-session key for a live win:7204 holder"
-  case "$key" in
-    win:7204:[0-9]*:[0-9]*) ;;
-    *) fail "the main-session key did not name the win:7204 holder: '$key'" ;;
-  esac
-  if FM_TEST_WIN_TABLE="$GONE_TABLE" lib_eval windows "$home" 'fm_supervision_host_main_key "$FM_STATE_OVERRIDE"' >/dev/null; then
-    fail "a win:7204 holder that has exited still produced a main-session key"
-  fi
-  # A pid reissued to another executable is a different holder, so it must not
-  # reuse the live session's key.
-  reused=$(FM_TEST_WIN_TABLE="$REUSED_TABLE" lib_eval windows "$home" 'fm_supervision_host_main_key "$FM_STATE_OVERRIDE"') || reused=
-  [ "$reused" != "$key" ] || fail "a reissued Windows pid kept the live session's main-session key"
-  if lib_eval posix "$home" 'fm_supervision_host_main_key "$FM_STATE_OVERRIDE"' >/dev/null; then
-    fail "a win: lock was keyed off Windows, where the tag must stay inert"
-  fi
-  pass "supervision host: a win:<pid> session lock yields the main-session key only while that Windows process lives"
 }
 
 test_autoarm_claim_pins_a_windows_lock_holder_and_reads_it_back() {
@@ -204,6 +175,5 @@ test_untagged_values_reach_the_numeric_helpers_unchanged() {
 }
 
 test_untagged_values_reach_the_numeric_helpers_unchanged
-test_supervision_main_key_reads_a_windows_session_lock
 test_autoarm_claim_pins_a_windows_lock_holder_and_reads_it_back
 test_autoarm_midturn_health_follows_a_windows_lock_holder

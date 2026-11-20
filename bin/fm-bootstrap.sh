@@ -80,9 +80,6 @@
 #          guesses at malformed or unsafe existing files, and secondmate homes
 #          await the primary-authoritative inherited value instead of creating
 #          their own.
-#          X mode is OPTIONAL and inert unless FM_HOME/.env has a non-empty
-#          FMX_PAIRING_TOKEN. When opted in, bootstrap requires curl+jq, writes
-#          the relay poll shim and 30s cadence config, and prints an FMX line.
 #          Fleet sync fetches, fast-forwards safe default-branch states, reports
 #          recovered and STUCK clone drift, and prunes gone local branches; it is
 #          bounded by FM_FLEET_SYNC_BOOTSTRAP_TIMEOUT when it is a non-empty
@@ -101,25 +98,12 @@
 #          retention an interrupted cleanup recorded, and marks In flight any
 #          item this home already owns a worker for. The worker-record sweep
 #          never starts a captain-held or closed item, and reconciliation never
-#          reads or writes another home; the fleet snapshot's classifier and
-#          bin/fm-secondmate-reconcile.sh's nudge stay as backstops. Replayed
+#          reads or writes another home; the fleet snapshot's classifier stays
+#          as a backstop. Replayed
 #          transitions and restored In-flight rows print BOOTSTRAP_INFO facts.
 #          The `code-root <file>` variant is a detect-only local check that runs
 #          even in a read-only session; detect_code_root_backlog_fork owns what
 #          it reports.
-#          Set FM_BOOTSTRAP_DETECT_ONLY=1 to skip the six MUTATING sweeps
-#          (backlog_record_reconcile, secondmate_sync,
-#          secondmate_liveness_sweep, secondmate_handoff_resume, x_mode_setup,
-#          fleet_sync) while still
-#          printing every read-only detect line
-#          above; the TANGLE line switches to advisory-only wording with no
-#          checkout command. Used by
-#          fm-session-start.sh's read-only path when another live session holds
-#          the fleet lock, so a second concurrent session never race-mutates
-#          secondmate homes, pending handoff outboxes and receiver wakes,
-#          X-mode artifacts, project clones, or repair instructions.
-#          Unset/0 (the default) runs all six sweeps - this flag is purely
-#          additive.
 #          Set FM_BOOTSTRAP_NETWORK to split this run by whether a step talks to
 #          the network, so a session start can print its digest from local reads
 #          alone and run the network half off the digest's blocking path:
@@ -129,10 +113,6 @@
 #            skip - every LOCAL step, and none of the network ones. Skips
 #                 `gh auth status`, secondmate_liveness_sweep, secondmate_sync,
 #                 secondmate_handoff_resume, and fleet_sync.
-#            only - ONLY those network steps and nothing else. No tool detection,
-#                 no version floors, no tangle check, no backlog
-#                 reconciliation, no x_mode_setup: those already ran on the
-#                 local pass.
 #          FM_BOOTSTRAP_DETECT_ONLY composes with it unchanged, so `only` plus
 #          detect-only is the read-only `gh auth status` probe on its own.
 #          bin/fm-startup-network.sh owns the deferral: it runs the `only` phase
@@ -193,12 +173,8 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-env-lib.sh"
 # shellcheck source=bin/fm-tangle-lib.sh disable=SC1091
 . "$SCRIPT_DIR/fm-tangle-lib.sh"
-# shellcheck source=bin/fm-cursor-lib.sh disable=SC1091
-. "$SCRIPT_DIR/fm-cursor-lib.sh"
 # shellcheck source=bin/fm-startup-memory-budget-lib.sh disable=SC1091
 . "$SCRIPT_DIR/fm-startup-memory-budget-lib.sh"
-# shellcheck source=bin/fm-x-lib.sh disable=SC1091
-. "$SCRIPT_DIR/fm-x-lib.sh"
 # shellcheck source=bin/fm-backend.sh disable=SC1091
 . "$SCRIPT_DIR/fm-backend.sh"
 # shellcheck source=bin/fm-timeout-lib.sh disable=SC1091
@@ -325,9 +301,7 @@ fleet_sync() {
 
 install_cmd() {
   case "$1" in
-    tmux|node|git|gh|curl|jq|orca|zellij) echo "brew install $1  # or the platform's package manager" ;;
-    cmux) echo "brew install --cask cmux  # or see https://cmux.com" ;;
-    hc) echo "bin/fm-install-hc.sh <dir> && add <dir> to PATH  # or see docs/hc-backend.md" ;;
+    tmux|node|git|gh|curl|jq) echo "brew install $1  # or the platform's package manager" ;;
     treehouse) echo "curl -fsSL https://kunchenguid.github.io/treehouse/install.sh | sh" ;;
     no-mistakes) echo "curl -fsSL https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.sh | sh" ;;
     gh-axi|chrome-devtools-axi|lavish-axi) echo "npm install -g $1 && $1 setup hooks" ;;
@@ -352,10 +326,6 @@ upgrade_cmd() {
 manual_install_url() {
   case "$1" in
     herdr) echo "https://herdr.dev" ;;
-    paseo) echo "https://paseo.sh" ;;
-    rex) echo "https://www.superlogical.com/rex" ;;
-    tern) echo "https://stencil.so/tern" ;;
-    cursor-agent) echo "https://cursor.com/cli" ;;
     *) return 1 ;;
   esac
 }
@@ -371,8 +341,7 @@ missing_tool_diagnostic() {
 
 # Required-tool detection follows the RESOLVED backend, not a one-size default:
 # a universal toolchain every home needs plus the backend-specific delta owned by
-# fm_backend_required_tools (bin/fm-backend.sh). So a herdr/zellij/cmux/tern home is
-# never told tmux is missing, and only orca drops treehouse. A backend value with
+# fm_backend_required_tools (bin/fm-backend.sh). A backend value with
 # no verified dependency set is reported before the universal checks continue.
 COMMON_TOOLS="node git gh no-mistakes gh-axi chrome-devtools-axi tasks-axi quota-axi"
 BACKEND=$(fm_backend_name)
@@ -453,165 +422,6 @@ tasks_axi_requirement() {
   printf '%s' "$req"
 }
 
-x_mode_write_if_changed() {
-  local dest=$1 content=$2 mode=$3 parent tmp parent_device current_mode
-  parent=${dest%/*}
-  [ "$parent" != "$dest" ] || return 1
-  [ -d "$parent" ] && [ ! -L "$parent" ] || return 1
-  if [ "$(uname)" = Darwin ]; then
-    parent_device=$(/usr/bin/stat -f %d "$parent" 2>/dev/null) || return 1
-  else
-    parent_device=$(stat -c %d "$parent" 2>/dev/null) || return 1
-  fi
-  if [ -e "$dest" ] || [ -L "$dest" ]; then
-    fmx_single_link_file_valid "$dest" "$parent_device" || return 1
-    if [ "$(uname)" = Darwin ]; then
-      current_mode=$(/usr/bin/stat -f %Lp "$dest" 2>/dev/null) || return 1
-    else
-      current_mode=$(stat -c %a "$dest" 2>/dev/null) || return 1
-    fi
-    if [ "$current_mode" = "$mode" ] && cmp -s "$dest" <(printf '%s\n' "$content"); then
-      return 0
-    fi
-  fi
-  tmp=$(umask 077; mktemp "$parent/.fm-x-mode.XXXXXX" 2>/dev/null) || return 1
-  if ! printf '%s\n' "$content" > "$tmp" \
-    || ! chmod "$mode" "$tmp" \
-    || ! fmx_single_link_file_mode_valid "$tmp" "$mode" "$parent_device"; then
-    rm -f -- "$tmp"
-    return 1
-  fi
-  if { [ -e "$dest" ] || [ -L "$dest" ]; } \
-    && ! fmx_single_link_file_valid "$dest" "$parent_device"; then
-    rm -f -- "$tmp"
-    return 1
-  fi
-  if ! mv -f -- "$tmp" "$dest"; then
-    rm -f -- "$tmp"
-    return 1
-  fi
-  if ! fmx_single_link_file_mode_valid "$dest" "$mode" "$parent_device" \
-    || ! cmp -s "$dest" <(printf '%s\n' "$content"); then
-    rm -f -- "$dest"
-    return 1
-  fi
-}
-
-x_mode_artifact_present() {
-  [ -e "$1" ] || [ -L "$1" ]
-}
-
-x_mode_remove_artifact() {
-  local artifact=$1 parent=${1%/*}
-  x_mode_artifact_present "$artifact" || return 0
-  [ -d "$parent" ] && [ ! -L "$parent" ] || return 1
-  rm -f -- "$artifact" 2>/dev/null || return 1
-  ! x_mode_artifact_present "$artifact"
-}
-
-# X mode (opt-in): when this home's .env carries a non-empty FMX_PAIRING_TOKEN,
-# wire the relay poll into the existing authenticated watcher dispatch.
-# Drops two idempotent, gitignored artifacts:
-#   state/x-watch.check.sh - byte-static identity shim; the watcher validates
-#                            its bytes and invokes bin/fm-x-poll.sh directly
-#   config/x-mode.env      - exports FM_CHECK_INTERVAL=30, sourced by the watcher
-#                            arm so only an X instance polls at the 30s cadence
-# On opt-out (no token, or empty) it removes any such artifacts so the instance
-# reverts to the default 300s no-poll behavior. Absent a token AND with no leftover
-# artifacts it is a complete no-op (nothing written, nothing printed), so a non-X
-# user sees zero change. Prints one confirmation line on opt-in, and one on opt-out
-# only when it actually removed artifacts. It never touches the watcher itself;
-# applying a cadence transition to a running watcher is the caller's job via
-# the emitted harness-aware supervision repair instruction.
-x_mode_setup() {
-  local env_file token shim cadence shim_body cadence_body tool missing shim_home
-  env_file="$FM_HOME/.env"
-  shim="$STATE/x-watch.check.sh"
-  cadence="$CONFIG/x-mode.env"
-
-  token=
-  [ -f "$env_file" ] && token=$(fmx_env_get FMX_PAIRING_TOKEN "$env_file")
-
-  x_mode_remove_artifacts() {
-    local failed=0
-    x_mode_remove_artifact "$shim" || failed=1
-    x_mode_remove_artifact "$cadence" || failed=1
-    [ "$failed" -eq 0 ]
-  }
-
-  x_mode_supervision_repair() {
-    local out
-    out=$("$SCRIPT_DIR/fm-supervision-instructions.sh" --repair-line 2>/dev/null) \
-      || out='repair missing watcher supervision according to the session-start operating block.'
-    printf '%s\n' "$out"
-  }
-
-  if [ -z "$token" ]; then
-    # Opt-out (or never opted in): drop any X artifacts; stay silent unless we
-    # actually removed something.
-    if x_mode_artifact_present "$shim" || x_mode_artifact_present "$cadence"; then
-      if x_mode_remove_artifacts; then
-        echo "FMX: X mode off - removed relay poll shim and 30s cadence; default cadence applies on the next supervision cycle; $(x_mode_supervision_repair)"
-      else
-        echo "FMX: X mode off - failed to remove relay poll shim or 30s cadence"
-      fi
-    fi
-    return 0
-  fi
-
-  missing=0
-  for tool in curl jq; do
-    if ! command -v "$tool" >/dev/null 2>&1; then
-      echo "MISSING: $tool (install: $(install_cmd "$tool"))"
-      missing=1
-    fi
-  done
-  if [ "$missing" -ne 0 ]; then
-    if x_mode_artifact_present "$shim" || x_mode_artifact_present "$cadence"; then
-      if x_mode_remove_artifacts; then
-        echo "FMX: X mode off - missing relay poll dependencies; install them and rerun bootstrap"
-      else
-        echo "FMX: X mode off - failed to remove relay poll shim or 30s cadence after missing relay poll dependencies"
-      fi
-    fi
-    return 0
-  fi
-
-  fmx_arm_failed() {
-    if x_mode_remove_artifacts; then
-      echo "FMX: X mode off - failed to arm relay poll shim or 30s cadence"
-    else
-      echo "FMX: X mode off - failed to arm relay poll shim or 30s cadence; stale artifacts remain"
-    fi
-  }
-
-  mkdir -p "$STATE" "$CONFIG" 2>/dev/null || { fmx_arm_failed; return 0; }
-
-  case "$FM_HOME" in
-    /*) shim_home=$FM_HOME ;;
-    *)
-      shim_home=$(CDPATH='' cd -- "$FM_HOME" 2>/dev/null && pwd -P) \
-        || { fmx_arm_failed; return 0; }
-      ;;
-  esac
-  shim_body=$(fmx_poll_shim_content "$shim_home" "$FM_ROOT")
-  x_mode_write_if_changed "$shim" "$shim_body" 700 || { fmx_arm_failed; return 0; }
-  fmx_poll_shim_valid "$shim" "$shim_home" "$FM_ROOT" \
-    || { fmx_arm_failed; return 0; }
-
-  cadence_body=$(cat <<'EOF'
-# Auto-generated by fm-bootstrap.sh - X mode watcher cadence.
-# Source this before the active harness protocol starts a watcher process so
-# fm-watch.sh polls the X check every 30s. Non-X instances have no such file and
-# keep the default 300s cadence.
-export FM_CHECK_INTERVAL=30
-EOF
-)
-  x_mode_write_if_changed "$cadence" "$cadence_body" 600 || { fmx_arm_failed; return 0; }
-
-  echo "FMX: X mode on - relay poll armed via state/x-watch.check.sh; 30s watcher cadence in config/x-mode.env"
-}
-
 crew_dispatch_validate() {
   local file err verified_harnesses typed_active=false
   file="$CONFIG/crew-dispatch.json"
@@ -628,7 +438,7 @@ crew_dispatch_validate() {
   if $typed_active; then
     verified_harnesses=$(fm_control_harnesses | jq -Rsc 'split("\n") | map(select(length > 0))')
   else
-    verified_harnesses='["claude","codex","opencode","pi","pi-signed","grok","kimi","cursor","agy","muse","rovo","omp","devin","commandcode","polytoken","cortex","kiro","hermes"]'
+    verified_harnesses='["pi","pi-signed"]'
   fi
   err=$(jq -r --argjson typed "$typed_active" --argjson verified_harnesses "$verified_harnesses" --arg provider_re "$FM_QUOTA_PROVIDER_ID_RE" --arg account_re "$FM_CLAUDE_ACCOUNT_NAME_RE" '
     def verified($h): $verified_harnesses | index($h);
@@ -637,15 +447,7 @@ crew_dispatch_validate() {
       if $e == null then true
       elif ($e | type) != "string" then false
       elif $e == "ultra" then (($h == "pi" or $h == "pi-signed") and (($m | type) == "string") and ($m | startswith("codex-native/")) and ($m | length) > 13)
-      elif $h == "claude" then (["low","medium","high","xhigh","max"] | index($e))
-      elif $h == "codex" then ((["low","medium","high","xhigh"] | index($e)) != null or ($e == "max" and $m == "gpt-5.6-luna"))
-      elif $h == "grok" then (["low","medium","high"] | index($e))
-      elif $h == "agy" then (["low","medium","high"] | index($e))
-      elif $h == "kiro" then (["low","medium","high","xhigh","max"] | index($e))
-      elif $h == "pi" or $h == "pi-signed" or $h == "omp" then (["low","medium","high","xhigh","max"] | index($e))
-      elif $h == "muse" then (["low","medium","high","xhigh","max"] | index($e))
-      elif $h == "rovo" then (["low","medium","high","max"] | index($e))
-      elif $h == "opencode" or $h == "kimi" or $h == "cursor" then false
+      elif $h == "pi" or $h == "pi-signed" then (["low","medium","high","xhigh","max"] | index($e))
       else true
       end;
     def profiles($value):
@@ -769,9 +571,8 @@ crew_dispatch_validate() {
 # (bin/fm-backlog-transition-lib.sh), so remaining recovery cases include a
 # process killed mid-transition and drift this home was already carrying. Heal
 # this home's OWN books on its own
-# restart rather than waiting for a parent's cross-home nudge; the fleet
-# snapshot's classifier and bin/fm-secondmate-reconcile.sh's nudge stay as
-# backstops for what this cannot see. Never reads or writes another home.
+# restart; the fleet snapshot's classifier stays as a backstop for what this
+# cannot see. Never reads or writes another home.
 backlog_record_reconcile() {
   local marker meta control_lock meta_lock id row label has_record=0 gate_status
   # A fresh home with no state directory has no physical task records to pair.
@@ -867,22 +668,20 @@ backlog_record_reconcile() {
       fm_lock_release "$meta_lock"
       return 2
     fi
-    if [ "$(fm_meta_get "$meta" cleanup_recovery)" != orca ]; then
-      row=
-      if fm_backlog_row_probe "$DATA" "$id"; then
-        row=$FM_BACKLOG_ROW_STATE
-      elif [ "$FM_BACKLOG_ROW_RESULT" != not_found ]; then
-        echo "BACKLOG_RECONCILE: $id: worker record exists but its backlog item could not be read: $FM_BACKLOG_ROW_ERROR"
-      fi
-      # Heal only the unambiguous case: a queued row for a record this home
-      # already owns. A held row is the captain's to move, and a closed row is a
-      # contradiction this sweep must not resolve by resurrecting the item.
-      if [ "$row" = "queued no no" ]; then
-        if fm_backlog_start "$DATA" "$id"; then
-          echo "BOOTSTRAP_INFO: marked $id in flight to match the worker this home already owns"
-        else
-          echo "BACKLOG_RECONCILE: $id: worker record exists but its backlog item could not be moved to In flight: $FM_BACKLOG_TRANSITION_ERROR"
-        fi
+    row=
+    if fm_backlog_row_probe "$DATA" "$id"; then
+      row=$FM_BACKLOG_ROW_STATE
+    elif [ "$FM_BACKLOG_ROW_RESULT" != not_found ]; then
+      echo "BACKLOG_RECONCILE: $id: worker record exists but its backlog item could not be read: $FM_BACKLOG_ROW_ERROR"
+    fi
+    # Heal only the unambiguous case: a queued row for a record this home
+    # already owns. A held row is the captain's to move, and a closed row is a
+    # contradiction this sweep must not resolve by resurrecting the item.
+    if [ "$row" = "queued no no" ]; then
+      if fm_backlog_start "$DATA" "$id"; then
+        echo "BOOTSTRAP_INFO: marked $id in flight to match the worker this home already owns"
+      else
+        echo "BACKLOG_RECONCILE: $id: worker record exists but its backlog item could not be moved to In flight: $FM_BACKLOG_TRANSITION_ERROR"
       fi
     fi
     fm_lock_release "$meta_lock"
@@ -949,10 +748,8 @@ if [ "${FM_BOOTSTRAP_DETECT_ONLY:-0}" != 1 ] && local_phase; then
           echo "error: bootstrap refused unsafe worker record ($FM_BACKLOG_TRANSITION_ERROR)" >&2
           exit 1
         fi
-        if [ "$(fm_meta_get "$BOOTSTRAP_BACKLOG_META" cleanup_recovery)" != orca ]; then
-          BOOTSTRAP_HAS_TASKS=1
-          break
-        fi
+        BOOTSTRAP_HAS_TASKS=1
+        break
       done
     fi
   fi
@@ -989,9 +786,6 @@ detect_local_tools() {
   for t in $COMMON_TOOLS; do
     command -v "$t" >/dev/null || missing_tool_diagnostic "$t"
   done
-  # The treehouse lease-support upgrade check is only relevant when the resolved
-  # backend actually requires treehouse (every backend except orca, which owns its
-  # own worktrees); an orca home must not be told to upgrade a provider it never uses.
   if fm_backend_list_contains "$TOOLS" treehouse \
     && command -v treehouse >/dev/null 2>&1 && ! treehouse_supports_lease; then
     echo "OUTDATED: treehouse (installed: $(tool_version treehouse); requires --lease support; upgrade: $(upgrade_cmd treehouse))"
@@ -1032,14 +826,6 @@ detect_local_config() {
   [ -f "$CONFIG/crew-harness" ] && crew=$(tr -d '[:space:]' < "$CONFIG/crew-harness" || true)
   if [ "${FM_BOOTSTRAP_VERBOSE_FACTS:-0}" = 1 ] && [ -n "$crew" ] && [ "$crew" != "default" ]; then
     echo "BOOTSTRAP_INFO: crew harness override active: $crew"
-  fi
-  # A configured cursor crew harness needs a cursor executable present, and
-  # cursor ships under EITHER installed name. Resolution runs through the
-  # verified owner rather than a bare `command -v`, so a home that merely has
-  # some unrelated executable named `agent` on PATH is still reported missing
-  # instead of failing at the first spawn.
-  if [ "$crew" = cursor ] && ! fm_cursor_resolve_binary >/dev/null 2>&1; then
-    echo "MISSING_MANUAL: cursor-agent (instructions: $(manual_install_url cursor-agent))"
   fi
   crew_dispatch_validate
   if [ "${FM_BOOTSTRAP_VERBOSE_FACTS:-0}" = 1 ] \
@@ -1112,20 +898,6 @@ if [ "${FM_BOOTSTRAP_DETECT_ONLY:-0}" != 1 ]; then
       fleet_sync
       fm_timing_record phase fleet-sync "$__fm_timing_stamp"
     fi
-  fi
-  # x_mode_setup writes local Relay artifacts only and never leaves the machine.
-  local_phase && x_mode_setup
-  # Adopt existing durable contribution links without making a network call.
-  # Detection-only startup must never publish a check registration.
-  if local_phase && command -v jq >/dev/null 2>&1 \
-    && [ -d "$DATA" ] && [ -x "$SCRIPT_DIR/fm-contributions.sh" ]; then
-    "$SCRIPT_DIR/fm-contributions.sh" arm --if-owned >/dev/null \
-      || echo "MISSING: contribution observation could not be armed; coverage is unconfirmed"
-  fi
-  if local_phase && [ -e "$CONFIG/pr-health-monitor" ] && command -v jq >/dev/null 2>&1 \
-    && [ -d "$DATA" ] && [ -x "$SCRIPT_DIR/fm-pr-health.sh" ]; then
-    "$SCRIPT_DIR/fm-pr-health.sh" arm >/dev/null \
-      || echo "MISSING: the PR health monitor could not be armed; owned PRs are not watched"
   fi
   if [ -n "$fleet_sync_pid" ]; then
     wait "$fleet_sync_pid" || true

@@ -1182,10 +1182,6 @@ SH
     [ -d "$dir/home/state/$id.check.sh" ] \
       || fail "legacy task teardown changed the unsafe direct artifact"
     rmdir "$dir/home/state/$id.check.sh"
-    FM_HOME="$dir/home" "$ROOT/bin/fm-x-link.sh" "$id" req-legacy \
-      --carry-count 0 --carry-ts 1700000000 --carry-platform x --carry-max 280 \
-      > "$dir/x-link.out" 2> "$dir/x-link.err" \
-      || fail "path-safe legacy task ID could not link an X request"
     run_merge_entry "$dir" "$id" https://github.com/o/r/pull/4 \
       > "$dir/merge.out" 2> "$dir/merge.err" \
       || fail "path-safe legacy task ID could not use the PR merge flow"
@@ -1520,9 +1516,6 @@ SH
 
 test_concurrent_watcher_sees_only_complete_publication() {
   local n dir direct_pid direct_rc watch_pid rc i id
-  # Arming also registers the contributions observer, and the watcher runs one
-  # cycle's checks in name order. This task sorts first, so the watcher reaches
-  # the poll under test, and stops on it, before that unrelated observer.
   id=a-task
   n=1
   while [ "$n" -le 3 ]; do
@@ -3323,19 +3316,8 @@ merged_ledger_row() {  # <state> <task-id>
     'index($5, prefix) == 1 { print $5 }' "$1/.wake-queue"
 }
 
-# Arming also registers the contributions observer, whose poll runs a full fleet
-# snapshot on every watcher check cycle. No case here exercises it (its own
-# suite does), so a case retires it before a bounded merged-poll run instead of
-# charging that work to the run's hang guard. Only ever call this while no
-# watcher runs, because a check removed mid-cycle is reported as rejected.
-retire_contributions_observer() {  # <dir>
-  FM_HOME="$1/home" "$ROOT/bin/fm-check-unregister.sh" contributions >/dev/null \
-    || fail "could not retire the contributions observer"
-}
-
 run_merged_poll_cycle() {  # <dir>
   local dir=$1 rc=0
-  retire_contributions_observer "$dir"
   add_stop_custom_check "$dir"
   set +e
   FM_TEST_GH_STATE=MERGED run_watcher_bounded "$dir/home" "$dir/fakebin" \
@@ -3456,7 +3438,6 @@ case " $* " in
 esac
 SH
   chmod +x "$dir/fakebin/mv"
-  retire_contributions_observer "$dir"
   add_stop_custom_check "$dir"
   set +e
   FM_TEST_REAL_MV="$REAL_MV" FM_TEST_REPLACEMENT_RAN="$dir/replacement-ran" \

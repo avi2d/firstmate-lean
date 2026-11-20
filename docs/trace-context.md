@@ -23,20 +23,9 @@ When enabled, for each spawn Firstmate resolves one W3C `traceparent` carrier fo
 This feature parents no SDK span by itself.
 
 Because the injected carrier and the recorded carrier are the same string, an observer that reads the metadata reconstructs exactly the identity the child received.
-The delivery sits at the unconditional pre-launch environment site, so it covers ship and scout spawns across `claude`, `codex`, `opencode`, `pi`, `pi-signed`, `grok`, `kimi`, `cursor`, `gemini`, `muse`, `rovo`, `agy`, `devin`, `commandcode`, `polytoken`, `cortex`, `kiro`, and `hermes`, plus Secondmate spawns across that same set except the deliberately crewmate-only `gemini`, `muse`, `rovo`, `devin`, `commandcode`, `polytoken`, `cortex`, `kiro`, and `hermes` adapters.
+The pre-launch environment hook passes the context to Pi and Pi-signed ships and scouts.
 This is the same coverage `GOTMPDIR` already has and requires no trace-specific `launch_template()` behavior.
-Ship and scout spawns reach that site on every pane-typed spawn backend (`tmux`, `herdr`, `zellij`, `orca`, `cmux`, `paseo`, `rex`); a Secondmate reaches it on every pane backend that accepts a Secondmate spawn (`tmux`, `herdr`, `zellij`, `rex`), because `bin/fm-spawn.sh` rejects a Secondmate on `orca`, `cmux`, and `paseo`.
-`t3code` has no pane, so its `claude` and `codex` ship, scout, and Secondmate spawns receive the same `TRACEPARENT` value under the same conditions through the backend's [per-directory harness environment](t3code-backend.md#per-directory-harness-environment) instead.
-
-### Remote Secondmate routes
-
-A Secondmate on a [remote route](remote-secondmates.md) never reaches that export site in the parent's own process: the parent hands the launch to the configured host, which runs its own `bin/fm-spawn.sh` there.
-The identity is still the parent's, because the parent home holds the task metadata an observer reads.
-The parent therefore resolves the carrier against that task's own metadata under its own frozen decision - reused verbatim on relaunch, freshly rooted otherwise, never adopting the parent process's ambient `TRACEPARENT` - and passes it to the remote host, which exports it at the same unconditional pre-launch site and returns the carrier its endpoint actually holds.
-The parent records that returned value, so an already-alive remote endpoint that was not relaunched reports the identity its agent really received rather than one the parent merely intended.
-The remote host validates the delivered carrier as a strict W3C value before it can reach any pane, and a disabled parent passes nothing, leaving the remote launch identical to the untraced one.
-If the endpoint is already alive, no new launch or injection occurs; the parent still records any carrier that endpoint reports, even when the parent's current decision is `off`, so its metadata does not deny the running agent's actual identity.
-The enablement decision travels with it exactly as on the local path: the remote home inherits `config/trace-context` as declared inherited material and the new Secondmate process receives the parent's frozen `FM_TRACE_CONTEXT=on|off` snapshot.
+Ship, scout, and Secondmate spawns reach that site on the herdr backend.
 
 ## Root and recovery semantics
 
@@ -101,13 +90,12 @@ This is a deliberate, source-owned choice:
   There is no configured provider command, no network, and no watchdog.
   The normal cost is small, but `od`/`tr` are external processes, so there is no hard latency guarantee - this is not a guaranteed-negligible bound.
   Any entropy or self-validation failure that returns omits the carrier for that spawn without aborting source work; a corrupt recorded carrier is re-minted as a fresh root rather than propagated (it is not an omission).
-  On pane backends, if the pre-launch carrier export fails, Firstmate omits the `traceparent=` metadata claim and still launches the task.
-  If a pane backend reports that failed trace input could not be cleared, Firstmate refuses to append the launch command rather than risk launching with an unknown partial carrier.
+  If the pre-launch carrier export fails, Firstmate omits the `traceparent=` metadata claim and still launches the task.
+  If the backend reports that failed trace input could not be cleared, Firstmate refuses to append the launch command rather than risk launching with an unknown partial carrier.
   If recording the carrier fails after a pane export, Firstmate unsets `TRACEPARENT` in the launch command and still launches the task, so the child never receives an identity absent from its metadata.
-  T3 Code records the carrier before including it in the [per-directory harness environment](t3code-backend.md#per-directory-harness-environment); a recording failure omits the carrier, while an environment installation failure refuses the launch.
 - **Metadata-only.**
   The value lives in the task's launch environment and in `state/<id>.meta`.
-  The [T3 environment contract](t3code-backend.md#per-directory-harness-environment) owns its overlay cleanup; teardown removes task state as before, and no schema migration is needed.
+  Teardown removes task state as before, and no schema migration is needed.
 
 ## Relationship to OpenTelemetry and later increments
 

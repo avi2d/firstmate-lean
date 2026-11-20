@@ -51,7 +51,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
-CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 WATCH="$SCRIPT_DIR/fm-watch.sh"
 GRACE=${FM_GUARD_GRACE:-300}
 queue_pending=false
@@ -231,11 +230,8 @@ elif [ "$watcher_healthy" = false ]; then
   if [ "$print_full_banner" -eq 1 ]; then
     queue_arg=0
     "$queue_pending" && queue_arg=1
-    x_mode=0
-    [ -f "$CONFIG/x-mode.env" ] && x_mode=1
     fix=$("$SCRIPT_DIR/fm-supervision-instructions.sh" \
       --read-only "$READ_ONLY" \
-      --x-mode "$x_mode" \
       --queue-pending "$queue_arg" \
       --repair-line 2>/dev/null || printf '%s\n' 'Repair missing watcher supervision according to the session-start operating block.')
     rule='━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
@@ -256,7 +252,7 @@ elif [ "$watcher_healthy" = false ]; then
       elif [ "$checks" -gt 0 ]; then
         printf '●  %s registered custom check(s), but %s.\n' "$checks" "$watcher_cause"
       else
-        printf '●  X-mode relay polling needs supervision, but %s.\n' "$watcher_cause"
+        printf '●  Supervision is required, but %s.\n' "$watcher_cause"
       fi
       if [ "$mac_slept" = 1 ]; then
         printf '●  Idle sleep freezes every worker and the watcher with it, so this reads as a slept Mac rather than a wedged watcher.\n'

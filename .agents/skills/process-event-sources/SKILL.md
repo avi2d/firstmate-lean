@@ -40,7 +40,7 @@ If the claim's recorded pid is alive under a different identity, `bin/fm-proceve
 If the runner itself died and its process group survives, `start` reports `already owned` and takes nothing back: verify whether the dead runner's polling child is still attached to the source, and once that group is empty the next reconcile reclaims the source on its own.
 Nothing signals that group automatically.
 
-When a source carries captain answers to captain-held tasks, bind it BEFORE arming it, so it can never produce an answer that has nowhere to go:
+When a source carries user answers to captain-held tasks, bind it BEFORE arming it, so it can never produce an answer that has nowhere to go:
 
 ```sh
 bin/fm-captain-hold.sh bind <source-id>
@@ -50,10 +50,6 @@ The runner then passes each captured result to that source's own adapter `answer
 This is generic across built-in adapters with an `answers` command, and the runner still wakes you to act on the result.
 External process-event bindings intentionally expose no answer operation and cannot feed the captain-answer intake.
 `captain-hold-lifecycle` owns when a binding is required and what the keys must be.
-
-A configured remote secondmate reply source is armed and handled through `bin/fm-procevent-remote-reply.sh`.
-Its header owns exact commands, while the adapter owns cursor continuity, validated deduplicated status ingest, path-confined document fetch, acknowledgement, and re-arming after a good delta.
-A continuity break is escalated once and stays unarmed until an operator deliberately rebases it.
 
 For a recurring mid-task quota check, arm the quota adapter:
 
@@ -79,10 +75,10 @@ bin/fm-procevent-when.sh arm <name> --condition <argv>... --action <argv>...
 
 [`docs/configuration.md`](../../../docs/configuration.md#process-to-event-sources-stateprocevent) owns the watch's operating contract, while the adapter's header and `--help` own the flags, cadence, trust binding, and outcome document.
 Eligibility is a firstmate judgment made BEFORE arming, because the scripts cannot classify an argv: the action must be safe, reversible, and exact (for example `no-mistakes update --beta`, whose own guard refuses while a validation run is active).
-Never bind an action that is destructive, irreversible, or security-sensitive, an action needing captain approval or any gate decision, or an action whose right form depends on what the condition finds - those keep the existing check-fires-then-firstmate-decides flow, for which a plain custom check or another adapter stays correct.
+Never bind an action that is destructive, irreversible, or security-sensitive, an action needing user approval or any gate decision, or an action whose right form depends on what the condition finds - those keep the existing check-fires-then-firstmate-decides flow, for which a plain custom check or another adapter stays correct.
 When in doubt, arm only the condition half as an ordinary check and keep the action as a wake-time decision.
 
-`bin/fm-procevent.sh --help`, `bin/fm-procevent-lavish.sh --help`, `bin/fm-procevent-when.sh --help`, `bin/fm-procevent-quota.sh --help`, `bin/fm-procevent-merge-on-green.sh --help`, `bin/fm-procevent-orc-dash.sh --help`, and `bin/fm-procevent-remote-reply.sh --help` own the exact commands and flags.
+`bin/fm-procevent.sh --help`, `bin/fm-procevent-lavish.sh --help`, `bin/fm-procevent-when.sh --help`, `bin/fm-procevent-quota.sh --help`, `bin/fm-procevent-merge-on-green.sh --help`, and `bin/fm-procevent-orc-dash.sh --help` own the exact commands and flags.
 
 An explicitly enabled external adapter registers through `bin/fm-procevent.sh register-extension`, never through a package-discovered script or package-supplied argv.
 [`docs/configuration.md`](../../../docs/configuration.md#trusted-external-process-event-adapters-configextensionsd) owns setup and [`docs/extension-bindings.md`](../../../docs/extension-bindings.md) owns the narrow trusted-code and untrusted-evidence boundary.
@@ -97,15 +93,6 @@ Two rules the commands cannot enforce for you:
 
 `procevent <adapter> <source-id> <sequence>`
 : The named durable result is waiting at `state/procevent-inbox/<source-id>.<sequence>.result`. Read that exact result; separate wakes identify later results independently.
-: **When the adapter owns applying the result, run the adapter, not the generic acknowledgement below.** The `<adapter>` field of the wake decides this, and `remote-reply` is such an adapter: a captured delta is applied only by
-  ```sh
-  bin/fm-procevent-remote-reply.sh handle <secondmate-id> <sequence> <result-file>
-  ```
-  Here `<secondmate-id>` is the `<source-id>` with its `remote-reply-` prefix removed.
-  The runner normally applies the result on capture, but this call is the required idempotent confirmation when the wake remains unacknowledged.
-  Never acknowledge a `remote-reply` wake through the generic command, because only the adapter ingests the delta, acknowledges it, and re-arms its source.
-  Use the generic path below only after fully handling a result whose adapter has no applying command.
-  [`docs/configuration.md`](../../../docs/configuration.md#process-to-event-sources-stateprocevent) owns the automatic-application contract and its failure boundary.
 : A captured result with no durable handled acknowledgement stays eligible for bounded re-announcement on the existing wake queue - across any number of drains and firstmate restarts, not only the crash window right after capture - until it is explicitly acknowledged. Once you have fully handled a result, durably record it:
   ```sh
   bin/fm-procevent.sh handled <source-id> <sequence>
@@ -123,7 +110,6 @@ The crew-hosted recovery ordering and arm-and-acknowledge rule are owned by the 
   A task-owned empty terminal round instead reaches its owner's steering inbox for conclusion, as the crew-hosted contract requires.
   A board close carrying a real answer, and every other result, still wakes its owner unchanged.
   Never read the absence of a wake as proof a review is still open; ask the source, not the queue.
-: A Lavish wake whose source id matches `bin/fm-procevent-lavish.sh source-id "$(bin/fm-bearings-board.sh path)"` is a bearings board result; load the `bearings` skill's board-wake handling regardless of which answer kinds the result contains.
 : A `when` wake carries the watch's one terminal captured outcome and may be re-announced until handled: `bin/fm-procevent-when.sh classify <result-file>` returns `fired` (relay the success and its output); `action-failed` (relay the captured error and decide recovery); `condition-error`, `never-true`, or `rejected` (the watch stopped safely without acting - report why and decide whether to re-arm); or `ambiguous` (the action was claimed but its outcome was never captured - verify its effect manually before anything else). Every `when` outcome is terminal and the action is never retried automatically, so after handling and the generic acknowledgement above, run `bin/fm-procevent-when.sh retire <name>` to clean the watch's private records before any re-arm.
 : A `quota` wake carries one terminal quota-check outcome: `bin/fm-procevent-quota.sh classify <result-file>` returns `low`, `exhausted`, `error`, or `unknown`. Report the provider and captured quota state, decide whether the active work should continue or move, then use the generic acknowledgement above. Re-arm explicitly if continued monitoring is needed.
 : A `orc-dash` wake carries one alert event, and `bin/fm-procevent-orc-dash.sh classify <result-file>` returns `quota-pace`, `heavy-load`, `long-task`, `stopped`, or `unknown`.
@@ -147,7 +133,6 @@ The crew-hosted recovery ordering and arm-and-acknowledge rule are owned by the 
 Supported by tests:
 
 - output that reached the runner is stored atomically at mode `0600` **before** any event referencing it is published;
-- the remote-reply adapter reads its append-only source non-destructively from an offset plus prefix hash, so a pre-capture retry can derive the same bytes again, while source truncation or replacement is detected rather than silently rebased;
 - proactive delivery, adapter-owned terminal retirement, and adapter-owned automatic application follow the operating contract in [`docs/configuration.md`](../../../docs/configuration.md);
 - a durably captured result with no handled acknowledgement remains eligible for bounded re-announcement across any number of drains and restarts, and repeat wakes retain the same source and sequence for deduplication;
 - the handled acknowledgement is generation-keyed to the exact source and sequence, private, path-safe, durable, and idempotent, and is the only thing that stops re-announcement;
@@ -165,10 +150,9 @@ Also never claim that a source cannot refresh its owning home's lease: that rule
 
 The currently published `lavish-axi poll` destructively clears feedback before returning it.
 A result lost after that clearing and before the runner reads the process output is unrecoverable, and no firstmate wrapper can close that source-side window.
-The remote-reply adapter removes that particular pre-capture window by never consuming its source, but it cannot recover bytes truly lost from the remote log itself.
 Say these boundaries plainly wherever the behavior is described.
 
-## Talking to the captain about it
+## Talking to the user about it
 
 A wake is not news by itself.
 Report what the source actually produced and what it changes, never the event line, the result path, or the runner.

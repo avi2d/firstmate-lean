@@ -1,7 +1,7 @@
 ---
 name: firstmate-coding-guidelines
 description: >-
-  Load before editing firstmate's shared, tracked material as defined by AGENTS.md section 1, whether working as firstmate directly or as a crewmate briefed on a firstmate-repo task.
+  Load before editing firstmate's shared, tracked material as defined by AGENTS.md section 1, whether working as firstmate directly or as a worker briefed on a firstmate-repo task.
 user-invocable: false
 metadata:
   internal: true
@@ -51,7 +51,7 @@ That is the trigger condition for loading the skill, plus any safety-critical fa
 Everything else - the procedure, the mechanism, the surrounding detail - moves out completely.
 Do not leave a partial restatement behind "just in case".
 A partial copy is exactly the duplication the one-owner rule forbids.
-The model to copy is `AGENTS.md` section 8's "Away-mode and quiet-mode stub": it keeps only the skill-invocation triggers inline and points everything else at the `/afk`, `/quiet`, and `away-quiet-supervision` skills.
+The model to copy is `AGENTS.md` section 7's "Load these at their moments" list: it keeps only the skill-invocation triggers inline and leaves everything else to the named skills.
 
 ## Size discipline
 
@@ -66,7 +66,7 @@ When in doubt, write the fact into the skill or doc first by patching that owner
 A new skill is dead weight if nothing loads it.
 Every new skill needs its load trigger declared in its description, which is the always-loaded trigger index; add an inline `AGENTS.md` pointer only in the operating section whose always-loaded rule must name it.
 State the trigger as a condition ("load before X", "load on Y wake"), never as a vague pointer.
-Briefs for tasks that touch firstmate's own tracked material should tell the crewmate to load this skill.
+Briefs for tasks that touch firstmate's own tracked material should tell the worker to load this skill.
 `bin/fm-brief.sh`'s `REPO` argument is a caller-supplied string, while its optional `--project` directory enables lineage-based self-repository detection for the publication gate (`bin/fm-role-lib.sh`).
 The scaffold does not add this skill's load instruction; firstmate adds it to firstmate-repo briefs by hand.
 `CONTRIBUTING.md`'s "Development" section carries the same instruction as a durable reminder.
@@ -93,7 +93,7 @@ Where a surface signal is unavoidable, back it with a guard that fails loudly na
 
 Every such check needs two tests, because they fail for different reasons:
 
-- A portable regression in `tests/` that pins the logic with real processes and no harness, so CI enforces the classifier everywhere it runs tmux.
+- A portable regression in `tests/` that pins the logic with real processes and no harness, so CI enforces the classifier everywhere it runs.
   Drive the signals apart deliberately and assert the verdict survives losing one; assert the divergence itself so the case cannot go quietly vacuous.
   Confirm which signal a given construction actually blinds on each supported platform rather than assuming, because the same trick can break different sources on macOS and Linux.
 - A live guard in the `live-harness-optin` family (`bin/fm-test-run.sh`) that exercises every INSTALLED harness for real and fails naming the harness and version.

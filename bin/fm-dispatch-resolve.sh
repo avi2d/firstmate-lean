@@ -207,7 +207,7 @@ declared_key() {
 # the tool is off, exactly as it was before declarations existed.
 select_key() {
   local provider=$1 name=$2 var=$3
-  [ -n "${!var}" ] || printf -v "$var" '%s' "$(fmx_env_get "$name" "$FM_HOME/.env")"
+  [ -n "${!var}" ] || printf -v "$var" '%s' "$(fm_env_get "$name" "$FM_HOME/.env")"
   [ -n "${!var}" ] || declared_key "$provider" "$var"
   if [ -z "${!var}" ]; then
     resolver_off "$name absent from the environment and $FM_HOME/.env"
@@ -218,7 +218,7 @@ select_key() {
 # Never echo a rejected value: a misconfigured URL may contain credentials.
 select_typesafe_base() {
   local base=${TYPESAFE_BASE:-}
-  [ -n "$base" ] || base=$(fmx_env_get TYPESAFE_BASE "$FM_HOME/.env")
+  [ -n "$base" ] || base=$(fm_env_get TYPESAFE_BASE "$FM_HOME/.env")
   [ -n "$base" ] || return 0
   command -v jq >/dev/null 2>&1 || die "jq required"
   jq -en --arg base "$base" '
@@ -248,9 +248,9 @@ select_typesafe_base() {
 }
 
 DISPATCH_PROVIDER=${FM_DISPATCH_PROVIDER:-}
-[ -n "$DISPATCH_PROVIDER" ] || DISPATCH_PROVIDER=$(fmx_env_get FM_DISPATCH_PROVIDER "$FM_HOME/.env")
+[ -n "$DISPATCH_PROVIDER" ] || DISPATCH_PROVIDER=$(fm_env_get FM_DISPATCH_PROVIDER "$FM_HOME/.env")
 DISPATCH_MODEL=${FM_DISPATCH_MODEL:-}
-[ -n "$DISPATCH_MODEL" ] || DISPATCH_MODEL=$(fmx_env_get FM_DISPATCH_MODEL "$FM_HOME/.env")
+[ -n "$DISPATCH_MODEL" ] || DISPATCH_MODEL=$(fm_env_get FM_DISPATCH_MODEL "$FM_HOME/.env")
 case "$DISPATCH_PROVIDER" in
   '')
     DISPATCH_PROVIDER=typesafe
@@ -270,7 +270,7 @@ case "$DISPATCH_PROVIDER" in
   systemone)
     [ -n "$DISPATCH_MODEL" ] || die "FM_DISPATCH_MODEL required when FM_DISPATCH_PROVIDER=systemone"
     DISPATCH_BASE_URL=${FM_DISPATCH_BASE_URL:-}
-    [ -n "$DISPATCH_BASE_URL" ] || DISPATCH_BASE_URL=$(fmx_env_get FM_DISPATCH_BASE_URL "$FM_HOME/.env")
+    [ -n "$DISPATCH_BASE_URL" ] || DISPATCH_BASE_URL=$(fm_env_get FM_DISPATCH_BASE_URL "$FM_HOME/.env")
     [ -n "$DISPATCH_BASE_URL" ] || die "FM_DISPATCH_BASE_URL required when FM_DISPATCH_PROVIDER=systemone"
     case "$DISPATCH_BASE_URL" in
       http://?*|https://?*) ;;
@@ -278,11 +278,11 @@ case "$DISPATCH_PROVIDER" in
     esac
     DISPATCH_BASE_URL=${DISPATCH_BASE_URL%/}
     # The key is optional: a local host may need none.
-    [ -n "$DISPATCH_API_KEY_PRIVATE" ] || DISPATCH_API_KEY_PRIVATE=$(fmx_env_get FM_DISPATCH_API_KEY "$FM_HOME/.env")
+    [ -n "$DISPATCH_API_KEY_PRIVATE" ] || DISPATCH_API_KEY_PRIVATE=$(fm_env_get FM_DISPATCH_API_KEY "$FM_HOME/.env")
     ;;
   openai)
     [ -n "$DISPATCH_MODEL" ] || die "FM_DISPATCH_MODEL required when FM_DISPATCH_PROVIDER=openai"
-    [ -n "$OPENAI_API_KEY_PRIVATE" ] || OPENAI_API_KEY_PRIVATE=$(fmx_env_get OPENAI_API_KEY "$FM_HOME/.env")
+    [ -n "$OPENAI_API_KEY_PRIVATE" ] || OPENAI_API_KEY_PRIVATE=$(fm_env_get OPENAI_API_KEY "$FM_HOME/.env")
     if [ -z "$OPENAI_API_KEY_PRIVATE" ]; then
       resolver_off "OPENAI_API_KEY absent from the environment and $FM_HOME/.env"
     fi
@@ -318,12 +318,7 @@ rules_err=$(jq -r --argjson verified_harnesses "$VERIFIED_HARNESSES" --arg provi
     if $e == null then true
     elif ($e | type) != "string" then false
     elif $e == "ultra" then (($h == "pi" or $h == "pi-signed") and (($m | type) == "string") and ($m | startswith("codex-native/")) and ($m | length) > 13)
-    elif $h == "claude" then (["low","medium","high","xhigh","max"] | index($e)) != null
-    elif $h == "codex" then ((["low","medium","high","xhigh"] | index($e)) != null or ($e == "max" and $m == "gpt-5.6-luna"))
-    elif $h == "grok" or $h == "agy" then (["low","medium","high"] | index($e)) != null
-    elif $h == "pi" or $h == "pi-signed" or $h == "omp" or $h == "muse" then (["low","medium","high","xhigh","max"] | index($e)) != null
-    elif $h == "rovo" then (["low","medium","high","max"] | index($e)) != null
-    elif $h == "opencode" or $h == "kimi" or $h == "cursor" then false
+    elif $h == "pi" or $h == "pi-signed" then (["low","medium","high","xhigh","max"] | index($e)) != null
     else true end;
   def profiles($v): if ($v | type) == "array" then $v elif ($v | type) == "object" then [$v] else [] end;
   def floor_bad($f; $need_provider):
@@ -385,31 +380,10 @@ rules_err=$(jq -r --argjson verified_harnesses "$VERIFIED_HARNESSES" --arg provi
 
 missing_provider=$(jq -r '
   def profiles($v): if ($v | type) == "array" then $v elif ($v | type) == "object" then [$v] else [] end;
-  ((.rules // [])[] | profiles(.use)[] | select(has("provider") | not) | "use\t\(.harness)"),
-  (profiles(.default // null)[] | select(has("provider") | not) | "default\t\(.harness)")
-' "$RULES" | while IFS=$'\t' read -r location harness; do
-  if ! fm_quota_single_provider_for_harness "$harness" >/dev/null; then
-    printf '%s\t%s\n' "$location" "$harness"
-  fi
-done)
-if [ -n "$missing_provider" ]; then
-  missing_provider_detail=''
-  while IFS=$'\t' read -r location harness; do
-    missing_provider_detail="${missing_provider_detail:+$missing_provider_detail; }$location profiles whose harness lacks one authoritative provider family require provider: $harness"
-  done <<< "$missing_provider"
-  die "malformed rules file: $RULES_PATH - $missing_provider_detail"
-fi
-
-# ---- harness -> provider map, from the single owner in fm-quota-axi-lib.sh -----
-PMAP='{}'
-while IFS= read -r h; do
-  [ -n "$h" ] || continue
-  p=$(fm_quota_single_provider_for_harness "$h" 2>/dev/null) || p=''
-  PMAP=$(jq -c --arg h "$h" --arg p "$p" '. + {($h): (if $p == "" then null else $p end)}' <<<"$PMAP")
-done < <(jq -r '
-  def profiles($v): if ($v | type) == "array" then $v elif ($v | type) == "object" then [$v] else [] end;
-  ([((.rules // [])[]) | profiles(.use)[]] + profiles(.default // null))
-  | map(.harness) | unique | .[]' "$RULES")
+  ((.rules // [])[] | profiles(.use)[] | select(has("provider") | not) | "use profiles require provider: \(.harness)"),
+  (profiles(.default // null)[] | select(has("provider") | not) | "default profiles require provider: \(.harness)")
+' "$RULES")
+[ -z "$missing_provider" ] || die "malformed rules file: $RULES_PATH - $missing_provider"
 
 RULE_COUNT=$(jq -r '(.rules // []) | length' "$RULES")
 
@@ -629,13 +603,13 @@ if jq -e '
 fi
 
 # ---- resolution: declared gates + quota evidence + argmax, all in jq ------------
-RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg none_criterion "$DEFAULT_WHEN" --argjson pmap "$PMAP" --argjson sq "$SQ" \
+RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg none_criterion "$DEFAULT_WHEN" --argjson sq "$SQ" \
   --argjson accounts "$ACCOUNTS" --argjson clauth "$CLAUTH_STATUS" \
   --slurpfile resp "$RESP_FILE" --slurpfile rules "$RULES" --slurpfile quota "$QUOTA" "$FM_QUOTA_ROW_JQ$FM_CLAUTH_ROW_JQ$(fm_quota_assessment_jq)"'
   ($resp[0]) as $r | ($rules[0]) as $cfg | ($quota[0]) as $q | ($r.answers.rule) as $a |
   def profiles($v): if ($v | type) == "array" then $v elif ($v | type) == "object" then [$v] else [] end;
   def prov($p; $lane): quota_row($q; $p; $lane);
-  def provider_of($c): ($c.provider // $pmap[$c.harness] // null);
+  def provider_of($c): $c.provider;
   def lane_of($c): quota_lane($c.harness; $c.model);
   def row_measured($row):
     ($row != null and (["known", "partial"] | index($row.quotaSemantics.status)) != null);

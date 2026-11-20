@@ -28,7 +28,6 @@ Herdr provides the terminal session while Treehouse continues to provide task wo
 | What happens after a Herdr server restart and how liveness is judged | [Restart and liveness behavior](#restart-and-liveness-behavior) |
 | Keeping Firstmate from starting a server a service manager owns | [Externally managed servers](#externally-managed-servers) |
 | How blocked transitions arrive and what happens without protocol 16 | [Push events and polling fallback](#push-events-and-polling-fallback) |
-| Where the away daemon runs and how it stops | [Away-mode supervisor support](#away-mode-supervisor-support) |
 | Stopping or deleting Herdr sessions during verification | [Destructive lab safety](#destructive-lab-safety) |
 | Known limits and the test suite | [Active limits](#active-limits) and [Regression entry points](#regression-entry-points) |
 
@@ -55,11 +54,6 @@ Select Herdr in any of these ways:
 - `FM_BACKEND=herdr` for one launch.
 - An explicit request to Firstmate.
 
-[`remote-secondmates.md`](remote-secondmates.md#launch-or-recover) owns remote second-mate backend selection, placement, and readiness.
-
-Herdr is also auto-detected when the primary runs natively under `HERDR_ENV=1` and is not inside tmux.
-A tmux pane nested inside Herdr resolves to tmux because the innermost multiplexer wins.
-An auto-detected Herdr spawn stays silent, matching the verified tmux default path.
 
 ### Spawn preflight and CI
 
@@ -130,7 +124,7 @@ Herdr 0.7.5 exports `HERDR_ENV`, `HERDR_PANE_ID`, `HERDR_SESSION`, `HERDR_SOCKET
 A Firstmate or secondmate agent's own commands inherit them.
 Older injection shapes are unverified, so a claimed launcher pane without the injected socket identity cannot be trusted.
 
-With presentation spaces disabled, a crewmate or scout is created in the exact workspace that identity currently resolves to.
+With presentation spaces disabled, a worker or scout is created in the exact workspace that identity currently resolves to.
 That workspace is read live from Herdr rather than from the injected snapshot, so the worker always appears beside the agent that launched it.
 Duplicate labels elsewhere in the session are irrelevant, and the globally focused workspace is never the target.
 A `--secondmate` launch is the deliberate exception: it stands up that secondmate home's own workspace instead of joining the launcher's.
@@ -179,7 +173,7 @@ Closing its last tab can remove the workspace, and the next spawn recreates it.
 
 ## Presentation spaces
 
-Each new crewmate or scout is placed in a disposable one-task workspace by default, on Herdr 0.8.0 and newer.
+Each new worker or scout is placed in a disposable one-task workspace by default, on Herdr 0.8.0 and newer.
 This section calls that one-task workspace the projection.
 Without the projection, tasks use the ordinary flat layout described under [Watching and task containers](#watching-and-task-containers).
 
@@ -405,7 +399,7 @@ The replacement is allowed only when all of these agree:
 
 The replacement tab and pane are created and verified before the old pane is rechecked and closed.
 Then the journal advances atomically to the replacement endpoint before metadata publication.
-The reclaim path never moves, closes, deletes, or renames a workspace and never touches a parent, sibling, captain, or foreign pane.
+The reclaim path never moves, closes, deletes, or renames a workspace and never touches a parent, sibling, user, or foreign pane.
 A failed replacement rolls back only the exact response-derived new pane when focus-safe verification permits it.
 
 These cases fall back flat without mutating the old projection when duplicate-agent risk is positively absent:
@@ -691,33 +685,8 @@ Ordinary local text steers instead use the durable steering inbox and send only 
 Spawn-time fixed commands may use Herdr's atomic run primitive.
 Enter, Escape, and Ctrl-C are supported.
 
-Typed-plane slash input, and dollar-prefixed skill input for Codex, uses the shared harness-aware settle before the first Enter, so a completion popup cannot consume it.
+Typed-plane slash input uses the shared harness-aware settle before the first Enter, so a completion popup cannot consume it.
 Typed-plane text is typed once; only Enter is retried.
-
-### Claude composer proof
-
-When native `agent get` identity is Claude, the adapter types only into an empty composer.
-A Claude composer that already holds text, or cannot be read, before the send is refused with nothing typed.
-Before that Enter, the adapter continues only when the selected composer shows the typed payload, or only Claude paste placeholders with no literal remainder.
-Every herdr adapter composer read (`fm_backend_herdr_composer_state`, `fm_backend_herdr_composer_content`) captures the full visible viewport, never a bounded tail.
-An overlay Claude renders between the composer and the pane bottom - the slash-command popup is the verified shape - pushes the composer outside a tail window, and the composer is by definition inside the viewport.
-[`bin/fm-task-inbox-lib.sh`](../bin/fm-task-inbox-lib.sh) owns the separate shared inbox pending-line confirmation read.
-Dated measurement: docs/verification/runtime-backends.md "Claude exit behind the slash-command popup".
-
-That comparison ignores whitespace and U+2063, the invisible mark that starts operational inputs and ends the from-firstmate label.
-It ignores U+2063 because Claude's Herdr read-back never shows it.
-
-A composer that holds a shorter suffix, or a placeholder plus a literal remainder, does not receive Enter.
-Instead:
-
-1. The adapter presses Ctrl+U until the shared classifier reads the composer as empty.
-2. It then reports `send-failed`, so a resend starts from a clean composer.
-
-Ctrl+C is not used for this, because Claude documents it as interrupting a running operation.
-If the composer cannot be verified empty again, the submit reports `unknown` instead, because text may still be in the composer.
-
-Other harnesses, and panes with no native identity, skip this proof and keep the type-then-Enter path.
-They skip it because their paste placeholders and composer shapes are not live-verified.
 
 ### Submit confirmation
 
@@ -748,13 +717,12 @@ Cursor is one such harness:
 That fallback alone reported every delivered steer as unconfirmed.
 So it is paired with a rendered-footer transition.
 The pane's verified busy footer is read once before the first Enter, and an idle-to-busy transition across that Enter confirms the submit.
-It is the same semantic signal the native path uses and the same one the tmux submit core reads.
 
 A pane already mid-turn cannot borrow a rendered-footer transition as proof of this delivery.
 After retries, only proven pending text plus native `working` can establish that its Enter was accepted and queued.
 
 The composer verdict itself is deliberately unchanged.
-A right-aligned status token on the composer row stays content for every other caller, including the away-mode pre-injection guard.
+A right-aligned status token on the composer row stays content for every other caller.
 
 The poll density bounds the residual possibility of an extremely fast complete turn.
 A missed native transition falls through to the composer verdict rather than reporting a false swallow.
@@ -777,13 +745,10 @@ A human-blocked permission dialog has no busy banner and still surfaces.
 
 Herdr has no direct cursor-row primitive.
 The adapter is a thin capture.
-It hands the visible pane's ANSI viewport plus Herdr's capability facts to the fleet-wide classifier in `bin/fm-composer-lib.sh`, which owns every shape:
+It hands the visible pane's ANSI viewport plus Herdr's capability facts to the home-wide classifier in `bin/fm-composer-lib.sh`, which owns every shape:
 
 - Bordered boxes.
-- Bare agent-glyph rows, including muse's `⟩`, which the adapter's retired local pattern silently omitted.
-- opencode's left bar.
 - The Pi separator region this adapter pioneered, admitted only when native `agent get` identity is exactly Pi and state is idle or done.
-- Cortex Code's titled rounded top rule, admitted only when native `agent get` identity is exactly `cortex`, which the adapter reads lazily and only when the classifier answers `need-identity` for a titled rounded box holding an agent prompt glyph; the same box on any other pane stays ambiguous, and Cortex is [verified](verification/cortex.md) on Herdr for crewmates and scouts only.
 
 ### Pi composer states
 
@@ -795,25 +760,18 @@ Identity stays a lazy second read, consulted only when a separator pair could ch
 ### Placeholder and ghost text
 
 ANSI capture preserves de-emphasized placeholder style.
-`bin/fm-composer-lib.sh` is the fleet-wide owner that strips dim or faint runs and dark truecolor placeholders while retaining bright typed input.
+`bin/fm-composer-lib.sh` is the home-wide owner that strips dim or faint runs and dark truecolor placeholders while retaining bright typed input.
 
 If the ANSI capture ever fails, the plain fallback declares itself unstyled.
 The classifier then degrades a glyph row carrying trailing text to `unknown` instead of misreading ghost suggestions as typed input.
-That safely defers injection and eventually raises the wedge alarm.
-
-### Away-mode injection
-
-A bare shell prompt is never an empty agent composer.
-Away-mode injection proceeds only on an affirmative `empty` result, never on unknown.
-This prevents a dead agent pane from receiving and possibly executing an escalation as shell input.
+That safely defers injection.
 
 ### Operational input markers
 
 The current operational envelope starts with U+2063 and `FIRSTMATE_OP: `.
 The separate routed-request carrier uses `[fm-from-firstmate]` plus U+2063.
 U+2063 survives Herdr terminal input as text, unlike the legacy ASCII control separator that could erase the visible routing label.
-Claude Code itself then removes it from the submitted prompt, so a Claude Code primary receives away-mode escalations as the owner's record-backed doorbell instead.
-`bin/fm-operational-input.sh` owns current operational construction and parsing, and the AFK skill owns legacy away-input compatibility.
+`bin/fm-operational-input.sh` owns current operational construction and parsing, .
 No Herdr-specific copy of that protocol exists.
 
 ## Restart and liveness behavior
@@ -874,7 +832,7 @@ In that case `agent get` still reports `agent=pi` with its last status.
 That nested shell is the shape the interactive `treehouse get` leaves behind; fresh Herdr spawns lease durably instead (see [Restart recovery](#restart-recovery)), but older or hand-driven panes can still have it (measured on Herdr 0.9.0 - [verification](verification/runtime-backends.md) "Stale agent registration"; upstream issue #4115).
 
 So before a registered agent counts as live, the pane classifier reads `pane process-info` and the real process table.
-It uses the shared harness-process classifier in `bin/fm-agent-process-lib.sh`, the same rule the tmux adapter proves liveness with:
+It uses the shared process classifier in `bin/fm-agent-process-lib.sh`:
 
 | What the process view shows | Verdict |
 | --- | --- |
@@ -905,7 +863,7 @@ So an absent registration, or a placeholder status, is judged by the same proces
 | Nothing but shells, with no harness below them | `no-agent`, which recovery reads as `dead`. |
 | Anything else, or an unreadable view | `unknown`: neither a live agent nor its absence is claimed. |
 
-With no registration to name the harness, the composer probe takes Pi's identity from that process and its idle or working state from Pi's rendered busy indicator, the same pair the tmux adapter uses.
+With no registration to name the harness, the composer probe takes Pi's identity from that process and its idle or working state from Pi's rendered busy indicator.
 The native busy verdict stays `unknown`, because only a registration carries it.
 
 ### Process-view version support
@@ -931,7 +889,6 @@ Neither the stopped-server exception nor the stale-registration verdict widens h
 Those paths still refuse an unreadable pane.
 A `stale-agent` pane is reused by recovery, never closed as a husk, because the shell it holds may be a nested worktree shell.
 
-Native registration still identifies Pi by name where tmux would see a generic interpreter.
 The process-level proof only decides whether that registration is backed by a running process.
 `tests/fm-backend-herdr-agent-exit-shell-e2e.test.sh` pins the live-Pi versus leftover-shell distinction.
 [`verification/runtime-backends.md`](verification/runtime-backends.md#agent-lifecycle-control) owns the versioned evidence.
@@ -946,7 +903,7 @@ A pane has ONE status authority, and for Pi with the integration installed that 
 That authority is bound to a session identity, and in the crew shape the registration outliving its process ([above](#restart-and-liveness-behavior)) is that same binding: the record stays, the agent it named is gone.
 
 An agent started FRESH in such a pane reports a new session and Herdr ignores its reports, so the pane stays frozen at whatever the previous agent last reported.
-A crewmate running its pipeline then reads `idle` until its task ends.
+A worker running its pipeline then reads `idle` until its task ends.
 `pane release-agent` on the stale record changes nothing, but on Herdr 0.9.5 a sessionless `pane report-agent` from the bound source drops the binding.
 A fresh spawn never meets this: it gets a new pane with nothing bound.
 
@@ -974,7 +931,6 @@ The watcher maps the pane back to the task and skips these:
 - Declared `paused:` waits, because the worker's declared wait already accounts for its quiet.
   It is left to the watcher's own bounded pause cadence.
 - Verified `captain-held` transfers.
-  A captain-held transfer remains silent without rechecks while the away-posture record exists.
 
 ### Polling fallback
 
@@ -991,39 +947,6 @@ Polling runs every cycle and remains the permanent fallback when any of these is
 There is still one watcher process; the event reader is a bounded child of that watcher.
 
 `tests/fm-backend-herdr-eventwait-smoke.test.sh`, `tests/fm-transition-lib.test.sh`, and `tests/fm-supervision-events.test.sh` cover capability, subscribe-then-reconcile ordering, dedupe, exemptions, and polling fallback.
-
-## Away-mode supervisor support
-
-[Away-mode supervisor configuration](configuration.md#away-mode-supervisor-backend-fm_supervisor_backend--fm_supervisor_target) owns supported backends and detection.
-For Herdr, target existence, native state, capture, composer state, and verified submit all route through the shared backend dispatcher and the explicit named-session CLI owner.
-The pane-independent max-defer alert is configured in [`wedge-alarm.md`](wedge-alarm.md).
-
-### Where the daemon runs
-
-- Harnesses with native tracked background execution can run the daemon in their terminal.
-- Pi and pi-signed no longer launch the away daemon; their ordinary supervision session continues under the posture record.
-- A non-Pi home that runs the supervision host also skips the daemon for `/afk`; see [supervision-host.md](supervision-host.md).
-- For another harness without native tracked background execution, `bin/fm-afk-launch.sh` runs the daemon in a Herdr workspace, as described next.
-
-In that last case, `bin/fm-afk-launch.sh`:
-
-1. Creates a dedicated unfocused Herdr workspace.
-2. Runs the daemon there with an explicit supervisor target and backend.
-3. Records the exact daemon pane.
-4. Closes only that pane on stop.
-
-It never splits the captain's active tab and never uses shell `&`.
-Recovery reconciles only the recorded exact id.
-
-### Stopping the daemon
-
-On stop:
-
-1. The daemon receives termination while `state/.afk` still exists, so its final flush can run.
-2. The recorded terminal is closed.
-3. The AFK flag is removed last.
-
-A fresh entry clears stale transient escalation caches, while durable queue and task records remain authoritative.
 
 ## Destructive lab safety
 
@@ -1052,7 +975,6 @@ Tests use thin compatibility wrappers in `tests/herdr-test-safety.sh` and never 
 - Mutable labels can collide; they are never placement or destructive authority.
 - A Firstmate outside Herdr cannot resolve a launcher workspace, so a colliding home label refuses new spawns until the collision is cleared.
 - Ghost and placeholder recognition uses ANSI de-emphasis when available; an unstyled glyph row carrying trailing non-idle text fails safely to `unknown`.
-- Supervisor transport support is separate from task-spawn support; see [away-mode supervisor configuration](configuration.md#away-mode-supervisor-backend-fm_supervisor_backend--fm_supervisor_target).
 
 ## Regression entry points
 
@@ -1063,7 +985,6 @@ tests/fm-herdr-submit-confirm-live-e2e.test.sh
 tests/fm-backend-herdr-smoke.test.sh
 tests/fm-backend-herdr-prune-safety-e2e.test.sh
 tests/fm-backend-herdr-respawn-idem-e2e.test.sh
-tests/fm-backend-herdr-workspace-per-home-e2e.test.sh
 tests/fm-backend-herdr-launcher-workspace-e2e.test.sh
 tests/fm-remote-home-header-herdr-e2e.test.sh
 tests/fm-spawn-herdr-rebind-placement-e2e.test.sh
@@ -1081,8 +1002,6 @@ tests/fm-herdr-session-cleanup.test.sh
 tests/fm-herdr-session-cleanup-e2e.test.sh
 tests/fm-herdr-groups.test.sh
 tests/fm-herdr-attached-viewer-live-e2e.test.sh
-tests/fm-afk-inject-herdr-e2e.test.sh
-tests/fm-afk-pi-herdr-return-e2e.test.sh
 ```
 
 Real Herdr tests use the named lab helper and default-session tripwire.

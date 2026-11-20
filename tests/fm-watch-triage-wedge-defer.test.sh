@@ -321,7 +321,7 @@ test_wedge_threshold_defers_to_a_backlog_captain_hold() {
 }
 
 # --- the wedge threshold reads the crew's own parked-gate state --------------
-# Upstream kunchenguid/firstmate#3055: a lane parked at a validation gate that is
+# A lane parked at a validation gate that is
 # waiting on a HUMAN is correctly quiet, but nothing in the status LINE says so -
 # the evidence is the pipeline's gate state, not anything the worker wrote. One
 # such lane reached 671 consecutive escalations on a single home. Neither landed
@@ -625,7 +625,7 @@ resolved [key=nm-01RUNGATE-review]: firstmate chose the second fix' 2000)
 }
 
 # --- a worker's own newest blocker or decision, behind its opt-in flag -------
-# Upstream kunchenguid/firstmate#6899: a lane whose newest line is the worker's
+# A lane whose newest line is the worker's
 # own `blocked:` or `needs-decision:` already woke firstmate, so in a home that
 # armed config/wedge-defer-worker-wait the wedge timer defers it to the bounded
 # recheck instead of climbing the ladder. `blocked:` is the verb pinned here

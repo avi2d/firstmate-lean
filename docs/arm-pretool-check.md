@@ -2,13 +2,15 @@
 
 This document is the authoritative human-readable contract for the watcher arm PreToolUse seatbelt.
 `bin/fm-arm-command-policy.mjs` is the single semantic owner.
-`bin/fm-arm-pretool-check.sh` is only the stable harness transport and output renderer.
-The tracked harness adapters forward command text without classifying it.
+`bin/fm-arm-pretool-check.sh` is only the stable transport and output renderer.
+The Pi primary extension forwards command text without classifying it.
 `bin/fm-arm-command-policy.mjs` is also the sole owner of firstmate's shell classification: it exports the tokenizer and command-position analysis, which the sibling cd-guard seatbelt (`bin/fm-cd-pretool-check.sh`, `docs/cd-guard.md`) reuses instead of duplicating shell lexing.
 
 ## Purpose and boundary
 
-A firstmate primary must arm `bin/fm-watch-arm.sh` or run `bin/fm-watch-checkpoint.sh` through an observable harness call.
+The Pi extension owns the watcher cycle.
+Use `fm_watch_arm_pi` to start the first required cycle or repair a missing one.
+Do not run `bin/fm-watch-arm.sh` from Bash as a substitute for the Pi tool.
 A shell background operator, pipeline, redirection, wrapper, or unrelated command list can hide failure or let the watcher child die with the tool call.
 The seatbelt rejects those command shapes before execution.
 
@@ -20,14 +22,9 @@ It tokenizes the bytes and classifies lexical execution positions only.
 
 ## Transport and fail-open behavior
 
-`bin/fm-arm-pretool-check.sh` supports these entry forms:
-
-- Stdin JSON at `.tool_input.command` for Claude and Codex.
-- Stdin JSON at `.toolInput.command` for Grok.
-- `--command <exact string>` for OpenCode, Pi, pi-signed, and omp.
-- `--background` as a compatibility-only field that never changes the decision.
-- `--claude` to preserve Claude's stderr-only deny requirement.
-- `--agy` for Antigravity CLI, reading stdin JSON from `.toolCall.args.CommandLine`, `.toolCall.args.command`, `.toolInput.command`, or `.tool_input.command`, denying redundant manual arming when a watcher is healthy, and emitting `{"decision":"deny","reason":...}` on stdout with exit 0.
+`bin/fm-arm-pretool-check.sh` takes the exact command string as `--command <string>`.
+`--background` is accepted for compatibility and never changes the decision.
+A call without `--command` is a usage error and exits 2.
 
 The wrapper discovers the code root from its own location.
 The active firstmate home is `${FM_HOME:-<code-root>}`.
@@ -50,7 +47,7 @@ The marker guard closes the static gap anyway because it is cheap and provable p
 Tripwire: if a third strict-superset gap is ever found after this marker generalization, that falsifies the "provable per encoding class" claim and the decision flips to Option B - drop the prefilter and always invoke the classifier.
 Deeper decode-required obfuscation beyond the coupled marker set stays the classifier's and the post-arm liveness guards' responsibility.
 
-Malformed or empty stdin, invalid JSON, missing `jq` for stdin transport, missing Node, a missing classifier, or an invalid classifier response fail open with exit 0 and no output.
+Missing Node, a missing classifier, or an invalid classifier response fail open with exit 0 and no output.
 This transport behavior prevents a broken hook from denying every shell tool call.
 Malformed or unsupported shell syntax that contains a protected command is a semantic classification result and fails closed.
 
@@ -63,7 +60,6 @@ A command word in executed position is a protected execution when its normalized
 
 ```text
 bin/fm-watch-arm.sh          (arm; blessed entry point)
-bin/fm-watch-checkpoint.sh   (checkpoint; blessed entry point)
 bin/fm-watch.sh              (watch; protected but never blessed)
 ```
 
@@ -74,7 +70,7 @@ Static quote forms are cooked before the suffix match, so a command word split b
 This covers statically-visible literal words in command position; opaque dynamic dataflow such as `bash -lc "$WHOLE_COMMAND"` remains out of scope.
 
 `bin/fm-watch.sh` is protected but is not a blessed entry point.
-A direct `bin/fm-watch.sh` execution - relative, `<code-root>`-anchored, `$VAR`-prefixed, or `~`-prefixed - always denies with `watcher-direct`, whose reason points the caller at `bin/fm-watch-arm.sh` and `bin/fm-watch-checkpoint.sh`.
+A direct `bin/fm-watch.sh` execution - relative, `<code-root>`-anchored, `$VAR`-prefixed, or `~`-prefixed - always denies with `watcher-direct`, whose reason points the caller to the Pi tool `fm_watch_arm_pi`.
 
 The same bytes in an argument, comment, assertion, documentation query, Python string, `printf`, or `tmux send-keys` payload are data and do not make the outer command relevant.
 
@@ -94,17 +90,13 @@ An actual protected command with a heredoc still has a redirection and is denied
 ## Blessed syntax tree
 
 An allowed watcher program is one linear outer command list with zero or more approved setup nodes followed by exactly one direct protected node.
-`bin/fm-watch-arm.sh` and `bin/fm-watch-checkpoint.sh` are the only blessed final nodes, including their expanded-path forms; a `bin/fm-watch.sh` final node is never blessed and denies with `watcher-direct`.
+`bin/fm-watch-arm.sh` is the only protected final node the classifier accepts, including its expanded-path forms.
+A `bin/fm-watch.sh` final node denies with `watcher-direct`.
 
 Approved setup nodes are:
 
 - `cd <one path word>`.
 - `export NAME=<one shell word>` with no command substitution, process substitution, or redirection.
-- `source <x-mode path>` or `. <x-mode path>`.
-- `[ -f <x-mode path> ] && source <x-mode path>` and the equivalent dot form.
-
-The allowed x-mode paths are `config/x-mode.env`, `./config/x-mode.env`, and an absolute path that normalizes to `<active-firstmate-home>/config/x-mode.env`.
-An absolute x-mode path outside the active home is not an approved setup node.
 
 Approved nodes may be separated by `;`, a real newline, or `&&`.
 `&&` is accepted after setup so a failed `cd`, `export`, or source prevents the protected call from running under the wrong setup.
@@ -142,7 +134,7 @@ Every semantic deny includes one stable code in square brackets before its prose
 | `watcher-nested` | A wrapper, group, substitution, nested shell, `eval`, or constructed dynamic payload executes the protected command. |
 | `broad-watcher-kill` | An actual broad process kill targets the watcher. |
 | `unclassifiable-protected-command` | Malformed or unsupported syntax contains a protected command and cannot be safely classified. |
-| `watcher-direct` | A direct `bin/fm-watch.sh` execution; the watcher must be reached through `bin/fm-watch-arm.sh` or `bin/fm-watch-checkpoint.sh`. |
+| `watcher-direct` | A direct `bin/fm-watch.sh` execution; use the Pi tool `fm_watch_arm_pi` to restore a missing cycle. |
 
 Reason codes are the stable contract for tests and adapters.
 Prose may improve without changing adapter behavior.
@@ -150,96 +142,18 @@ Prose may improve without changing adapter behavior.
 ## Output contract
 
 - Allow returns exit 0 with both streams empty.
-- Deny returns exit 2 and writes `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"[code] reason"}` to stderr.
-- Default deny mode also writes `{"decision":"deny","reason":"[code] reason"}` to stdout for Grok.
-- `--claude` suppresses stdout completely because Claude ignores a PreToolUse deny when stdout is nonempty.
-- Codex blocks on exit 2 and displays stderr.
-- OpenCode throws only when the checker exits 2.
-- Pi, pi-signed, and omp return `{block: true}` only when the checker exits 2.
+- Deny returns exit 2 and writes `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"[code] reason"}` to stderr, with stdout empty.
+- The Pi primary extension returns `{block: true}` only when the checker exits 2.
 
 ## Harness wiring
 
-| Harness | Exact command field | Adapter behavior on checker exit 2 |
-| --- | --- | --- |
-| Codex | `.tool_input.command` | The `.codex/hooks.json` command forwards the complete stdin payload and Codex blocks on exit 2. |
-| Claude | `.tool_input.command` | `.claude/settings.json` forwards stdin with `--claude`, leaving stdout empty and returning the stderr deny object. |
-| Grok | `.toolInput.command` | `.grok/hooks/fm-primary-pretool-check.json` forwards stdin and Grok consumes the stdout `decision=deny` object. |
-| OpenCode | `output.args.command` for the 1.x `bash` tool; `event.input.command` for the 2.x `shell` tool's `execute.before` event | `.opencode/plugins/fm-primary-pretool-check.js` passes one `--command` argument and throws only for exit 2. |
-| Pi / pi-signed | `event.input.command` | `.pi/extensions/fm-primary-turnend-guard.ts` passes one `--command` argument and returns `{block: true}` only for exit 2. |
-| omp | `event.input.command` | `.omp/extensions/fm-primary-turnend-guard.ts` passes one `--command` argument and returns `{block: true, reason}` only for exit 2; omp surfaces the reason verbatim to the model (verified 18.1.2). |
-| Cursor | `.tool_input.command` | `.cursor/hooks.json` matches `tool_name` `Shell` and forwards stdin with `--cursor`. Cursor reads the RETURNED object rather than the exit status, so `--cursor` prints `{"permission":"deny","user_message":"[code] reason"}` on stdout and exits 0; only that rendering is verified to block the command and surface the reason. |
-
-Cursor also loads `<project>/.claude/settings.json`, so the tracked Claude entry receives the same event. Without `--cursor` a Cursor-delivered payload is that duplicate and allows without re-classifying, decided from the payload's own `cursor_version` by `bin/fm-hook-host-lib.sh`; [`turnend-guard.md`](turnend-guard.md#harness-integrations) owns why that predicate reads the payload rather than the environment.
-
-Grok project hooks require folder trust.
-Cursor project hooks require the workspace to be launched with `--trust`.
-Every shell variable reference in a Grok hook command must carry an inline default such as `${GROK_WORKSPACE_ROOT:-}` because Grok expands the raw hook command before `bash -lc` runs it.
-The tracked Grok adapter therefore references `${GROK_WORKSPACE_ROOT:-}` directly instead of assigning and later reading a shell-local `$root` variable.
-
-## Live validation record, 2026-07-09
-
-Validation ran in a git-initialized scratch firstmate-shaped project under this task worktree.
-The scratch project contained copies of the modified checker and policy, unchanged tracked adapters, a dummy checkpoint, a dummy arm script, a harmless `tmux` argument-capture fixture, and a private sentinel path.
-No modified file was installed into the primary checkout or a live harness configuration.
-No live watcher, fleet state, or herdr lifecycle command was used.
-The OpenCode interactive check used the dedicated tmux socket `fm-pretool-smoke`.
-
-Harness versions were:
-
-```text
-Claude Code 2.1.206
-codex-cli 0.144.0
-grok 0.2.93 (f00f96316d4b)
-OpenCode 1.17.15
-Pi 0.80.5
-```
-
-Every harness was instructed to issue these exact shell command strings as separate tool calls:
-
-```sh
-printf 'UNRELATED_EXECUTED\n'
-pgrep -fl '/bin/fm-watch.sh' || true
-source '<scratch-project>/config/x-mode.env'; bin/fm-watch-checkpoint.sh --seconds 180
-tmux send-keys -t isolated-pi-lab "printf '%s\n' 'bin/fm-watch-arm.sh &'"; tmux send-keys -t isolated-pi-lab Enter
-bin/fm-watch-arm.sh &
-```
-
-The real harness launch commands were:
-
-```sh
-claude -p "$PROMPT" --dangerously-skip-permissions --output-format text
-codex exec --dangerously-bypass-hook-trust --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check "$PROMPT"
-GROK_HOME="$SCRATCH_GROK_HOME" RUST_LOG=xai_grok_hooks=debug GROK_LOG_FILE="$SCRATCH_LOG" grok --trust -p "$PROMPT" --permission-mode bypassPermissions --output-format plain
-OPENCODE_CONFIG_CONTENT='{"permission":{"*":"allow"}}' opencode run --print-logs --log-level INFO "$PROMPT"
-pi -p -e .pi/extensions/fm-primary-turnend-guard.ts --no-context-files --no-session "$PROMPT"
-```
-
-Observed output for the four allowed calls was `UNRELATED_EXECUTED`, a successful read-only `pgrep`, `CHECKPOINT_EXECUTED`, and two `TMUX_ARGS:` lines that preserved the watcher text as data.
-Each harness blocked the final command with exit 2 mapped through its native adapter behavior.
-The stable reason was `[watcher-background] a protected watcher command cannot run in an asynchronous shell list or through nohup/disown`.
-The dummy arm body would have created `<harness>.sentinel` if the denied command executed.
-All five sentinel files remained absent.
-
-The Codex transcript showed `PreToolUse Completed` for all three originally reported false-positive shapes and `PreToolUse Blocked` only for the backgrounded arm.
-The Grok debug transcript showed four exit-0 results from `project/fm-primary-pretool-check`, then exit 2 with 145 stdout bytes, 214 stderr bytes, and `hook denied` for the backgrounded arm.
-OpenCode displayed the four allowed command outputs and then `bin/fm-watch-arm.sh & failed` with the stderr deny object.
-Claude and Pi both reported that calls one through four ran and the final call was blocked.
-
-Native supervision paths were also validated in the same scratch project:
-
-- Claude ran `bin/fm-watch-arm.sh --restart` with its native tracked background option and produced `watcher: started pid=<scratch> (scratch)`.
-- Grok ran the same exact command with `background: true`, its hook returned exit 0, and the dummy arm produced the same started line.
-- Codex ran the foreground checkpoint above and produced `CHECKPOINT_EXECUTED`.
-- OpenCode ran in an interactive TUI on `tmux -L fm-pretool-smoke`, reached `session.idle`, and its unchanged watch-arm plugin created the scratch automatic-arm marker.
-- Pi loaded both primary extensions, called `fm_watch_arm_pi`, and created the scratch automatic-arm marker.
-
-Every native-path automatic marker was present and every deny sentinel remained absent.
+`.pi/extensions/fm-primary-turnend-guard.ts` reads `event.input.command` on each Pi `tool_call`, passes it as one `--command` argument, and blocks the call only when the checker exits 2.
 
 ## Automated validation
 
 `tests/fm-arm-pretool-check.test.sh` owns the adversarial acceptance matrix.
-Every row runs through Codex-shaped stdin, Claude-shaped stdin, Grok-shaped stdin, OpenCode-shaped CLI, and Pi-shaped CLI entry forms.
-The suite also verifies real newline bytes, direct classifier reason codes, comments, heredoc data, malformed and unsupported protected syntax, constructed dynamic payloads, malformed transport fail-open behavior, missing runtime fail-open behavior, output shapes, and exact adapter field forwarding plus exit-2 mapping.
+Every row runs through the `--command` entry form.
+The suite also verifies real newline bytes, direct classifier reason codes, comments, heredoc data, malformed and unsupported protected syntax, constructed dynamic payloads, the usage error without `--command`, missing runtime fail-open behavior, and output shapes.
 
 Run:
 

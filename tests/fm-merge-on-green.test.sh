@@ -361,7 +361,7 @@ test_boundary_diffs_stay_open() {
     '+++ b/.github/workflows/ci.yml' '@@ -3,2 +3,2 @@ permissions:' '-  contents: read' '+  contents: write' > "$c/diff.txt"
   expect_stays_open "$c" skip "workflow permissions" workflow-permissions
   c=$(make_case secret-path)
-  printf '%s\n' 'diff --git a/bin/fm-vendor-auth-probe.sh b/bin/fm-vendor-auth-probe.sh' '@@ -1 +1 @@' '-a' '+b' > "$c/diff.txt"
+  printf '%s\n' 'diff --git a/.env b/.env' '@@ -1 +1 @@' '-a' '+b' > "$c/diff.txt"
   expect_stays_open "$c" skip "touches" secret-path
   c=$(make_case workflow-steps)
   printf '%s\n' 'diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml' '@@ -9 +9 @@' '-      run: make' '+      run: make test' > "$c/diff.txt"

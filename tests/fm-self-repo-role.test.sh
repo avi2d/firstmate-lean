@@ -31,7 +31,7 @@ BRIEF="$ROOT/bin/fm-brief.sh"
 SPAWN="$ROOT/bin/fm-spawn.sh"
 PROMOTE="$ROOT/bin/fm-promote.sh"
 TMP_ROOT=$(fm_test_tmproot fm-self-repo-role)
-export FM_BACKEND=tmux
+export FM_BACKEND=herdr
 
 # The code root under test is this checkout, so self-repo detection reaches it
 # through the shared git common dir. Its publication target is derived, never
@@ -597,13 +597,13 @@ test_brief_self_repo_pre_gate() {
 # --- fm-spawn.sh ------------------------------------------------------------
 
 # A thin spawn fixture: home, a project arg resolved to the code root itself,
-# and a brief whose delivery contract the spawn must agree with. The fake tmux
+# and a brief whose delivery contract the spawn must agree with. The fake Herdr
 # exits 1 so an authorized spawn stops at launch rather than a worktree.
 SPAWN_FAKEBIN="$TMP_ROOT/spawn-fakebin"
 mkdir -p "$SPAWN_FAKEBIN"
-printf '#!/bin/sh\nexit 1\n' > "$SPAWN_FAKEBIN/tmux"
-chmod +x "$SPAWN_FAKEBIN/tmux"
-fm_fake_exit0 "$SPAWN_FAKEBIN" claude codex opencode grok gemini
+printf '#!/bin/sh\nexit 1\n' > "$SPAWN_FAKEBIN/herdr"
+chmod +x "$SPAWN_FAKEBIN/herdr"
+fm_fake_exit0 "$SPAWN_FAKEBIN" pi
 
 write_ship_brief() {  # <home> <id> [<contract-extras>]
   local home=$1 id=$2 extras=${3:-}
@@ -620,7 +620,7 @@ run_spawn() {  # <home> <spawn-args...>
   FM_ROOT_OVERRIDE='' FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
     FM_PROJECTS_OVERRIDE="$TMP_ROOT/projects-unused" FM_CONFIG_OVERRIDE="$home/config" \
-    FM_SPAWN_NO_GUARD=1 FM_BACKEND=tmux PATH="$SPAWN_FAKEBIN:$BASE_PATH" \
+    FM_SPAWN_NO_GUARD=1 FM_BACKEND=herdr PATH="$SPAWN_FAKEBIN:$BASE_PATH" \
     "$SPAWN" "$@" 2>&1
 }
 BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
@@ -629,7 +629,7 @@ test_spawn_gate_on_self_repo() {
   local home out rc
   home=$(make_role_home spawn-user)
   write_ship_brief "$home" spawn-self-a1
-  out=$(run_spawn "$home" spawn-self-a1 "$ROOT" claude --mode no-mistakes --yolo off); rc=$?
+  out=$(run_spawn "$home" spawn-self-a1 "$ROOT" pi --mode no-mistakes --yolo off); rc=$?
   [ "$rc" -ne 0 ] || fail "a user home must not launch a publishing task on firstmate itself"
   assert_contains "$out" "spawn refused for spawn-self-a1" "the refusal must name the task"
   assert_contains "$out" "user/operator" "the refusal must name the role"
@@ -638,7 +638,7 @@ test_spawn_gate_on_self_repo() {
   if [ -n "$PUB_TARGET" ]; then
     home=$(make_role_home spawn-maint "maintainer $PUB_TARGET")
     write_ship_brief "$home" spawn-self-a2
-    out=$(run_spawn "$home" spawn-self-a2 "$ROOT" claude --mode no-mistakes --yolo off)
+    out=$(run_spawn "$home" spawn-self-a2 "$ROOT" pi --mode no-mistakes --yolo off)
     assert_not_contains "$out" "spawn refused" "a matching maintainer home must pass the gate"
     assert_not_contains "$out" "user/operator" "a matching maintainer home must not be told it lacks authority"
   fi
@@ -657,7 +657,7 @@ test_spawn_consent_agreement() {
   # agree, or the worker's contract and the task's authority diverge.
   write_ship_brief "$home" spawn-consent-b1
   rc=0
-  out=$(run_spawn "$home" spawn-consent-b1 "$ROOT" claude --mode no-mistakes --yolo off \
+  out=$(run_spawn "$home" spawn-consent-b1 "$ROOT" pi --mode no-mistakes --yolo off \
     --upstream-consent "$PUB_TARGET") || rc=$?
   [ "$rc" -ne 0 ] || fail "a flag-without-brief consent must refuse"
   assert_contains "$out" "upstream-consent mismatch for spawn-consent-b1" \
@@ -667,7 +667,7 @@ test_spawn_consent_agreement() {
   # Consent on the brief but not the flag: same divergence, other direction.
   write_ship_brief "$home" spawn-consent-b2 " upstream-consent=$PUB_TARGET"
   rc=0
-  out=$(run_spawn "$home" spawn-consent-b2 "$ROOT" claude --mode no-mistakes --yolo off) || rc=$?
+  out=$(run_spawn "$home" spawn-consent-b2 "$ROOT" pi --mode no-mistakes --yolo off) || rc=$?
   [ "$rc" -ne 0 ] || fail "a brief-without-flag consent must refuse"
   assert_contains "$out" "upstream-consent mismatch for spawn-consent-b2" \
     "a brief token without the flag must refuse"
@@ -675,7 +675,7 @@ test_spawn_consent_agreement() {
   # Both sides agree: the consent carries the task through the gate on a
   # user/operator home.
   write_ship_brief "$home" spawn-consent-b3 " upstream-consent=$PUB_TARGET"
-  out=$(run_spawn "$home" spawn-consent-b3 "$ROOT" claude --mode no-mistakes --yolo off \
+  out=$(run_spawn "$home" spawn-consent-b3 "$ROOT" pi --mode no-mistakes --yolo off \
     --upstream-consent "$PUB_TARGET")
   assert_not_contains "$out" "spawn refused" "matching consent must pass the gate"
   assert_not_contains "$out" "upstream-consent mismatch" "agreeing sides must not be reported as a mismatch"
@@ -687,7 +687,7 @@ test_spawn_consent_agreement() {
   git_commit "$proj" init
   git -C "$proj" remote add origin https://github.com/someone/elseware.git
   write_ship_brief "$home" spawn-consent-b4 " upstream-consent=$PUB_TARGET"
-  out=$(run_spawn "$home" spawn-consent-b4 "$proj" claude --mode no-mistakes --yolo off \
+  out=$(run_spawn "$home" spawn-consent-b4 "$proj" pi --mode no-mistakes --yolo off \
     --upstream-consent "$PUB_TARGET")
   assert_not_contains "$out" "spawn refused" "consent on an ordinary project must not be gated"
 
@@ -695,7 +695,7 @@ test_spawn_consent_agreement() {
   # local-only never performs.
   write_ship_brief "$home" spawn-consent-b5
   rc=0
-  out=$(run_spawn "$home" spawn-consent-b5 "$ROOT" claude --mode local-only --yolo off \
+  out=$(run_spawn "$home" spawn-consent-b5 "$ROOT" pi --mode local-only --yolo off \
     --upstream-consent "$PUB_TARGET") || rc=$?
   [ "$rc" -ne 0 ] || fail "local-only must refuse a consent flag"
   assert_contains "$out" "meaningless on local-only" "local-only must refuse a consent flag"

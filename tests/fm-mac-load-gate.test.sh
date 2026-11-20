@@ -3,12 +3,11 @@
 # five-minute average is high or the standing heavy cap already runs.
 set -u
 
-# shellcheck source=tests/lib.sh
-. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=tests/fixtures.sh
+. "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 
 unset TASKS_AXI_BACKEND || :
 
-SPAWN="$ROOT/bin/fm-spawn.sh"
 TMP_ROOT=$(fm_test_tmproot fm-mac-load-gate)
 DEFER_EXIT=75
 HAVE_TASKS_AXI=0
@@ -40,7 +39,7 @@ make_home() {  # <home> [task-id...]
   shift
   mkdir -p "$home/state" "$home/config" "$home/data" "$home/projects"
   touch "$home/state/.last-watcher-beat"
-  printf '%s\n' codex > "$home/config/crew-harness"
+  printf '%s\n' pi > "$home/config/crew-harness"
   if [ "$HAVE_TASKS_AXI" = 1 ]; then
     printf '%s\n' '# Backlog' '' '## In flight' '' '## Queued' '' '## Done' > "$home/data/backlog.md"
     cat > "$home/.tasks.toml" <<'TOML'
@@ -57,45 +56,12 @@ TOML
 }
 
 make_case() {  # <name> [task-id...]
-  local name=$1 case_dir fakebin
+  local name=$1 case_dir
   shift
   case_dir="$TMP_ROOT/$name"
   mkdir -p "$case_dir"
-  fakebin=$(fm_fakebin "$case_dir")
   : > "$case_dir/calls.log"
-  cat > "$fakebin/tmux" <<'SH'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >> "$FM_FAKE_CALL_LOG"
-case "$*" in
-  *"#{pane_current_path}"*)
-    printf '%s\n' "${FM_FAKE_PANE_PATH:-}"
-    exit 0
-    ;;
-esac
-window_file="$(dirname "$0")/.spawn-window"
-case "${1:-}" in
-  display-message) printf 'firstmate\n' ;;
-  new-window)
-    name= previous=
-    for arg in "$@"; do
-      [ "$previous" = -n ] && name=$arg
-      previous=$arg
-    done
-    printf '%s\n' "$name" > "$window_file"
-    ;;
-  list-windows)
-    [ ! -s "$window_file" ] || cat "$window_file"
-    ;;
-esac
-exit 0
-SH
-  cat > "$fakebin/treehouse" <<'SH'
-#!/usr/bin/env bash
-printf 'treehouse %s\n' "$*" >> "$FM_FAKE_CALL_LOG"
-exit 0
-SH
-  chmod +x "$fakebin/tmux" "$fakebin/treehouse"
-  fm_fake_exit0 "$fakebin" gh gh-axi no-mistakes claude codex opencode grok gemini
+  fm_test_make_spawn_fakebin "$case_dir" gh gh-axi no-mistakes >/dev/null
   fm_git_init_commit "$case_dir/project"
   fm_git_add_origin "$case_dir/project" "$case_dir/project.origin.git"
   make_home "$case_dir/home" "$@"
@@ -115,11 +81,12 @@ write_live() {  # <home> <id> <project-dir> [extra...]
   local home=$1 id=$2 project=$3
   shift 3
   fm_write_meta "$home/state/$id.meta" \
-    "window=firstmate:fm-$id" \
+    "window=spawn-fixture:w1:p-$id" "backend=herdr" "herdr_session=spawn-fixture" \
+    "herdr_workspace_id=w1" "herdr_tab_id=w1:t-$id" "herdr_pane_id=w1:p-$id" \
     "endpoint_task_id=$id" \
     "worktree=$home/absent-worktree-$id" \
     "project=$project" \
-    "harness=codex" \
+    "harness=pi" \
     "kind=ship" \
     "mode=no-mistakes" \
     "yolo=off" \
@@ -139,13 +106,9 @@ new_worktree() {  # <case-dir> <name>
 run_spawn_load() {  # <load> <case-dir> <home> <pane> <args...>
   local load=$1 case_dir=$2 home=$3 pane=$4
   shift 4
-  FM_ROOT_OVERRIDE='' FM_HOME="$home" \
-    FM_STATE_OVERRIDE='' FM_DATA_OVERRIDE='' FM_PROJECTS_OVERRIDE='' FM_CONFIG_OVERRIDE='' \
-    FM_SPAWN_NO_GUARD=1 TMUX="fake,1,0" FM_BACKEND=tmux \
-    FM_MAC_LOAD_MOCK_5MIN="$load" \
-    FM_FAKE_PANE_PATH="$pane" FM_FAKE_CALL_LOG="$case_dir/calls.log" \
-    PATH="$case_dir/fakebin:$PATH" \
-    "$SPAWN" "$@" 2>&1
+  FM_MAC_LOAD_MOCK_5MIN="$load" \
+    FM_FAKE_CALL_LOG="$case_dir/calls.log" \
+    fm_test_run_spawn "$home" "$pane" "$case_dir/fakebin" "$@"
 }
 
 spawn_ship_load() {  # <load> <case-dir> <id> [pane]
@@ -324,45 +287,10 @@ test_waiting_holders_free_heavy_places_then_resume_retakes_them() {
   pass "waiting holders free heavy places, and resuming retakes them"
 }
 
-write_cloud_live() {  # <home> <id> <project-dir>
-  fm_write_meta "$1/state/$2.meta" \
-    "window=firstmate:fm-$2" \
-    "project=$3" \
-    "harness=cloud-claude" \
-    "kind=ship" \
-    "mode=direct-PR" \
-    "yolo=off"
-}
-
-test_cloud_records_hold_no_heavy_place() {
-  local case_dir home out rc=0 i=0
-  case_dir=$(make_case cloudcount task-c)
-  home="$case_dir/home"
-  while [ "$i" -lt "$GATE_FULL" ]; do
-    i=$((i + 1))
-    write_cloud_live "$home" "cloud-$i" "$case_dir/project"
-  done
-  out=$(spawn_ship_load 1.0 "$case_dir" task-c) || rc=$?
-  expect_code 0 "$rc" "cloud records held the heavy cap against a local start: $out"
-  assert_contains "$out" "spawned task-c" "the local start did not launch"
-  pass "cloud-claude records hold no heavy place against a local start"
-}
-
-test_cloud_records_do_not_lift_the_load_gate() {
-  local case_dir home out rc=0
-  case_dir=$(make_case cloudload task-c)
-  home="$case_dir/home"
-  write_cloud_live "$home" cloud-a "$case_dir/project"
-  out=$(spawn_ship_load "$GATE_LOAD_HIGH" "$case_dir" task-c "$case_dir/unused") || rc=$?
-  expect_code "$DEFER_EXIT" "$rc" "a local start launched under high load beside a cloud worker: $out"
-  assert_contains "$out" "five-minute load average is $GATE_LOAD_HIGH" "the deferral did not name the average"
-  pass "a local start still defers under high load while a cloud worker runs"
-}
-
 write_remote_live() {  # <home> <id> <project-dir>
   fm_write_meta "$1/state/$2.meta" \
     "project=$3" \
-    "harness=codex" \
+    "harness=pi" \
     "kind=ship" \
     "mode=no-mistakes" \
     "yolo=off" \
@@ -402,8 +330,6 @@ test_full_heavy_cap_defers_one_more_then_release_admits
 test_waiting_holders_free_heavy_places_then_resume_retakes_them
 test_remote_records_hold_no_heavy_place
 test_local_record_still_counts_beside_remote_records
-test_cloud_records_hold_no_heavy_place
-test_cloud_records_do_not_lift_the_load_gate
 test_handed_off_and_secondmate_records_do_not_count
 test_restart_does_not_count_its_own_record
 test_unreadable_record_refuses

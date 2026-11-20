@@ -206,7 +206,7 @@ test_first_stale_call_prints_full_banner() {
 }
 
 test_full_banner_names_quiet_mode_when_active() {
-  # kunchenguid/firstmate#2356: the banner's repair line must not misdirect a
+  # The banner's repair line must not misdirect a
   # captain in quiet mode to /afk - fm-guard.sh threads the flag's declared
   # mode through to fm-supervision-instructions.sh's --afk-mode.
   local dir home out
@@ -249,16 +249,6 @@ test_fresh_beacon_without_live_watcher_stays_alarm() {
   pass "fm-guard stale banner: a fresh beacon without a live watcher remains unhealthy"
 }
 
-test_x_mode_without_live_watcher_stays_alarm() {
-  local dir home out
-  dir=$(make_guard_case x-mode-no-live)
-  home=$(case_home "$dir")
-  rm -f "$home/state/task.meta"
-  : > "$home/state/x-watch.check.sh"
-  out=$(run_guard_case "$dir")
-  assert_contains "$out" "X-mode relay polling needs supervision" "X-mode-only need must remain guarded"
-  pass "fm-guard stale banner: X-mode polling without a live watcher remains unhealthy"
-}
 
 test_healthy_recovery_rearms_next_stale_episode() {
   local dir home out1 healthy out2 pid
@@ -887,9 +877,6 @@ test_extension_handoff_keeps_queued_wake_warning() {
   pass "fm-guard stale banner: queued-wake warning survives the extension hand-off tolerance"
 }
 
-# The tolerance is scoped to the extension model alone. Every persistent-watcher
-# primary (codex, opencode, grok, kimi, tmux, unknown) must keep alarming on the
-# same state, even when Pi extension markers happen to be present on disk.
 # The supervision branch runs guarded commands (fm-peek, fm-crew-state) while
 # handling the very rows that are queued. For that actor the drain warning is
 # not advice, it is the misreading that re-ran a previous acknowledgement in a
@@ -1021,7 +1008,6 @@ test_autoarm_long_turn_does_not_silence_other_models
 test_persistent_no_watcher_banner_names_missing_process
 test_persistent_no_watcher_episode_survives_beacon_touch
 test_fresh_beacon_without_live_watcher_stays_alarm
-test_x_mode_without_live_watcher_stays_alarm
 test_healthy_recovery_rearms_next_stale_episode
 test_concurrent_same_episode_prints_one_full_banner
 test_home_isolation

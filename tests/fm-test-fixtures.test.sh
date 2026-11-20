@@ -19,27 +19,13 @@ set -u
 TMP_ROOT=$(fm_test_tmproot fm-test-fixtures)
 
 test_git_config_isolation() (
-  local dir="$TMP_ROOT/git-config" helper jobs timeout fakebin rc
+  local dir="$TMP_ROOT/git-config" helper jobs timeout
   mkdir -p "$dir/runner/bin" "$dir/runner/tests"
   git init -q "$dir/caller"
   git -C "$dir/caller" config commit.gpgsign false
   cd "$dir/caller" || exit 1
   cp "$ROOT/bin/fm-test-run.sh" "$ROOT/bin/fm-timeout-lib.sh" "$dir/runner/bin/"
   cp "$ROOT/tests/git-config-helpers.sh" "$dir/runner/tests/"
-  fakebin=$(fm_fakebin "$dir/standalone")
-  fm_fake_exit0 "$fakebin" pi
-  cat > "$fakebin/tmux" <<'SH'
-#!/usr/bin/env bash
-set -eu
-while [ "$#" -gt 0 ]; do
-  if [ "$1" = -c ]; then
-    git -C "$2" log -1 --format=%s > "${FM_TEST_STANDALONE_COMMIT:?}"
-    exit 1
-  fi
-  shift
-done
-SH
-  chmod +x "$fakebin/tmux"
   cat > "$dir/runner/tests/fm-test-run.test.sh" <<'SH'
 #!/usr/bin/env bash
 set -eu
@@ -152,17 +138,6 @@ SH
         "runner did not execute the Git fixture"
     done
   done
-  rc=0
-  FM_SESSIONSTART_INSTRUCTION_REFRESH_LIVE_E2E=1 FM_SESSIONSTART_INSTRUCTION_REFRESH_REF=HEAD \
-    FM_SESSIONSTART_INSTRUCTION_REFRESH_EXPECT=updated \
-    FM_TEST_STANDALONE_COMMIT="$dir/global-standalone-commit" PATH="$fakebin:$PATH" \
-    bash "$ROOT/tests/fm-sessionstart-instruction-refresh-live-e2e.test.sh" \
-    > "$dir/standalone.log" 2>&1 || rc=$?
-  [ "$rc" = 1 ] || fail "standalone fixture did not stop at the tmux launch"
-  assert_grep 'could not start isolated Pi session' "$dir/standalone.log" \
-    "standalone fixture failed before the tmux launch: $(cat "$dir/standalone.log")"
-  [ "$(cat "$dir/global-standalone-commit")" = 'test: initial instruction contract' ] \
-    || fail "standalone fixture did not create its initial commit"
   bash "$ROOT/tests/fm-gitignore-config.test.sh" > "$dir/gitignore.log" 2>&1 \
     || fail "standalone gitignore fixture inherited global config: $(cat "$dir/gitignore.log")"
   disarm_hooks_env
@@ -251,24 +226,24 @@ test_fake_gh_and_gh_axi() {
   pass "fake gh authenticates and fake gh-axi reports the shared version"
 }
 
-test_spawn_tmux_and_fakebin() {
-  local fakebin out log
+test_spawn_fixture_does_not_report_cwd_before_pane_moves() {
+  local fakebin pane slot out log
+  slot="$TMP_ROOT/spawn/copy"
   fakebin=$(make_spawn_fakebin "$TMP_ROOT/spawn" gh-axi)
   log="$TMP_ROOT/spawn/launch.log"
   : > "$log"
-  out=$(FM_FAKE_PANE_PATH=/tmp/wt "$fakebin/tmux" display-message -p '#{pane_current_path}')
-  [ "$out" = /tmp/wt ] || fail "spawn tmux pane path should be FM_FAKE_PANE_PATH, got '$out'"
-  out=$(unset FM_FAKE_PANE_PATH; "$fakebin/tmux" display-message -p '#{pane_current_path}')
-  [ -z "$out" ] || fail "spawn tmux pane path should default to empty, got '$out'"
-  out=$("$fakebin/tmux" display-message -p '#S')
-  [ "$out" = firstmate ] || fail "spawn tmux session name should be firstmate, got '$out'"
-  FM_FAKE_LAUNCH_LOG="$log" "$fakebin/tmux" send-keys -t @w -l 'codex --yolo'
-  assert_grep 'codex --yolo' "$log" "send-keys -l payload was not logged"
-  [ -x "$fakebin/treehouse" ] || fail "spawn fakebin should include treehouse"
+  out=$(FM_FAKE_PANE_PATH="$slot" "$fakebin/treehouse" get --lease --lease-holder worker)
+  [ "$out" = "$slot" ] || fail "fake lease did not report the slot"
+  pane=$("$fakebin/herdr" tab create --session spawn-fixture | jq -r .result.root_pane.pane_id)
+  out=$("$fakebin/herdr" pane get "$pane" --session spawn-fixture | jq -r .result.pane.foreground_cwd)
+  [ -z "$out" ] || fail "fixture reports the slot before the pane moved"
+  "$fakebin/herdr" pane run "$pane" "cd -- '$slot'" --session spawn-fixture
+  out=$("$fakebin/herdr" pane get "$pane" --session spawn-fixture | jq -r .result.pane.foreground_cwd)
+  [ "$out" = "$slot" ] || fail "fixture did not record the move to the slot"
+  FM_FAKE_LAUNCH_LOG="$log" "$fakebin/herdr" pane send-text "$pane" 'pi --help' --session spawn-fixture
+  assert_grep 'pi --help' "$log" "pane submit payload was not logged"
   [ -x "$fakebin/gh-axi" ] || fail "extra exit-0 tools should land in the spawn fakebin"
-  "$fakebin/treehouse" get
-  expect_code 0 $? "fake treehouse should exit 0"
-  pass "spawn fakebin answers pane path, logs -l payloads, and installs extra tools"
+  pass "Herdr spawn fixture reports the lease and pane cwd separately and logs the launch"
 }
 
 test_send_stubs_and_ssh() {
@@ -278,15 +253,10 @@ test_send_stubs_and_ssh() {
   ssh_log="$TMP_ROOT/send/ssh.log"
   : > "$log"
   fm_test_fake_ssh "$fakebin"
-  FM_SEND_LOG="$log" "$fakebin/tmux" send-keys -t sess:w -l 'hello steer'
-  assert_grep 'hello steer' "$log" "send stubs did not log the -l payload"
-  out=$("$fakebin/tmux" display-message -p '#{cursor_y}')
-  [ "$out" = 1 ] || fail "send tmux cursor_y should be 1, got '$out'"
-  out=$("$fakebin/tmux" capture-pane -p)
-  case "$out" in
-    *'╭────╮'*) ;;
-    *) fail "send tmux capture-pane should render an empty composer, got '$out'" ;;
-  esac
+  FM_SEND_LOG="$log" "$fakebin/herdr" pane send-text w1:p2 'hello steer' --session fixture
+  assert_grep 'hello steer' "$log" "send stubs did not log the typed payload"
+  out=$("$fakebin/herdr" pane read w1:p2 --session fixture)
+  assert_contains "$out" '╭────╮' "Herdr fixture did not render an empty composer"
   printf 'ignored\n' | FM_SSH_LOG="$ssh_log" "$fakebin/fake-ssh" host -- cmd
   assert_grep 'host -- cmd' "$ssh_log" "fake ssh did not record argv"
   FM_FAKE_SSH_RC=7 "$fakebin/fake-ssh" x < /dev/null
@@ -296,11 +266,11 @@ test_send_stubs_and_ssh() {
 
 test_spawn_home_layout() {
   local home="$TMP_ROOT/home"
-  fm_test_spawn_home "$home" claude
+  fm_test_spawn_home "$home" pi
   fm_test_spawn_brief "$home" t1 'do the thing'
   assert_present "$home/data" "spawn home missing data/"
   assert_present "$home/state/.last-watcher-beat" "spawn home missing watcher beat"
-  assert_grep claude "$home/config/crew-harness" "crew-harness was not pinned"
+  assert_grep pi "$home/config/crew-harness" "crew-harness was not pinned"
   assert_grep 'do the thing' "$home/data/t1/brief.md" "brief text was not written"
   pass "spawn-home layout writes harness pin, beat, and brief"
 }
@@ -486,6 +456,6 @@ test_touch_epoch_preserves_repeated_dst_hour
 test_no_mistakes_version_constant
 test_no_mistakes_init_doctor_markers
 test_fake_gh_and_gh_axi
-test_spawn_tmux_and_fakebin
+test_spawn_fixture_does_not_report_cwd_before_pane_moves
 test_send_stubs_and_ssh
 test_spawn_home_layout

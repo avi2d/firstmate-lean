@@ -18,12 +18,12 @@ Verified on 2026-07-27 with Pi and Pi-signed 0.82.0 unless a fact gives another 
 
 Native Codex sessions may request `ultra` through the native extension flag described by `../../../bin/fm-spawn.sh`; it is separate from Pi's thinking levels.
 Pi has no permission system, so workers are always autonomous.
-Workers and second mates run Pi's default fullscreen TUI, verified with Pi 1.0.2 on 2026-10-05, and on Herdr the watcher hashes their viewport without Pi's transient scrollbar column (`../../../bin/fm-pane-hash-lib.sh`).
+Workers and secondary workers run Pi's default fullscreen TUI, verified with Pi 1.0.2 on 2026-10-05, and on Herdr the watcher hashes their viewport without Pi's transient scrollbar column (`../../../bin/fm-pane-hash-lib.sh`).
 `../../../bin/fm-spawn.sh --help` owns the executable-pinning and version-safe launch mechanics.
 
 Pi-signed is the signed wrapper identity verified on version 0.82.0.
 Firstmate records `pi-signed` without normalization and refuses rather than falling back to `pi` when that wrapper is unavailable.
-The observed signed process tree has an exact `pi-signed` wrapper parent with the Pi application as its child, while tmux reports the foreground command as the exact `pi-launcher` name for either selected executable.
+The observed signed process tree has an exact `pi-signed` wrapper parent with the Pi application as its child.
 The installed plain `pi` command also execs that signed launcher.
 The router's Detection section owns how launch markers and ancestry select between the identities.
 

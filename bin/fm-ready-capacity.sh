@@ -19,8 +19,7 @@
 # the caller keeps its fired-set marker rather than mistaking an unreadable
 # backlog for an empty one.
 #
-# Requires bin/fm-wake-lib.sh (root home, local homes, project lock path),
-# bin/fm-secondmate-registry-lib.sh (which the local-homes walk reads), and
+# Requires bin/fm-wake-lib.sh (root home, local homes, project lock path) and
 # bin/fm-backend.sh (fm_meta_get) to be sourced first - the same owners
 # bin/fm-project-capacity-lib.sh names. No side effects on source.
 set -u

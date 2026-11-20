@@ -1,16 +1,6 @@
 #!/usr/bin/env bash
 # fm-peek remote-secondmate capture routing.
 #
-# A remote secondmate's pane lives on its own host. The old path resolved the
-# meta's "remote:<id>" window through the local backend adapters and handed it
-# to tmux, which failed with "can't find session: remote" - a healthy remote
-# mate misreported as an unreadable endpoint. These tests drive the real
-# fm-peek + fm-on executables with a stubbed ssh transport (FM_SSH_BIN seam)
-# and a poisoned local tmux, pinning:
-#   1. A remote selector routes the capture over the remote transport and
-#      prints the remote pane tail; the local adapters are never consulted.
-#   2. An unreachable host fails loudly naming the host, without claiming the
-#      mate is dead.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -20,8 +10,6 @@ PEEK="$ROOT/bin/fm-peek.sh"
 
 TMP_ROOT=$(fm_test_tmproot fm-peek-remote)
 
-# fake-ssh prints the canned remote capture; the poisoned tmux records any
-# local read attempt so the "never consulted" property is a real assertion.
 make_stubs() {  # <dir> -> echoes fakebin dir
   local dir=$1 fb="$1/fakebin"
   mkdir -p "$fb"
@@ -32,12 +20,12 @@ cat > /dev/null
 exit "${FM_FAKE_SSH_RC:-0}"
 SH
   chmod +x "$fb/fake-ssh"
-  cat > "$fb/tmux" <<'SH'
+  cat > "$fb/herdr" <<'SH'
 #!/usr/bin/env bash
-printf 'tmux\n' >> "${FM_FAKE_TMUX_TOUCHED:?}"
+printf 'herdr\n' >> "${FM_FAKE_HERDR_TOUCHED:?}"
 exit 1
 SH
-  chmod +x "$fb/tmux"
+  chmod +x "$fb/herdr"
   printf '%s\n' "$fb"
 }
 
@@ -47,7 +35,7 @@ setup_remote_home() {  # <name> -> echoes home dir with remote meta + registry
   fm_write_meta "$home/state/rsm.meta" \
     "window=remote:rsm" \
     "endpoint_task_id=rsm" \
-    "harness=claude" \
+    "harness=pi" \
     "kind=secondmate" \
     "mode=secondmate" \
     "remote_host=remote-mac" \
@@ -66,20 +54,20 @@ test_remote_peek_reads_remote_pane() {
   dir="$TMP_ROOT/peek-ok"; mkdir -p "$dir"
   fb=$(make_stubs "$dir")
   home=$(setup_remote_home peek-ok)
-  touched="$dir/tmux-touched"; : > "$touched"
+  touched="$dir/herdr-touched"; : > "$touched"
 
   out=$(env PATH="$fb:$PATH" \
     FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
     FM_SSH_BIN="$fb/fake-ssh" FM_FAKE_SSH_RC=0 \
     FM_FAKE_REMOTE_CAPTURE='● the remote mate is mid-refactor' \
-    FM_FAKE_TMUX_TOUCHED="$touched" \
+    FM_FAKE_HERDR_TOUCHED="$touched" \
     "$PEEK" rsm 20 2>"$dir/err"); rc=$?
   expect_code 0 "$rc" "a healthy remote peek should succeed"
   assert_contains "$out" "the remote mate is mid-refactor" \
     "the remote pane tail should be printed"
   assert_not_contains "$out" "can't find session" \
     "a remote peek must not fall into a local session lookup"
-  [ ! -s "$touched" ] || fail "the local tmux adapter was consulted for a remote target"
+  [ ! -s "$touched" ] || fail "the local Herdr adapter was consulted for a remote target"
   pass "fm-peek remote: the capture routes over the remote transport, local adapters untouched"
 }
 
@@ -88,12 +76,12 @@ test_remote_peek_unreachable_fails_loudly_without_death_claim() {
   dir="$TMP_ROOT/peek-down"; mkdir -p "$dir"
   fb=$(make_stubs "$dir")
   home=$(setup_remote_home peek-down)
-  touched="$dir/tmux-touched"; : > "$touched"
+  touched="$dir/herdr-touched"; : > "$touched"
 
   env PATH="$fb:$PATH" \
     FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
     FM_SSH_BIN="$fb/fake-ssh" FM_FAKE_SSH_RC=255 \
-    FM_FAKE_TMUX_TOUCHED="$touched" \
+    FM_FAKE_HERDR_TOUCHED="$touched" \
     "$PEEK" rsm >"$dir/out" 2>"$dir/err"; rc=$?
   err=$(cat "$dir/err")
   [ "$rc" -ne 0 ] || fail "an unreachable remote peek must exit nonzero"
@@ -109,13 +97,13 @@ test_remote_scrollback_peek_is_refused_instead_of_returning_the_viewport() {
   dir="$TMP_ROOT/peek-scrollback"; mkdir -p "$dir"
   fb=$(make_stubs "$dir")
   home=$(setup_remote_home peek-scrollback)
-  touched="$dir/tmux-touched"; : > "$touched"
+  touched="$dir/herdr-touched"; : > "$touched"
 
   out=$(env PATH="$fb:$PATH" \
     FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
     FM_SSH_BIN="$fb/fake-ssh" FM_FAKE_SSH_RC=0 \
     FM_FAKE_REMOTE_CAPTURE='● the remote viewport' \
-    FM_FAKE_TMUX_TOUCHED="$touched" \
+    FM_FAKE_HERDR_TOUCHED="$touched" \
     "$PEEK" rsm 200 --scrollback 2>"$dir/err"); rc=$?
   err=$(cat "$dir/err")
   [ "$rc" -ne 0 ] || fail "a remote --scrollback peek must exit nonzero"
@@ -123,7 +111,7 @@ test_remote_scrollback_peek_is_refused_instead_of_returning_the_viewport() {
     "a remote --scrollback peek must not pass the remote viewport off as scrollback"
   assert_contains "$err" "--scrollback cannot read the remote pane of rsm on remote-mac" \
     "the refusal must name the flag, the remote mate, and the host"
-  [ ! -s "$touched" ] || fail "the local tmux adapter was consulted for a remote target"
+  [ ! -s "$touched" ] || fail "the local Herdr adapter was consulted for a remote target"
   pass "fm-peek remote: --scrollback is refused naming the mate and host"
 }
 

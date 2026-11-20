@@ -78,7 +78,7 @@ Never at-least-once, no-loss, or lossless.
 
 ## What the runner does prove
 
-Exercised by `tests/fm-procevent.test.sh` against a fake blocking source whose completion is a process event, not a timer; for the supervision-delivery and headline rows below, by `tests/fm-watch-triage.test.sh` driving a real `bin/fm-watch.sh` over a real capture and over queued strand and launch-failure keys, with `tests/fm-watch-arm.test.sh` covering the arm-time refusal; and for adapter-owned application, by `tests/fm-remote-reply.test.sh` driving the real remote-reply relay end to end in an isolated home:
+Exercised by `tests/fm-procevent.test.sh` against a fake blocking source whose completion is a process event, not a timer; for the supervision-delivery and headline rows below, by `tests/fm-watch-triage.test.sh` driving a real `bin/fm-watch.sh` over a real capture and over queued strand and launch-failure keys, with `tests/fm-watch-arm.test.sh` covering the arm-time refusal:
 
 | Guarantee | How it is proven |
 | --- | --- |
@@ -87,7 +87,6 @@ Exercised by `tests/fm-procevent.test.sh` against a fake blocking source whose c
 | single delivery per source and sequence | after that first proactive wake, a still-unhandled result keeps being re-announced onto the durable queue but never wakes the watcher again; once existing records receive the drain's post-handling acknowledgement and the source result is acknowledged, it is neither re-announced nor reported |
 | proactive-delivery crash and drain boundaries | dotted and underscored source ids at the same sequence receive distinct markers; a concurrent drain cannot consume between queue revalidation and marker commit; failed output, failed marker commit, and a crash before marker commit leave replay available, while successful output still ends the actionable cycle and a crash after marker commit suppresses a duplicate |
 | adapter-owned terminal verdict | two fixture adapters - one that ends on any result, one with no terminal knowledge - decide the outcome alone: the first has its registration and claim retired automatically after one capture and is never restarted, the second stays armed |
-| adapter-owned application of a captured result | a remote-secondmate reply captured through the real relay in an isolated home reaches that secondmate's local status mirror, settles its correlated pending-reply expectation, re-arms the next cursor-anchored source, and is acknowledged, with no handler step or duplicate `check` wake; its new mirrored bytes remain visible to the watcher's signal gate, while exact source-line replay identity keeps a commit-failure retry or cursor-loss whole-log recapture from duplicating a decision when document availability changes, and a recapture that adds no bytes is acknowledged quietly; for an already-escalated request, the same path closes the exact decision so the open-decision fold clears and remains clear; a capture whose adapter application fails because local storage for a referenced remote document is obstructed is left unacknowledged and receives the fallback `check` wake, and the handler's own `handle` still applies it in full after storage recovers; a document offered through a structured `report=` pointer that the reader cannot deliver fails open, mirroring its line with the original pointer, advancing the cursor, and appending one unkeyed note with the reader's own reason that opens no decision, while a path merely mentioned in prose is never fetched and the reported announce-then-explain incident leaves no standing decision yet still delivers its report through the later structured offer |
 | generic built-in keyed-answer feed | `tests/fm-captain-hold-reconcile.test.sh` drives a bound built-in source through the real runner with a fixture adapter that only prints keyed lines, proving any bound built-in channel reaches the one keyed-answer intake: named captain-held tasks close at capture time, a card-declared release mode frees held work, keys naming no captain-held task skip, freeform prose forges nothing, matching answer-and-mode replays are idempotent while mode mismatches refuse, an unbound source closes nothing, and capture remains independent of the handler wake. |
 | structured reconcile feed | The same suite drives the optional `reconciles` adapter seam through the real runner and proves only a bound captured source can create a request; the ordinary keyed-answer and chat paths refuse the reserved value without closing or creating a request, versioned selection stays separate from its note, rollout-compatible ordinary legacy answers still pass, and legacy reconcile-shaped values feed neither intake. |
 | adapter-owned silence verdict | an ordinary firstmate-owned Lavish source driven against a stand-in poll that returns an empty ended session captures its result, records it durably handled, appends no wake, and stays silent through a later `reconcile` that would otherwise republish it, while still retiring its ended source; the same real path with a `Send & End` response carrying the captain's choice still publishes its `check` wake and is left unacknowledged for the handler |
@@ -158,7 +157,7 @@ Exercised by `tests/fm-procevent.test.sh` against a fake blocking source whose c
 | registration and reconcile lock order | `register-extension` takes the source lock before the extension lifecycle lock, the order reconcile uses when it republishes an unhandled extension result through the lifecycle-locked host; the suite's `lifecycle-order` section holds a re-registration inside binding resolution while reconcile republishes that source's unhandled result, and both must finish within a bound instead of waiting on each other |
 | independent homes | two homes bind the same package id/version to different content-addressed absolute paths and independently capture results and extension state, with no cross-home fallback or result path |
 
-Run the focused external-binding evidence and the live Bearings session guard with:
+Run the focused external-binding evidence with:
 
 ```sh
 node --version
@@ -167,7 +166,6 @@ bin/fm-test-run.sh tests/fm-procevent-extension-errors.test.sh
 FM_EXTENSION_BINDING_SEGMENT=lifecycle-invocation-cleanup bin/fm-test-run.sh tests/fm-extension-binding.test.sh
 FM_EXTENSION_BINDING_SEGMENT=lifecycle-orphan-readiness bin/fm-test-run.sh tests/fm-extension-binding.test.sh
 bin/fm-test-run.sh tests/fm-procevent.test.sh
-FM_BEARINGS_LAVISH_LIVE=1 bin/fm-test-run.sh tests/fm-bearings-board-lavish-live-e2e.test.sh
 bin/fm-doc-audience-check.sh
 ```
 
@@ -175,15 +173,13 @@ bin/fm-doc-audience-check.sh
 
 The external host runs in the home that owns the process-event source and publishes the same bounded `check` record as an ordinary built-in adapter.
 The table in this section is scoped to that external-adapter path; task-owned Lavish delivery is separately covered by the worker-owned row above and the current operating contract.
-The 2026-08-27 review inspected `bin/fm-harness.sh`, `bin/fm-supervision-instructions.sh`, `bin/fm-supervision-lib.sh`, the process-event delivery and reconcile boundaries in `bin/fm-watch.sh`, `bin/fm-backend.sh`, and `bin/fm-config-inherit-lib.sh` before marking integration axes not applicable.
+The 2026-08-27 review inspected `bin/fm-harness.sh`, `bin/fm-supervision-instructions.sh`, `bin/fm-supervision-lib.sh`, the process-event delivery and reconcile boundaries in `bin/fm-watch.sh`, and `bin/fm-backend.sh` before marking integration axes not applicable.
 
 | Axis | Reviewed boundary and result |
 | --- | --- |
-| Claude, Codex, OpenCode, Pi, pi-signed, Grok, and Cursor primaries | Applicable only at the existing watcher continuation after one shared `check` wake; no package byte, command, state path, or verdict enters a harness-specific integration. |
-| Kimi | The external-adapter path never enters the worker runtime, and a Kimi primary retains the existing unknown-protocol supervision fallback rather than gaining extension-specific behavior. |
-| Muse | Muse remains a crewmate/scout-only runtime, so no primary process-event integration exists; external adapters still run in the owning home, not in Muse. |
-| Claude, Codex, OpenCode, Pi, pi-signed, Grok, Kimi, Cursor, and Muse task workers | Not applicable to external adapters after inspecting harness detection and launch ownership, because an external registration has no task metadata or worker endpoint and the package is never launched through `fm-spawn`. |
-| tmux, Herdr, Zellij, Orca, and cmux session providers | Not applicable to external adapters after inspecting the known and spawn-capable backend dispatch sets, because external process-event execution calls no backend selector, capture, send, liveness, or cleanup primitive. |
+| Pi and pi-signed primaries | Applicable only at the existing watcher continuation after one shared `check` wake; no package byte, command, state path, or verdict enters a harness-specific integration. |
+| Pi and pi-signed task workers | Not applicable to external adapters after inspecting harness detection and launch ownership, because an external registration has no task metadata or worker endpoint and the package is never launched through `fm-spawn`. |
+| Herdr session provider | Not applicable to external adapters after inspecting the known and spawn-capable backend dispatch sets, because external process-event execution calls no backend selector, capture, send, liveness, or cleanup primitive. |
 | Local and remote secondmate homes | Applicable at the home boundary only; each home owns its own binding, content-addressed package, extension state, registration, result, and watcher, and `config/extensions.d` remains outside the inherited-material allowlist. |
 
 ## Runner lifetime and cleanup
@@ -244,4 +240,3 @@ The optional `self-announcing` declaration changes ordering only for an adapter 
 Proactive delivery is inside that same boundary.
 The watcher reports a queued process-event result through the one shared actionable-exit path (`wake` in `bin/fm-push-transition-lib.sh`) that every existing signal, stale, and check wake already uses, so it reads no pane, queries no backend, and names no harness.
 Both axes are therefore unaffected by construction rather than by assumption: every supported primary harness re-arms from that same exit, and every runtime backend supplies endpoint state only to the pane paths this change does not touch.
-While `state/.afk` exists the watcher stays one-shot as before, because this delivery ends the cycle exactly like the existing check path and leaves classification to the daemon.

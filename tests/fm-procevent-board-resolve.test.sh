@@ -3,8 +3,8 @@
 # because the worker never writes its own resolved line.
 set -u
 
-# shellcheck source=tests/lib.sh
-. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=tests/fixtures.sh
+. "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 TMP_ROOT=$(fm_test_tmproot fm-procevent-board-resolve)
@@ -29,22 +29,7 @@ EOF
 make_stubs() {
   local fb="$1/stubbin"
   mkdir -p "$fb"
-  cat > "$fb/tmux" <<'SH'
-#!/usr/bin/env bash
-set -u
-case "${1:-}" in
-  send-keys) exit 0 ;;
-  display-message)
-    for a in "$@"; do case "$a" in *cursor_y*) printf '1\n'; exit 0 ;; esac; done
-    printf 'fakepane\n'; exit 0 ;;
-  capture-pane) printf '\u256d\u2500\u2500\u2500\u2500\u256e\n\u2502    \u2502\n\u2570\u2500\u2500\u2500\u2500\u256f\n'; exit 0 ;;
-  list-windows)
-    printf '%s\n' fm-site-build elsewhere
-    exit 0 ;;
-esac
-exit 0
-SH
-  chmod +x "$fb/tmux"
+  fm_test_fake_herdr_send "$fb"
   # Sleep stays real: the runner's bounded readiness waits become scheduling
   # races under a no-op sleep, and a loaded machine then fails the run.
   cat > "$fb/sleep" <<SH
@@ -94,7 +79,7 @@ test_board_answer_closes_matching_worker_key() {
   make_stubs "$home"
   tasks_in "$home" add site-build "Build the site" --kind ship --repo sample >/dev/null || fail "could not create the worker task"
   mkdir -p "$home/worktree-site-build"
-  fm_write_meta "$home/state/site-build.meta" "window=sess:fm-site-build" "worktree=$home/worktree-site-build" "project=sample" "kind=ship"
+  fm_write_meta "$home/state/site-build.meta" "window=sess:w1:p1" "worktree=$home/worktree-site-build" "project=sample" "kind=ship"
   printf 'needs-decision [key=website-details-native-lint]: pick the native lint rule\n' > "$home/state/site-build.status"
   printf 'working: building the site pages\n' >> "$home/state/site-build.status"
   run_captain "$home" hold website-details-native-lint --title "Captain call: native lint" --reason "captain lint choice pending" --repo sample >/dev/null || fail "could not hold the native-lint call"

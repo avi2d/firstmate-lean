@@ -102,7 +102,7 @@ init_changed_fixture_repo() {
     fm-test-run.test.sh \
     fm-test-fixtures.test.sh \
     fm-cd-pretool-check.test.sh \
-    fm-daemon.test.sh \
+    fm-watch-inbox-meta.test.sh \
     fm-harness-adapter-instructions-live-e2e.test.sh \
     fm-harness-adapter-references.test.sh \
     fm-backend-herdr-smoke.test.sh \
@@ -115,18 +115,16 @@ init_changed_fixture_repo() {
     fm-quota-choose.test.sh \
     fm-pi-watch-extension.test.sh \
     fm-pi-windows-shell-invocation.test.sh \
-    fm-afk-return.test.sh \
+    fm-watcher-lock.test.sh \
     fm-bearings-snapshot.test.sh \
-    fm-backend-cmux.test.sh \
-    fm-backend-zellij.test.sh \
     fm-control-herdr-smoke.test.sh \
-    fm-backend-orca.test.sh; do
+    fm-unmapped-probe.test.sh; do
     printf '#!/usr/bin/env bash\n# tests/lib.sh\n' >"$repo/tests/$script"
     chmod +x "$repo/tests/$script"
   done
   : >"$repo/tests/lib.sh"
   : >"$repo/tests/fm-backend-herdr-eventwait.test.py"
-  : >"$repo/bin/fm-supervisor-target-lib.sh"
+  : >"$repo/bin/fm-wake-lib.sh"
   : >"$repo/bin/fm-control-lib.sh"
   : >"$repo/bin/fm-timeout-lib.sh"
   : >"$repo/bin/fm-procevent-quota.sh"
@@ -143,7 +141,7 @@ init_changed_fixture_repo() {
   # the shape the tests/fixtures/<dir>/ arm is keyed for.
   mkdir -p "$repo/tests/fixtures/demo"
   : >"$repo/tests/fixtures/demo/demo-fixture.sh"
-  printf '# tests/fixtures/demo\n' >>"$repo/tests/fm-backend-orca.test.sh"
+  printf '# tests/fixtures/demo\n' >>"$repo/tests/fm-unmapped-probe.test.sh"
   # A shared helper with no curated family of its own, named by exactly ONE
   # script of the expensive real-Herdr family and consumed by one curated
   # watcher script. This is the shape that made a one-line helper change select
@@ -153,17 +151,16 @@ init_changed_fixture_repo() {
   # shellcheck disable=SC2016  # literal fixture text: the reference must reach
   # the file verbatim so the changed-file scan can find it, not expand here.
   printf '. "$ROOT/bin/shared-probe-lib.sh"\n' >"$repo/bin/fm-watch-probe.sh"
-  printf '# .claude/settings.json\n# .pi/extensions/fm-primary-turnend-guard.ts\n' \
+  printf '# .pi/extensions/fm-primary-turnend-guard.ts\n' \
     >>"$repo/tests/fm-cd-pretool-check.test.sh"
   printf '# .pi/extensions/fm-primary-pi-watch.ts\n' >>"$repo/tests/fm-pi-watch-extension.test.sh"
   mkdir -p \
     "$repo/.agents/skills/example" \
     "$repo/.agents/skills/harness-adapters/references/common" \
-    "$repo/.claude" "$repo/.pi/extensions" "$repo/docs" "$repo/src"
+    "$repo/.pi/extensions" "$repo/docs" "$repo/src"
   : >"$repo/.agents/skills/example/SKILL.md"
   : >"$repo/.agents/skills/harness-adapters/SKILL.md"
   : >"$repo/.agents/skills/harness-adapters/references/common/dispatch.md"
-  : >"$repo/.claude/settings.json"
   : >"$repo/.pi/extensions/fm-primary-pi-watch.ts"
   : >"$repo/.pi/extensions/fm-primary-turnend-guard.ts"
   mkdir -p "$repo/.pi/extensions/lib"
@@ -319,10 +316,9 @@ test_changed_workflow_selects_readers_not_invoked_families() {
       fail "workflow change selected the invoked family: $listed" ;;
   esac
 
-  # Contributor prose and the shard procedure doc reach only the audience
-  # check that covers their classified surfaces.
+  # Contributor prose reaches only the audience check that covers its
+  # classified surface.
   printf '\n' >>"$repo/CONTRIBUTING.md"
-  : >"$repo/docs/fm-test-portable-shards.md"
   listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD | LC_ALL=C sort)
   case "$listed" in
     *tests/fm-documentation-audiences.test.sh*) ;;
@@ -406,24 +402,23 @@ test_changed_dependency_selection_and_unmapped_failure() {
   git -C "$repo" add tests/fm-backend-herdr-eventwait.test.py
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm eventwait-change
 
-  printf '\n' >>"$repo/bin/fm-supervisor-target-lib.sh"
+  printf '\n' >>"$repo/bin/fm-wake-lib.sh"
   listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
-  assert_contains "$listed" "tests/fm-daemon.test.sh" "supervisor target selects daemon coverage"
-  assert_contains "$listed" "tests/fm-afk-return.test.sh" "supervisor target selects afk coverage"
-  git -C "$repo" add bin/fm-supervisor-target-lib.sh
+  assert_contains "$listed" "tests/fm-watch-inbox-meta.test.sh" "wake helper selects inbox coverage"
+  assert_contains "$listed" "tests/fm-watcher-lock.test.sh" "wake helper selects watcher lock coverage"
+  git -C "$repo" add bin/fm-wake-lib.sh
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm supervisor-change
 
   printf '\n' >>"$repo/.agents/skills/example/SKILL.md"
-  printf '\n' >>"$repo/.claude/settings.json"
   printf '\n' >>"$repo/.pi/extensions/fm-primary-pi-watch.ts"
   printf '\n' >>"$repo/.pi/extensions/fm-primary-turnend-guard.ts"
   listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
   assert_contains "$listed" "tests/fm-ask-user-authority.test.sh" "skill source selects pure contract coverage"
-  assert_contains "$listed" "tests/fm-cd-pretool-check.test.sh" "Claude and Pi source selects hook coverage"
+  assert_contains "$listed" "tests/fm-cd-pretool-check.test.sh" "Pi guard source selects hook coverage"
   assert_contains "$listed" "tests/fm-pi-watch-extension.test.sh" "Pi source selects watcher coverage"
   assert_contains "$listed" "tests/fm-pi-windows-shell-invocation.test.sh" \
     "turn-end extension selects native-Windows shell coverage"
-  git -C "$repo" add .agents .claude .pi
+  git -C "$repo" add .agents .pi
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm non-bin-source-change
 
   printf '\n' >>"$repo/.pi/extensions/lib/fm-operational-input.ts"
@@ -594,7 +589,7 @@ test_changed_bin_reference_selects_per_script_not_per_family() {
       ;;
   esac
   # The curated consumer keeps its family-level coupling.
-  assert_contains "$listed" "tests/fm-daemon.test.sh" \
+  assert_contains "$listed" "tests/fm-watch-inbox-meta.test.sh" \
     "a curated consumer of the helper must still select its whole family"
   assert_contains "$listed" "tests/fm-pi-watch-extension.test.sh" \
     "a curated consumer of the helper must still select its whole family"
@@ -611,7 +606,7 @@ test_changed_uses_bounded_automatic_concurrency() {
   repo="$tmp/repo"
   init_changed_fixture_repo "$repo"
   cp "$ROOT/bin/fm-timeout-lib.sh" "$repo/bin/fm-timeout-lib.sh"
-  for script in fm-backend-herdr-smoke.test.sh fm-daemon.test.sh fm-pi-watch-extension.test.sh; do
+  for script in fm-backend-herdr-smoke.test.sh fm-watch-inbox-meta.test.sh fm-pi-watch-extension.test.sh; do
     cat >"$repo/tests/$script" <<'SH'
 #!/usr/bin/env bash
 sleep 1
@@ -743,8 +738,8 @@ test_script_list_uses_bounded_automatic_concurrency() {
   init_changed_fixture_repo "$repo"
   rm -f "$repo/bin/fm-timeout-lib.sh"
   # fm-cd-pretool-check and fm-pr-merge are individually proven isolated;
-  # fm-backend-orca is not, so it must still land in the serial tail.
-  for script in fm-cd-pretool-check.test.sh fm-pr-merge.test.sh fm-backend-orca.test.sh; do
+  # fm-unmapped-probe is not, so it must still land in the serial tail.
+  for script in fm-cd-pretool-check.test.sh fm-pr-merge.test.sh fm-unmapped-probe.test.sh; do
     cat >"$repo/tests/$script" <<'SH'
 #!/usr/bin/env bash
 sleep 1
@@ -770,7 +765,7 @@ SH
   # An unproven script in the list is scheduled around, never refused and never
   # run beside another script.
   (cd "$repo" && bin/fm-test-run.sh tests/fm-cd-pretool-check.test.sh tests/fm-pr-merge.test.sh \
-      tests/fm-backend-orca.test.sh) >"$tmp/mixed.out" 2>"$tmp/mixed.err" \
+      tests/fm-unmapped-probe.test.sh) >"$tmp/mixed.out" 2>"$tmp/mixed.err" \
     || fail "mixed proven/unproven script list failed: $(cat "$tmp/mixed.err")"
   mixed_shape=$(grep -E '^FM_TEST_(BEGIN|END)' "$tmp/mixed.out" | awk '{print $1}' | paste -sd, -)
   [ "$mixed_shape" = FM_TEST_BEGIN,FM_TEST_BEGIN,FM_TEST_END,FM_TEST_END,FM_TEST_BEGIN,FM_TEST_END ] \
@@ -792,10 +787,10 @@ assert automatic["selection"].split(";")[-1] == f"jobs={expected}"
 assert serial["selection"].split(";")[-1] == "jobs=1"
 PYJSON
 
-  (cd "$repo" && bin/fm-test-run.sh tests/fm-backend-orca.test.sh) \
+  (cd "$repo" && bin/fm-test-run.sh tests/fm-unmapped-probe.test.sh) \
     >"$tmp/named.out" 2>"$tmp/named.err" \
     || fail "a named script unexpectedly required a timeout helper: $(cat "$tmp/named.err")"
-  grep -Eq '^FM_TEST_END .+ tests/fm-backend-orca\.test\.sh exit=0 ' "$tmp/named.out" \
+  grep -Eq '^FM_TEST_END .+ tests/fm-unmapped-probe\.test\.sh exit=0 ' "$tmp/named.out" \
     || fail "a named script did not run without an automatic bound: $(cat "$tmp/named.out")"
 
   rm -rf "$tmp"
@@ -812,7 +807,7 @@ test_family_proofs_run_in_separate_concurrent_phases() {
   cp "$ROOT/bin/fm-timeout-lib.sh" "$repo/bin/fm-timeout-lib.sh"
   chmod +x "$repo/bin/fm-test-run.sh"
   for script in \
-    fm-calm-pi-extension.test.sh fm-vendor-auth-probe.test.sh \
+    fm-calm-pi-extension.test.sh fm-brief.test.sh \
     fm-pr-check-security.test.sh fm-teardown.test.sh; do
     cat >"$repo/tests/$script" <<'SH'
 #!/usr/bin/env bash
@@ -824,7 +819,7 @@ SH
 
   (cd "$repo" && bin/fm-test-run.sh \
       tests/fm-pr-check-security.test.sh tests/fm-calm-pi-extension.test.sh \
-      tests/fm-teardown.test.sh tests/fm-vendor-auth-probe.test.sh --jobs 4) \
+      tests/fm-teardown.test.sh tests/fm-brief.test.sh --jobs 4) \
     >"$tmp/out" 2>"$tmp/err" \
     || fail "cross-family phase fixture failed: $(cat "$tmp/err")"
 
@@ -1085,7 +1080,7 @@ test_live_guards_expect_a_capability_skip_class() {
   # FM_LIVE=0 makes every live guard refuse without touching a harness, so this
   # exercises the real family through the real runner in bounded time.
   FM_LIVE=0 "$RUNNER" --json "$tmp/timing.json" \
-    tests/fm-composer-matrix-live-e2e.test.sh >"$out" 2>"$tmp/err.txt" \
+    tests/fm-quota-array-dispatch-live-e2e.test.sh >"$out" 2>"$tmp/err.txt" \
     || fail "a disabled live guard must not fail the runner: $(cat "$tmp/err.txt")"
   grep -q 'expected_gate_skip=live-capability' "$out" \
     || fail "the live-harness family must expect a capability skip: $(grep FM_TEST_BEGIN "$out")"
@@ -1139,21 +1134,6 @@ test_exclude_family() {
   pass "exclude-family drops the named primary family after selection"
 }
 
-test_tern_family_selection() {
-  local listed families
-  families=$("$RUNNER" --list-families)
-  printf '%s\n' "$families" | grep -qx tern || fail "--list-families must name the tern family"
-  listed=$("$RUNNER" --list --family tern)
-  assert_contains "$listed" "tests/fm-backend-tern.test.sh" "family tern must select the fake-CLI suite"
-  assert_contains "$listed" "tests/fm-backend-tern-smoke.test.sh" "family tern must select the real-binary smoke test"
-  assert_not_contains "$listed" "tests/tern-test-safety.sh" "the safety helper is a shared library, not a runnable suite"
-  assert_not_contains "$listed" "tests/fm-backend-cmux.test.sh" "family tern must not absorb the cmux suite"
-  # The scripts are real members of the portable lanes, so the coverage guard
-  # (every tests/*.test.sh belongs to exactly one lane) sees them.
-  "$RUNNER" --list-lanes >/dev/null || fail "--list-lanes failed with the tern scripts present"
-  pass "fm-test-run: family tern selects the tern suite and smoke test, and the lane coverage guard accepts them"
-}
-
 test_list_scheduled_proven_isolated_uses_serial_weights() {
   local tmp
   tmp=$(fm_test_tmproot fm-test-run-proven-schedule)
@@ -1170,9 +1150,9 @@ test_list_scheduled_non_lane_selections_use_serial_weights() {
   local -a scripts=(
     tests/fm-operational-input.test.sh
     tests/fm-lint.test.sh
-    tests/fm-muse-harness.test.sh
+    tests/fm-calm-pi-extension.test.sh
     tests/fm-captain-hold-migration.test.sh
-    tests/fm-kimi-harness.test.sh
+    tests/fm-captain-hold-answers.test.sh
     tests/fm-brief.test.sh
   )
   tmp=$(fm_test_tmproot fm-test-run-non-lane-schedule)
@@ -1190,8 +1170,8 @@ test_list_scheduled_non_lane_selections_use_serial_weights() {
     printf '\n' >>"$repo/$script"
   done
   printf '%s\n' \
-    tests/fm-kimi-harness.test.sh \
-    tests/fm-muse-harness.test.sh \
+    tests/fm-captain-hold-answers.test.sh \
+    tests/fm-calm-pi-extension.test.sh \
     tests/fm-brief.test.sh \
     tests/fm-lint.test.sh \
     tests/fm-captain-hold-migration.test.sh \
@@ -1337,7 +1317,7 @@ test_portable_serial_hint_coverage_is_reported_and_bounded() {
     || fail "unmeasured count $unhinted exceeds the serial lane size $serial"
   # 15% is the guard's own bound; staying well inside it is what keeps the
   # balance evidence-based. Refresh from a green run's timing artifacts when
-  # this trips (docs/fm-test-portable-shards.md).
+  # this trips.
   [ "$((unhinted * 100))" -le "$((serial * 15))" ] \
     || fail "$unhinted of $serial portable serial scripts lack a measured hint; refresh them"
   # A complete partition can still overflow a CI job. Assert the runner's
@@ -1656,7 +1636,7 @@ test_changed_shared_fixture_selects_its_readers() {
   assert_contains "$listed" "tests/fm-secondmate-safety.test.sh" \
     "shared test fixture selects its secondmate reader"
   case "$listed" in
-    *fm-backend-orca.test.sh*)
+    *fm-unmapped-probe.test.sh*)
       fail "shared test fixture selection widened past its readers: $listed" ;;
   esac
   git -C "$repo" add tests/shared-probe-fixture.sh
@@ -1676,44 +1656,11 @@ test_changed_shared_fixture_selects_its_readers() {
   # directory-scan arm rather than the top-level fixture arm's basename scan.
   printf '\n' >>"$repo/tests/fixtures/demo/demo-fixture.sh"
   listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
-  assert_contains "$listed" "tests/fm-backend-orca.test.sh" \
+  assert_contains "$listed" "tests/fm-unmapped-probe.test.sh" \
     "a nested fixture selects the suite that reads its directory"
 
   rm -rf "$tmp"
   pass "a changed shared test fixture selects its readers while an unread tests/ path still refuses"
-}
-
-# Suites outside backend-dispatch source the T3 fake and the T3 adapter, so a
-# change to either selects the suites that read them as well.
-test_changed_t3_sources_select_their_readers() {
-  local tmp repo listed
-  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-t3.XXXXXX")
-  repo="$tmp/repo"
-  init_changed_fixture_repo "$repo"
-  mkdir -p "$repo/bin/backends"
-  : >"$repo/bin/backends/t3code.sh"
-  : >"$repo/tests/t3-fake-lib.sh"
-  printf '#!/usr/bin/env bash\n# tests/lib.sh\n. tests/t3-fake-lib.sh\n' >"$repo/tests/fm-secondmate-restart.test.sh"
-  chmod +x "$repo/tests/fm-secondmate-restart.test.sh"
-  printf '# bin/backends/t3code.sh\n' >>"$repo/bin/fm-supervisor-target-lib.sh"
-  git -C "$repo" add .
-  git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm t3
-
-  printf '\n' >>"$repo/tests/t3-fake-lib.sh"
-  listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
-  assert_contains "$listed" "tests/fm-secondmate-restart.test.sh" \
-    "a changed T3 fake selects the suite that sources it"
-  git -C "$repo" checkout -q -- tests/t3-fake-lib.sh
-
-  printf '\n' >>"$repo/bin/backends/t3code.sh"
-  listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
-  assert_contains "$listed" "tests/fm-backend.test.sh" \
-    "a changed T3 adapter still selects backend-dispatch"
-  assert_contains "$listed" "tests/fm-daemon.test.sh" \
-    "a changed T3 adapter selects the curated family of a script that consumes it"
-
-  rm -rf "$tmp"
-  pass "a changed T3 fake or adapter selects the suites that read it beyond backend-dispatch"
 }
 
 # Workers are handed scripts in order, so the slowest script must start first or
@@ -2141,7 +2088,6 @@ test_a_run_that_ran_records_no_skip_reason
 test_live_guards_expect_a_capability_skip_class
 test_fail_on_gate_skip_token
 test_exclude_family
-test_tern_family_selection
 test_list_scheduled_proven_isolated_uses_serial_weights
 test_list_scheduled_non_lane_selections_use_serial_weights
 test_portable_shard_union_and_coverage_guard
@@ -2155,7 +2101,6 @@ test_jobs_requires_proven_isolated
 test_jobs_admits_a_concurrent_safe_family
 test_unmapped_new_test_never_inherits_family_concurrency
 test_changed_shared_fixture_selects_its_readers
-test_changed_t3_sources_select_their_readers
 test_concurrent_runs_are_ordered_longest_first
 test_per_script_timeout_bounds_a_hang
 test_changed_bound_gives_slow_watcher_suites_headroom

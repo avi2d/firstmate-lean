@@ -1,6 +1,7 @@
 # Firstmate test isolation proof
 
-This record owns concurrent isolation evidence for the portable parallel candidate set and admitted runner families.
+This is a dated record of isolation checks.
+Some listed tests have been removed.
 `bin/fm-test-isolation-proof.sh` is the authoritative harness and `docs/fm-test-isolation-proof.json` is the portable pool's machine-readable result.
 `bin/fm-test-run.sh` owns production lane partitioning and family concurrency admission.
 
@@ -22,31 +23,28 @@ This record owns concurrent isolation evidence for the portable parallel candida
 
 ## Candidate set
 
+The current portable pool, as `bin/fm-test-isolation-proof.sh --list` prints it:
+
 - `tests/fm-arm-pretool-check.test.sh`
 - `tests/fm-backend-herdr.test.sh`
-- `tests/fm-backend-t3code.test.sh`
 - `tests/fm-brief.test.sh`
 - `tests/fm-cd-pretool-check.test.sh`
-- `tests/fm-composer-ghost.test.sh`
 - `tests/fm-composer-lib.test.sh`
 - `tests/fm-crew-state.test.sh`
 - `tests/fm-ensure-agents-md.test.sh`
-- `tests/fm-grok-harness.test.sh`
 - `tests/fm-herdr-lab.test.sh`
 - `tests/fm-lint.test.sh`
 - `tests/fm-pi-primary-types.test.sh`
 - `tests/fm-pr-merge.test.sh`
 - `tests/fm-review-diff.test.sh`
-- `tests/fm-send-popup-settle.test.sh`
 - `tests/fm-send-settle.test.sh`
 - `tests/fm-send-strict.test.sh`
 - `tests/fm-spawn-batch.test.sh`
 - `tests/fm-supervision-instructions.test.sh`
-- `tests/fm-t3-mcp.test.sh`
 - `tests/fm-test-run.test.sh`
-- `tests/fm-tmux-submit-busy.test.sh`
 - `tests/fm-transition-lib.test.sh`
-- `tests/fm-x-mode.test.sh`
+
+The 2026-08-20 run measured 24 scripts, including suites removed since; the durations below are that run's.
 
 ## Durations
 
@@ -75,19 +73,6 @@ This record owns concurrent isolation evidence for the portable parallel candida
 | 513 | 0 | 9 | `tests/fm-ensure-agents-md.test.sh` |
 | 331 | 0 | 20 | `tests/fm-supervision-instructions.test.sh` |
 | 99 | 0 | 23 | `tests/fm-transition-lib.test.sh` |
-
-## 2026-10-23: T3 Code suites added
-
-`tests/fm-backend-t3code.test.sh` and `tests/fm-t3-mcp.test.sh` joined the candidate set.
-The backend suite spawns real tasks, and `fm-spawn.sh` creates each task's `/tmp/fm-<id>` outside the suite's temporary root, so every case id carries a per-run suffix and the suite's exit cleanup removes only the directories that run created; the helper suite keeps its files under its own root and its fake server binds an ephemeral loopback port.
-
-- Command: `bin/fm-test-isolation-proof.sh --jobs 4 --json <path>` (run `fm-isolation-1792736369527-49823`, 2026-10-23T06:19:29Z to 06:49:34Z, macOS arm64 with stock Bash 3.2 and no tmux)
-- Result: `FM_ISOLATION_SUMMARY total=26 failed=2 concurrency=4 duration_ms=1804656`
-- `tests/fm-backend-t3code.test.sh` exit 0 (734776 ms) and `tests/fm-t3-mcp.test.sh` exit 0 (84247 ms).
-- The two failures are existing members that fail identically on this host without the T3 change: `tests/fm-test-run.test.sh` fails its coverage-guard cases under Bash 3.2 on the base commit too, and `tests/fm-pr-merge.test.sh` fails `forgejo-merges: a well-formed pull request URL should merge` when run alone on the base commit.
-- Separately, two concurrent copies of the backend suite plus the helper suite passed twice, and each suite passed beside `tests/fm-busy-state.test.sh`.
-
-`docs/fm-test-isolation-proof.json` still holds the 2026-08-20 portable-pool artifact; a clean 26-candidate artifact needs a Linux run with Bash 5 and tmux.
 
 ## Family concurrency proofs
 
@@ -175,8 +160,6 @@ Both recorded runs began with the machine's one-minute load average below 6.0, a
 A third run taken between them also reported `total=8 failed=0 concurrency=4 duration_ms=357804`, but it started at a load average of 9.20 while the previous run's workers were still decaying, so it is disclosed here rather than recorded as a measurement.
 That its duration landed within 3% of the two clean runs is evidence the elevated figure was a lagging load average rather than real competition for the machine.
 
-`tests/fm-pr-health.test.sh` joined this family after the date above, so that result does not cover it.
-
 These durations are not comparable with the six-member run above: that measurement was taken on a different machine state, and the gap is far larger than two short scripts can account for, so it is not evidence about the two new members.
 For the same reason the 1.72x four-worker figure recorded above is left as a statement about that measurement rather than restated as current.
 
@@ -236,10 +219,9 @@ This family is the residual set that used to sit in `unclassified`, and it exist
 `standalone` enumerates its 28 members instead, and `unclassified` stays the always-serial home for anything nobody has classified yet.
 `tests/fm-test-run.test.sh` covers that split behaviorally: two `standalone` members run concurrently while an unmapped basename is refused under `--jobs` and still runs serially.
 
-Two scripts left the residual set rather than joining it.
+One script left the residual set rather than joining it.
 `tests/fm-backend-herdr-focus-flash-e2e.test.sh` is a real-Herdr lab regression and is now `real-herdr-gated`, which also moves it out of the portable serial lane and into the required Herdr lane; it had been gate-skipping on Linux CI, so that real-Herdr regression was not running anywhere.
 Its current live-backend result is recorded under [workspace-removal focus safety](verification/runtime-backends.md#workspace-removal-focus-safety).
-`tests/fm-claude-stop-autoarm-live-e2e.test.sh` gate-skips on its opt-in variable and is now `live-harness-optin`, since a candidate that gate-skips cannot prove concurrency.
 
 One member needs a current Pi to pass at all.
 `tests/fm-pi-branch-extension.test.sh` compares firstmate's supervision-branch extension against the stock renderers of the installed `@earendil-works/pi-coding-agent`, and the proof host's global install was stale at 0.81.1 while the published release was 0.84.4.

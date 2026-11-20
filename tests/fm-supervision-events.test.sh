@@ -43,7 +43,7 @@ reset_state() {
 }
 
 mkrec() {  # <pane_id> <status>
-  fm_transition_record "$1" "wG" "" "$2" claude
+  fm_transition_record "$1" "wG" "" "$2" pi
 }
 
 # --- handle_push_transition: enqueue + wake for a non-paused blocked crew -----
@@ -58,16 +58,6 @@ grep -q 'herdr: agent blocked' "$STATE_DIR/.wake-queue" || fail "the stale paylo
 [ -s "$WAKE_LOG" ] || fail "handle_push_transition must wake the supervisor for a blocked crew"
 [ -e "$STATE_DIR/.herdr-escalated-default_wG_pQ" ] || fail "handle_push_transition must commit dedupe only after enqueue"
 pass "handle_push_transition: a blocked crew enqueues a stale wake naming its window and wakes the supervisor"
-
-reset_state
-rm -f "$STATE_DIR"/.rex-escalated-* 2>/dev/null || true
-fm_write_meta "$STATE_DIR/tk1.meta" "window=0a1b-c2:3d4e-f5" "backend=rex" "kind=ship"
-handle_push_transition rex 0a1b-c2 "$(fm_transition_record 3d4e-f5 "" "" blocked claude-code "permission: Allow Bash: rm -rf build")"
-grep -q 'stale	0a1b-c2:3d4e-f5' "$STATE_DIR/.wake-queue" || fail "a rex push must name the task's recorded window: $(cat "$STATE_DIR/.wake-queue")"
-grep -q 'rex: agent blocked (permission: Allow Bash: rm -rf build) - waiting on human' "$STATE_DIR/.wake-queue" \
-  || fail "the stale payload must name rex and carry the blocked kind and message: $(cat "$STATE_DIR/.wake-queue")"
-[ -e "$STATE_DIR/.rex-escalated-0a1b-c2_3d4e-f5" ] || fail "the rex dedupe marker must be committed after enqueue"
-pass "handle_push_transition: a rex blocked edge's wake names the backend and carries Rex's blocked kind and message"
 
 reset_state
 fm_write_meta "$STATE_DIR/tk1.meta" "window=default:wG:pQ" "backend=herdr" "kind=ship"
@@ -120,24 +110,14 @@ case "$PANES" in *"default:wG:pQ"*) : ;; *) fail "the ship window must be in the
 case "$PANES" in *"default:wA:pS"*) fail "a kind=secondmate window must be EXCLUDED from the event pane list, got '$PANES'" ;; *) : ;; esac
 pass "event_wait_or_sleep: herdr windows go on the event pane list, but kind=secondmate endpoints are excluded"
 
-# --- event_wait_or_sleep: a T3 task never takes herdr's fast path away -------
-
 reset_state
-fm_write_meta "$STATE_DIR/api-fix.meta" "window=fm-api-fix" "backend=t3code" "t3_thread_id=mcp:thread-api" "kind=ship"
-fm_write_meta "$STATE_DIR/web-ui.meta" "window=default:wG:pQ" "backend=herdr" "kind=ship"
-# shellcheck disable=SC2329 # Runtime overrides called by the isolated watcher.
-fm_backend_events_capable() { return 0; }
-# shellcheck disable=SC2329 # Runtime overrides called by the isolated watcher.
-fm_backend_wait_transition() { printf '%s %s\n' "$1" "$*" > "$TMP/panes"; return 1; }
+fm_write_meta "$STATE_DIR/alpha.meta" "window=first-lab:wG:pQ" "backend=herdr" "kind=ship"
+fm_write_meta "$STATE_DIR/beta.meta" "window=other-lab:wG:pR" "backend=herdr" "kind=ship"
 event_wait_or_sleep
-PANES=$(cat "$TMP/panes" 2>/dev/null || true)
-case "$PANES" in "herdr "*"default:wG:pQ"*) : ;; *) fail "a mixed home must keep herdr's push wait even when a T3 task sorts first, got '$PANES'" ;; esac
-rm -f "$STATE_DIR/web-ui.meta" "$TMP/panes"
-_event_cap_key=""
-event_wait_or_sleep
-PANES=$(cat "$TMP/panes" 2>/dev/null || true)
-case "$PANES" in "t3code "*) : ;; *) fail "a T3-only home must use T3's bounded wait, got '$PANES'" ;; esac
-pass "event_wait_or_sleep: herdr keeps the push wait in a mixed home; T3's wait runs only without another push backend"
+PANES=$(cat "$TMP/panes")
+case "$PANES" in *"first-lab:wG:pQ"*) : ;; *) fail "the selected session did not get its own pane: $PANES" ;; esac
+case "$PANES" in *"other-lab:wG:pR"*) fail "a Herdr subscription included a pane from another session: $PANES" ;; *) : ;; esac
+pass "event wait does not mix pane ids across Herdr sessions"
 
 reset_state
 fm_write_meta "$STATE_DIR/tk3.meta" "window=default:wG:pQ" "backend=herdr" "kind=ship"
@@ -157,15 +137,12 @@ event_wait_or_sleep
 [ "$(cat "$TMP/wtcalls")" = $'1\n1' ] || fail "cached capability verdict was not passed to each wait, got: $(cat "$TMP/wtcalls")"
 pass "event_wait_or_sleep: one cached capability probe owns validation across bounded waits"
 
-# --- event_wait_or_sleep: a tmux-only home never runs the event path ----------
-
 reset_state
-fm_write_meta "$STATE_DIR/tk4.meta" "window=fmses:fm-tk4" "kind=ship"   # no backend= -> tmux
 # shellcheck disable=SC2329 # Runtime override called by the isolated watcher.
 fm_backend_wait_transition() { printf 'CALLED\n' > "$TMP/wtcalled"; return 1; }
 event_wait_or_sleep
-[ ! -e "$TMP/wtcalled" ] || fail "a tmux-only home must never invoke the event wait path"
-grep -q 'SLEEP' "$SLEEP_LOG" || fail "a tmux-only home must sleep POLL exactly as before"
+[ ! -e "$TMP/wtcalled" ] || fail "an empty home must never invoke the event wait path"
+grep -q 'SLEEP' "$SLEEP_LOG" || fail "an empty home must sleep POLL exactly as before"
 pass "event_wait_or_sleep: a home with no push-capable window is inert (sleeps POLL, never touches the event path)"
 
 # --- event_wait_or_sleep: runtime failures disable the event path (fail-closed)

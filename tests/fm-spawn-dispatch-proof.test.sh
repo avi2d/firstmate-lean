@@ -19,12 +19,11 @@ SH
 }
 
 make_proof_case() {
-  local name=$1 id=$2 case_dir home proj wt fakebin launchlog
+  local name=$1 id=$2 case_dir home proj wt fakebin
   case_dir="$TMP_ROOT/$name"
   home="$case_dir/home"
   proj="$case_dir/project"
   wt="$case_dir/wt"
-  launchlog="$case_dir/launch.log"
   fakebin=$(fm_test_make_spawn_fakebin "$case_dir/fake")
   make_proof_pi_probe "$fakebin"
   cat > "$fakebin/quota-axi" <<'SH'
@@ -32,26 +31,23 @@ make_proof_case() {
 exit 1
 SH
   chmod +x "$fakebin/quota-axi"
-  fm_test_spawn_home "$home" grok
-  printf '%s\n' '{"rules":[{"when":"test work","use":[{"harness":"codex","model":"gpt-5"},{"harness":"grok","model":"grok-4"},{"harness":"pi","model":"claude-bridge/opus-5-5"}]}]}' > "$home/config/crew-dispatch.json"
+  fm_test_spawn_home "$home" pi
+  printf '%s\n' '{"rules":[{"when":"test work","use":[{"harness":"pi","model":"openai/gpt-5"},{"harness":"pi","model":"openrouter/anthropic/claude-sonnet-4.6"},{"harness":"pi","model":"claude-bridge/opus-5-5"}]}]}' > "$home/config/crew-dispatch.json"
   fm_git_worktree "$proj" "$wt" "wt-$name"
   fm_test_spawn_brief "$home" "$id"
   printf '{"task":"%s","status":"ambiguous","profile":null}\n' "$id" > "$home/data/$id/dispatch-resolution.json"
-  : > "$launchlog"
-  printf '%s\n' "$home|$proj|$wt|$fakebin|$launchlog"
+  printf '%s\n' "$home|$proj|$wt|$fakebin"
 }
 
 read_proof_record() {
-  IFS='|' read -r HOME_DIR PROJ_DIR WT_DIR FAKEBIN_DIR LAUNCH_LOG <<EOF
+  IFS='|' read -r HOME_DIR PROJ_DIR WT_DIR FAKEBIN_DIR <<EOF
 $1
 EOF
 }
 
 run_proof_ship_spawn() {
-  local home=$1 wt=$2 fakebin=$3 launchlog=$4
-  shift 4
-  : > "$launchlog"
-  GROK_HOME="$home/grok-home" \
+  local home=$1 wt=$2 fakebin=$3
+  shift 3
     FM_FAKE_PI_VERSION="${FM_FAKE_PI_VERSION:-0.84.0}" \
     fm_test_run_spawn "$home" "$wt" "$fakebin" "$@" --mode no-mistakes --yolo off
 }
@@ -63,10 +59,10 @@ dispatch-resolve:
   model: jev-latest   latency_ms: 10   tokens: 1/2
   rule: test work (test work)   confidence: 0.9
   probabilities: test work=0.9
-  candidate: grok:grok-4  provider=grok  scope=all_models  remaining=50%  spendPriority=10  runway=through_reset  -> eligible
-  profile: --harness grok --model grok-4
+  candidate: pi:openrouter/anthropic/claude-sonnet-4.6  provider=openrouter  scope=all_models  remaining=50%  spendPriority=10  runway=through_reset  -> eligible
+  profile: --harness pi --model openrouter/anthropic/claude-sonnet-4.6
 EOF
-  printf '{"task":"%s","status":"clear","profile":{"harness":"grok","model":"grok-4","effort":null,"claude_account":null}}\n' \
+  printf '{"task":"%s","status":"clear","profile":{"harness":"pi","model":"openrouter/anthropic/claude-sonnet-4.6","effort":null,"claude_account":null}}\n' \
     "$(basename "$(dirname "$1")")" > "$(dirname "$1")/dispatch-resolution.json"
 }
 
@@ -74,10 +70,10 @@ write_selection_record() {
   cat > "$1" <<'EOF'
 dispatch-selection:
 rule: rule_1
-candidate: codex:gpt-5 provider=codex remaining=10% spendPriority=5 runway=through_reset -> eligible
-candidate: grok:grok-4 provider=grok remaining=50% spendPriority=10 runway=through_reset -> eligible
+candidate: pi:openai/gpt-5 provider=openai remaining=10% spendPriority=5 runway=through_reset -> eligible
+candidate: pi:openrouter/anthropic/claude-sonnet-4.6 provider=openrouter remaining=50% spendPriority=10 runway=through_reset -> eligible
 candidate: pi:claude-bridge/opus-5-5 provider=claude remaining=80% spendPriority=20 runway=through_reset -> eligible
-chosen: --harness grok --model grok-4
+chosen: --harness pi --model openrouter/anthropic/claude-sonnet-4.6
 EOF
 }
 
@@ -86,7 +82,7 @@ test_copied_launch_without_proof_is_refused() {
   id=proof-missing-z1
   rec=$(make_proof_case proof-missing "$id")
   read_proof_record "$rec"
-  out=$(run_proof_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --harness grok --model grok-4)
+  out=$(run_proof_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR" --harness pi --model openrouter/anthropic/claude-sonnet-4.6)
   status=$?
   expect_code 1 "$status" "a launch with no dispatch proof should refuse: $out"
   assert_contains "$out" 'holds no dispatch proof' "refusal should name the missing proof"
@@ -101,7 +97,7 @@ test_clear_resolver_pick_is_not_refused() {
   rec=$(make_proof_case proof-resolve "$id")
   read_proof_record "$rec"
   write_resolve_out "$HOME_DIR/data/$id/dispatch-resolve.out"
-  out=$(run_proof_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --harness grok --model grok-4)
+  out=$(run_proof_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR" --harness pi --model openrouter/anthropic/claude-sonnet-4.6)
   status=$?
   expect_code 0 "$status" "a clear resolver pick should launch: $out"
   assert_contains "$out" "spawned $id" "a covered launch should report success"
@@ -115,7 +111,7 @@ test_full_selection_record_is_not_refused() {
   rec=$(make_proof_case proof-record "$id")
   read_proof_record "$rec"
   write_selection_record "$HOME_DIR/data/$id/dispatch-selection.md"
-  out=$(run_proof_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --harness grok --model grok-4)
+  out=$(run_proof_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR" --harness pi --model openrouter/anthropic/claude-sonnet-4.6)
   status=$?
   expect_code 0 "$status" "a full selection record should launch: $out"
   assert_contains "$out" "spawned $id" "a covered launch should report success"
@@ -131,12 +127,12 @@ test_selection_record_naming_another_profile_is_refused() {
   cat > "$HOME_DIR/data/$id/dispatch-selection.md" <<'EOF'
 dispatch-selection:
 rule: rule_1
-candidate: codex:gpt-5 provider=codex remaining=10% spendPriority=5 runway=through_reset -> eligible
-candidate: grok:grok-4 provider=grok remaining=50% spendPriority=10 runway=through_reset -> eligible
+candidate: pi:openai/gpt-5 provider=openai remaining=10% spendPriority=5 runway=through_reset -> eligible
+candidate: pi:openrouter/anthropic/claude-sonnet-4.6 provider=openrouter remaining=50% spendPriority=10 runway=through_reset -> eligible
 candidate: pi:claude-bridge/opus-5-5 provider=claude remaining=80% spendPriority=20 runway=through_reset -> eligible
-chosen: --harness codex --model gpt-5
+chosen: --harness pi --model openai/gpt-5
 EOF
-  out=$(run_proof_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --harness grok --model grok-4)
+  out=$(run_proof_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR" --harness pi --model openrouter/anthropic/claude-sonnet-4.6)
   status=$?
   expect_code 1 "$status" "a record naming another profile should refuse: $out"
   assert_contains "$out" 'must equal the launch' "refusal should name the chosen-profile mismatch"
@@ -155,7 +151,7 @@ rule: rule_1
 candidate: pi:claude-bridge/opus-5-5 provider=claude remaining=80% spendPriority=20 runway=through_reset -> eligible
 chosen: --harness pi --model claude-bridge/opus-5-5
 EOF
-  out=$(run_proof_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --harness pi --model claude-bridge/opus-5-5)
+  out=$(run_proof_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR" --harness pi --model claude-bridge/opus-5-5)
   status=$?
   expect_code 1 "$status" "a record with only the copied Opus candidate should refuse: $out"
   assert_contains "$out" 'missing a candidate' "refusal should name the missing candidates"
@@ -171,11 +167,11 @@ test_record_missing_the_middle_candidate_is_refused() {
   cat > "$HOME_DIR/data/$id/dispatch-selection.md" <<'EOF'
 dispatch-selection:
 rule: rule_1
-candidate: codex:gpt-5 provider=codex remaining=10% spendPriority=5 runway=through_reset -> eligible
+candidate: pi:openai/gpt-5 provider=openai remaining=10% spendPriority=5 runway=through_reset -> eligible
 candidate: pi:claude-bridge/opus-5-5 provider=claude remaining=80% spendPriority=20 runway=through_reset -> eligible
-chosen: --harness codex --model gpt-5
+chosen: --harness pi --model openai/gpt-5
 EOF
-  out=$(run_proof_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --harness codex --model gpt-5)
+  out=$(run_proof_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR" --harness pi --model openai/gpt-5)
   status=$?
   expect_code 1 "$status" "a record missing the middle candidate should refuse: $out"
   assert_contains "$out" 'missing a candidate' "refusal should name the missing candidate"
@@ -191,12 +187,12 @@ test_candidate_with_no_quota_reading_is_refused() {
   cat > "$HOME_DIR/data/$id/dispatch-selection.md" <<'EOF'
 dispatch-selection:
 rule: rule_1
-candidate: codex:gpt-5 provider=codex remaining=10% spendPriority=5 runway=through_reset -> eligible
-candidate: grok:grok-4 provider=grok -> eligible
+candidate: pi:openai/gpt-5 provider=openai remaining=10% spendPriority=5 runway=through_reset -> eligible
+candidate: pi:openrouter/anthropic/claude-sonnet-4.6 provider=openrouter -> eligible
 candidate: pi:claude-bridge/opus-5-5 provider=claude remaining=80% spendPriority=20 runway=through_reset -> eligible
-chosen: --harness grok --model grok-4
+chosen: --harness pi --model openrouter/anthropic/claude-sonnet-4.6
 EOF
-  out=$(run_proof_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --harness grok --model grok-4)
+  out=$(run_proof_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR" --harness pi --model openrouter/anthropic/claude-sonnet-4.6)
   status=$?
   expect_code 1 "$status" "a candidate with no quota reading should refuse: $out"
   assert_contains "$out" 'no quota reading' "refusal should name the missing quota reading"
@@ -212,12 +208,12 @@ test_record_naming_an_unknown_rule_is_refused() {
   cat > "$HOME_DIR/data/$id/dispatch-selection.md" <<'EOF'
 dispatch-selection:
 rule: rule_9
-candidate: codex:gpt-5 provider=codex remaining=10% spendPriority=5 runway=through_reset -> eligible
-candidate: grok:grok-4 provider=grok remaining=50% spendPriority=10 runway=through_reset -> eligible
+candidate: pi:openai/gpt-5 provider=openai remaining=10% spendPriority=5 runway=through_reset -> eligible
+candidate: pi:openrouter/anthropic/claude-sonnet-4.6 provider=openrouter remaining=50% spendPriority=10 runway=through_reset -> eligible
 candidate: pi:claude-bridge/opus-5-5 provider=claude remaining=80% spendPriority=20 runway=through_reset -> eligible
-chosen: --harness grok --model grok-4
+chosen: --harness pi --model openrouter/anthropic/claude-sonnet-4.6
 EOF
-  out=$(run_proof_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --harness grok --model grok-4)
+  out=$(run_proof_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR" --harness pi --model openrouter/anthropic/claude-sonnet-4.6)
   status=$?
   expect_code 1 "$status" "a record naming an unknown rule should refuse: $out"
   assert_contains "$out" 'unknown rule' "refusal should name the unknown rule"
@@ -225,19 +221,19 @@ EOF
   pass "a record naming an unknown rule is refused"
 }
 
-test_stated_captain_override_is_not_refused() {
+test_stated_user_override_is_not_refused() {
   local rec id out status
   id=proof-override-z5
   rec=$(make_proof_case proof-override "$id")
   read_proof_record "$rec"
   write_selection_record "$HOME_DIR/data/$id/dispatch-selection.md"
-  printf '%s\n' 'override: the captain picked grok for a fast check' >> "$HOME_DIR/data/$id/dispatch-selection.md"
-  out=$(run_proof_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --harness grok --model grok-4)
+  printf '%s\n' 'override: the user chose the OpenRouter profile for a fast check' >> "$HOME_DIR/data/$id/dispatch-selection.md"
+  out=$(run_proof_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR" --harness pi --model openrouter/anthropic/claude-sonnet-4.6)
   status=$?
-  expect_code 0 "$status" "a stated captain override should launch: $out"
+  expect_code 0 "$status" "a stated user override should launch: $out"
   assert_contains "$out" "spawned $id" "an override launch should report success"
   assert_grep 'dispatch_proof=record:override' "$HOME_DIR/state/$id.meta" "override proof not recorded in task metadata"
-  pass "a stated captain override launches"
+  pass "a stated user override launches"
 }
 
 test_override_without_a_stated_reason_is_refused() {
@@ -247,7 +243,7 @@ test_override_without_a_stated_reason_is_refused() {
   read_proof_record "$rec"
   write_selection_record "$HOME_DIR/data/$id/dispatch-selection.md"
   printf '%s\n' 'override:' >> "$HOME_DIR/data/$id/dispatch-selection.md"
-  out=$(run_proof_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --harness grok --model grok-4)
+  out=$(run_proof_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR" --harness pi --model openrouter/anthropic/claude-sonnet-4.6)
   status=$?
   expect_code 1 "$status" "an override without a stated reason should refuse: $out"
   assert_contains "$out" 'no stated reason' "refusal should name the missing reason"
@@ -263,7 +259,7 @@ test_record_with_only_the_copied_opus_candidate_is_refused
 test_record_missing_the_middle_candidate_is_refused
 test_candidate_with_no_quota_reading_is_refused
 test_record_naming_an_unknown_rule_is_refused
-test_stated_captain_override_is_not_refused
+test_stated_user_override_is_not_refused
 test_override_without_a_stated_reason_is_refused
 
 echo "all fm-spawn-dispatch-proof tests passed"

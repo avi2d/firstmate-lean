@@ -16,7 +16,6 @@
 // prototype, so they cannot be probed at install. Each session is checked on its first
 // queued-listing draw while Calm is on, before any row is hidden. A session missing any of them
 // gets no queued-row hiding at all and one warning; its rows and Escape stay stock.
-// See https://github.com/kunchenguid/firstmate/issues/1588.
 //
 // Pi 0.87.1 stops its run loop once a restore is followed by an abort (Escape, or navigating
 // the session tree during a run), so a queue that still holds messages when the aborted run

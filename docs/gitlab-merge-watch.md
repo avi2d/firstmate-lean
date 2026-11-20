@@ -171,12 +171,7 @@ $ echo $?
 1
 ```
 
-A GitHub task is unaffected by a missing `glab`:
-
-```
-$ PATH="$noglab" fm-pr-check.sh e6 https://github.com/kunchenguid/firstmate/pull/750
-armed: state/e6.check.sh
-```
+A GitHub task is unaffected by a missing `glab`, and `fm-pr-check.sh` still arms its check.
 
 ## Registration version
 
@@ -238,7 +233,7 @@ $ echo $?
 
 By default, a project that runs no pipeline at all therefore cannot merge through this path.
 That is the intended reading of the requirement rather than an oversight: a successful pipeline at the head is a condition, and "there is no pipeline" does not satisfy it.
-The only exception is an attended `--allow-no-pipeline` on an explicit captain order, which waives exactly this null `head_pipeline` and nothing else; the header of `bin/fm-pr-merge.sh` owns its guards.
+The only exception is an attended `--allow-no-pipeline` on an explicit user order, which waives exactly this null `head_pipeline` and nothing else; the header of `bin/fm-pr-merge.sh` owns its guards.
 
 Both refusals came after `pr=` was recorded and the merge poll was armed, as a failed live verification or `gh pr merge` does on the GitHub side, so a refusal still leaves the audit trail and the watch in place.
 

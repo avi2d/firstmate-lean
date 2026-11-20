@@ -2,8 +2,8 @@
 # The Mac hourly core budget holds a heavy start past budget and releases it after, never a light start.
 set -u
 
-# shellcheck source=tests/lib.sh
-. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=tests/fixtures.sh
+. "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 # shellcheck source=bin/fm-mac-load-lib.sh
 . "$ROOT/bin/fm-mac-load-lib.sh"
 # shellcheck source=bin/fm-core-budget-lib.sh
@@ -11,7 +11,6 @@ set -u
 
 unset TASKS_AXI_BACKEND || :
 
-SPAWN="$ROOT/bin/fm-spawn.sh"
 HOLDER="$ROOT/bin/fm-mac-core-budget.sh"
 TMP_ROOT=$(fm_test_tmproot fm-mac-core-budget)
 DEFER_EXIT=75
@@ -38,7 +37,7 @@ make_home() {  # <home> [task-id...]
   shift
   mkdir -p "$home/state" "$home/config" "$home/data" "$home/projects"
   touch "$home/state/.last-watcher-beat"
-  printf '%s\n' codex > "$home/config/crew-harness"
+  printf '%s\n' pi > "$home/config/crew-harness"
   if [ "$HAVE_TASKS_AXI" = 1 ]; then
     printf '%s\n' '# Backlog' '' '## In flight' '' '## Queued' '' '## Done' > "$home/data/backlog.md"
     cat > "$home/.tasks.toml" <<'TOML'
@@ -55,45 +54,12 @@ TOML
 }
 
 make_case() {  # <name> [task-id...]
-  local name=$1 case_dir fakebin
+  local name=$1 case_dir
   shift
   case_dir="$TMP_ROOT/$name"
   mkdir -p "$case_dir"
-  fakebin=$(fm_fakebin "$case_dir")
   : > "$case_dir/calls.log"
-  cat > "$fakebin/tmux" <<'SH'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >> "$FM_FAKE_CALL_LOG"
-case "$*" in
-  *"#{pane_current_path}"*)
-    printf '%s\n' "${FM_FAKE_PANE_PATH:-}"
-    exit 0
-    ;;
-esac
-window_file="$(dirname "$0")/.spawn-window"
-case "${1:-}" in
-  display-message) printf 'firstmate\n' ;;
-  new-window)
-    name= previous=
-    for arg in "$@"; do
-      [ "$previous" = -n ] && name=$arg
-      previous=$arg
-    done
-    printf '%s\n' "$name" > "$window_file"
-    ;;
-  list-windows)
-    [ ! -s "$window_file" ] || cat "$window_file"
-    ;;
-esac
-exit 0
-SH
-  cat > "$fakebin/treehouse" <<'SH'
-#!/usr/bin/env bash
-printf 'treehouse %s\n' "$*" >> "$FM_FAKE_CALL_LOG"
-exit 0
-SH
-  chmod +x "$fakebin/tmux" "$fakebin/treehouse"
-  fm_fake_exit0 "$fakebin" gh gh-axi no-mistakes claude codex opencode grok gemini
+  fm_test_make_spawn_fakebin "$case_dir" gh gh-axi no-mistakes >/dev/null
   fm_git_init_commit "$case_dir/project"
   fm_git_add_origin "$case_dir/project" "$case_dir/project.origin.git"
   make_home "$case_dir/home" "$@"
@@ -117,15 +83,11 @@ new_worktree() {  # <case-dir> <name>
 run_spawn_budget() {  # <usage> <weight> <case-dir> <home> <pane> <args...>
   local usage=$1 weight=$2 case_dir=$3 home=$4 pane=$5
   shift 5
-  FM_ROOT_OVERRIDE='' FM_HOME="$home" \
-    FM_STATE_OVERRIDE='' FM_DATA_OVERRIDE='' FM_PROJECTS_OVERRIDE='' FM_CONFIG_OVERRIDE='' \
-    FM_SPAWN_NO_GUARD=1 TMUX="fake,1,0" FM_BACKEND=tmux \
-    FM_MAC_LOAD_MOCK_5MIN=1.0 \
+  FM_MAC_LOAD_MOCK_5MIN=1.0 \
     FM_MAC_CORE_BUDGET_FORCE=1 \
     FM_CORE_BUDGET_MOCK_USAGE="$usage" \
-    FM_FAKE_PANE_PATH="$pane" FM_FAKE_CALL_LOG="$case_dir/calls.log" \
-    PATH="$case_dir/fakebin:$PATH" \
-    "$SPAWN" "$@" --weight "$weight" 2>&1
+    FM_FAKE_CALL_LOG="$case_dir/calls.log" \
+    fm_test_run_spawn "$home" "$pane" "$case_dir/fakebin" "$@" --weight "$weight"
 }
 
 spawn_ship_budget() {  # <usage> <weight> <case-dir> <id> [pane]
@@ -148,7 +110,7 @@ run_holder() {  # <usage> <case-dir> <home> <pane> <args...>
   fi
   FM_ROOT_OVERRIDE='' FM_HOME="$home" \
     FM_STATE_OVERRIDE='' FM_DATA_OVERRIDE='' FM_PROJECTS_OVERRIDE='' FM_CONFIG_OVERRIDE='' \
-    FM_SPAWN_NO_GUARD=1 TMUX="fake,1,0" FM_BACKEND=tmux \
+    FM_SPAWN_NO_GUARD=1 HERDR_SESSION=spawn-fixture FM_BACKEND=herdr \
     FM_MAC_LOAD_MOCK_5MIN=1.0 \
     FM_MAC_CORE_BUDGET_FORCE=1 \
     FM_CORE_BUDGET_MOCK_USAGE="$usage" \
