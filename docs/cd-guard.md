@@ -137,7 +137,7 @@ tests/fm-arm-pretool-check.test.sh
 ## Live validation record, 2026-07-11
 
 Pi 0.80.6 ran against a scratch primary-shaped firstmate checkout: a plain git repo with `AGENTS.md`, `bin/` holding the real `fm-cd-pretool-check.sh`, `fm-cd-command-policy.mjs`, and `fm-arm-command-policy.mjs` plus a no-op dummy `fm-arm-pretool-check.sh`, and a `projects/foo/` stand-in clone.
-No live watcher, fleet state, or real primary checkout was involved.
+No live watcher, worker state, or real primary checkout was involved.
 Pi was told to run, as separate tool calls, a top-level `cd projects/foo && touch <abs>/BLOCKED` and a subshell `(cd projects/foo && touch <abs>/ALLOWED)`.
 The `BLOCKED` sentinel was absent while the subshell `ALLOWED` sentinel was created; that differential in one session can only come from the guard.
 The launch command was `pi -p -e .pi/extensions/fm-primary-turnend-guard.ts --no-context-files --no-session "$PROMPT"`.

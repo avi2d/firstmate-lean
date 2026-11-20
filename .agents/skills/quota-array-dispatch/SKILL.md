@@ -116,14 +116,14 @@ Read `runway` from the `quota[]` row: `through_reset` passes this generic feasib
 `exhausted_now` is zero, and `projected_exhaustion` uses the matching `exhaustion[]` row's `usableRunwaySeconds`.
 A high `spendPriority` on a nearly empty window that will exhaust soon must not route into a mid-task stall.
 Unknown or unmeasurable runway stays eligible with disclosed uncertainty and is never assumed to pass.
-Do not invent a generic percentage floor, and honor an explicit captain floor for a candidate when one exists.
+Do not invent a generic percentage floor, and honor an explicit user floor for a candidate when one exists.
 
 ## Rank by spendPriority
 
 Among candidates that pass all three gates, first apply the optional top-level `preferred_provider` from `config/crew-dispatch.json`.
 Its schema is owned by [Crew dispatch profiles](../../../docs/configuration.md#crew-dispatch-profiles-configcrew-dispatchjson).
 Within the already matched rule or default, restrict ranking to eligible candidates of that family when any remain.
-Do not introduce other profiles, change a Claude-only rule, or override an explicit captain choice or approval requirement.
+Do not introduce other profiles, change a Claude-only rule, or override an explicit user choice or approval requirement.
 Only concrete evidence that every matched preferred candidate is ineligible authorizes fallback to other families.
 Unknown quota, missing account evidence, and unrankable scalars do not establish ineligibility.
 If preferred candidates remain eligible but none can be ranked, escalate with that uncertainty instead of switching families.
@@ -145,7 +145,7 @@ Do not compare headroom against runway by hand.
 Do not use pace or signed reserve as a later tie-break layer.
 Do not read `aheadWindowIds`, `behindWindowIds`, `onPaceWindowIds`, `limitingWindowIds`, or other window-id lists to reconstruct what `spendPriority` already computed.
 
-Genuine ties: stop and report every tied candidate for captain choice.
+Genuine ties: stop and report every tied candidate for user choice.
 Do not select by array order, harness name, or another arbitrary identity ordering.
 Report duplicate concrete profiles as a configuration error.
 
@@ -160,7 +160,7 @@ Walk the candidates in array order through the three gates against the one intak
 `spendPriority` is still read and shown as evidence, but it neither ranks the array nor overrides the order.
 A candidate that fails a gate, such as an `exhausted_now` runway, a catalog that does not list the model, a proven-unusable credential, the wrong reasoning class, or known runway short of the completion horizon, is skipped to the next one with its reason recorded.
 Unknown quota, an unknown `spendPriority`, or unmeasurable runway keeps the candidate eligible, so it is chosen with that uncertainty stated rather than skipped.
-An explicit captain floor that cannot be verified for the first passing candidate is the one unknown that stops the walk: report it rather than choosing that candidate or skipping past it.
+An explicit user floor that cannot be verified for the first passing candidate is the one unknown that stops the walk: report it rather than choosing that candidate or skipping past it.
 Order settles every comparison, so there are no ties in this branch.
 If no candidate passes, stop and report every candidate with its failing gate.
 The duty to account for every candidate, including those after the chosen one, is unchanged.

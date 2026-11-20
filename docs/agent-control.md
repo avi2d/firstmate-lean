@@ -44,7 +44,7 @@ A stopped agent whose pane still shows the dialog text is not refused.
 
 A `kind=secondmate` agent is first given a bounded wait to finish its turn on its own, set by `FM_CONTROL_SECONDMATE_SETTLE_WAIT` and 180 seconds by default.
 The exit goes ahead as soon as the agent is not busy and its composer reads `empty`, refuses at once when the composer holds text, and past the bound takes the ordinary interrupt-first path.
-The restart that follows a second mate's persist answer reaches it while that turn is still finishing, and interrupting it there cannot prove the composer: Pi's Escape moves any queued follow-up into its composer, and Herdr keeps reporting the aborted turn as running for a moment afterwards.
+The restart that follows a secondary worker's persist answer reaches it while that turn is still finishing, and interrupting it there cannot prove the composer: Pi's Escape moves any queued follow-up into its composer, and Herdr keeps reporting the aborted turn as running for a moment afterwards.
 
 **Teardown and discard are not verbs and will not become verbs.**
 `exit` stops an agent and preserves everything else.
@@ -72,7 +72,7 @@ Use `relaunch` to start from the recorded brief instead of relying on a private 
    The recorded worktree must exist and be a worktree root; its head and dirty state are recorded.
    A worktree that another live task's record also names is refused, naming both tasks, because that copy may now hold the other task's work.
    For a `kind=secondmate` task, the home's identity marker must match and its child records must be readable, so a relaunch can never strand child work behind an unreadable home.
-   A secondmate's own crewmates run in their own endpoints and outlive its relaunch; the relaunched secondmate reconciles them from its home's durable records at startup.
+   A secondmate's own workers run in their own endpoints and outlive its relaunch; the relaunched secondmate reconciles them from its home's durable records at startup.
 3. **Record the note.**
    A ship or scout relaunch requires `--note`, because the replacement inherits the local copy but none of the conversation; the note is appended to the instructions it reads.
    A secondmate relaunch does not require one and never rewrites its standing charter.

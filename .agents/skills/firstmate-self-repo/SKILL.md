@@ -28,7 +28,7 @@ A user/operator home that hits a firstmate bug does local work only:
 1. Diagnose privately - reproduce, isolate, and root-cause inside the home and its task records.
 2. Apply a local workaround when one exists - a config change, a pinned local edit, a different invocation.
 3. Optionally prepare a sanitized local issue draft or a proposed local patch under the task's data directory, for the operator to review and submit by hand.
-4. Report to the captain what happened and what was produced.
+4. Report to the user what happened and what was produced.
 
 A local patch or workaround may touch the gitignored operational surface and a task's own worktree; nothing reaches upstream without the authority below.
 This posture covers firstmate self-repair exactly the same way it covers a dispatched task: the boundary is about publication, not about which surface holds the fix.
@@ -41,10 +41,10 @@ Only the operator may opt the primary home in; follow the [Firstmate role schema
 
 ### One-task contribution consent (bounded)
 
-When the captain explicitly approves one specific upstream contribution, record it on that task only: `--upstream-consent <host>/<owner>/<repo>` on `bin/fm-brief.sh`, `bin/fm-spawn.sh`, and `bin/fm-promote.sh`.
+When the user explicitly approves one specific upstream contribution, record it on that task only: `--upstream-consent <host>/<owner>/<repo>` on `bin/fm-brief.sh`, `bin/fm-spawn.sh`, and `bin/fm-promote.sh`.
 Consent renders as an `upstream-consent=` token on the brief's `Delivery contract:` line, is recorded in `state/<id>.meta`, and a relaunch reuses the recorded value.
 It changes the home's persistent role in no way; the next task is gated fresh.
-The captain's approval must be a current explicit instruction naming the contribution - never an inference from the task resembling maintainer work.
+The user's approval must be a current explicit instruction naming the contribution - never an inference from the task resembling maintainer work.
 
 ## Where the boundary is enforced
 
@@ -57,7 +57,7 @@ The gate is code, not memory: `bin/fm-role-lib.sh`'s `fm_role_gate_self_publish`
 
 An authorized contribution then flows through the task's normal delivery contract - usually no-mistakes - like any other project; the grant answers only "may this publish", never "how".
 
-A gate refusal names the exact remedy: write `maintainer <scope>` into `config/firstmate-role`, or pass `--upstream-consent <scope>` for that one task with the captain's explicit approval.
+A gate refusal names the exact remedy: write `maintainer <scope>` into `config/firstmate-role`, or pass `--upstream-consent <scope>` for that one task with the user's explicit approval.
 Never work around a refusal by pointing the task at a second checkout, fork, or parent clone; `fm_role_self_repo` treats every repository sharing firstmate's lineage as firstmate's own.
 
 ## Updating is not contributing

@@ -5,7 +5,7 @@
 - [Configuration](configuration.md) covers home paths, project settings, and dispatch profiles.
 - [Herdr](herdr-backend.md) covers the worker session backend.
 - [Calm](calm.md) covers transcript presentation.
-- [Fleet ledger](fleet-ledger.md) covers the optional task activity ledger.
+- [Task activity log](fleet-ledger.md) covers the optional task activity ledger.
 - [Usage warner](usage-warner.md) covers local usage alerts.
 
 ## Contribute

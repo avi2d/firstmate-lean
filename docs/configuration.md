@@ -76,7 +76,7 @@ Each effective `FM_HOME` contains private operational directories.
 `data/` holds durable private fleet records:
 
 - Project and secondmate registries.
-- Captain preferences and optional shared captain preferences.
+- User preferences and optional shared user preferences.
 - Learnings, backlog, briefs, scout reports, optional task status archives, and the optional per-task no-mistakes pipeline-spend ledger.
 - Explicitly installed content-addressed extension packages under `data/extensions/packages/`.
 
@@ -122,7 +122,7 @@ Untracked files and directories whose names begin with `scratchpad` are also git
 
 The shared orchestrator behavior lives in [`AGENTS.md`](../AGENTS.md).
 Edit it like any prompt when the fleet is empty.
-While tasks are in flight, dispatch shared-repo edits to a crewmate.
+While tasks are in flight, dispatch shared-repo edits to a worker.
 
 ## Calm preference (config/calm)
 
@@ -214,7 +214,7 @@ For a locally installed file at either new managed path, preflight the update an
 On a Pi primary, an in-process supervision branch handles eligible task-local wake rows and selected heartbeat reviews.
 Main-only rows stay on the captain-facing path.
 [docs/pi-supervision-branch.md](pi-supervision-branch.md) defines its conversation lifecycle, row eligibility, mixed-queue dispatch, heartbeat routing, and pre-drain recheck.
-Supervision is default-on: once a Pi primary session owns this home's fleet lock, the branch is eligible for every task with no captain grant file required.
+Supervision is default-on: once a Pi primary session owns this home's fleet lock, the branch is eligible for every task with no user grant file required.
 
 Bash absorbs a genuinely no-op heartbeat before it reaches Pi.
 Every watcher-failure alarm stays on the captain-facing main path.
@@ -226,14 +226,14 @@ The branch cannot merge, land local work, start a task, or answer a decision.
 While attended, a captain-facing branch outcome (verdict `captain`) is saved as one exact visible transcript entry keyed by sequence.
 It then opens one processing turn on main for that sequence.
 The turn stays open until main acknowledges the sequence through its `fm_branch_processed` tool.
-The branch prompt's "Verdict: routine or captain" section owns the distinction between captain-facing, unsolicited routine, and unchanged-review outcomes.
+The branch prompt's "Verdict: routine or user" section owns the distinction between captain-facing, unsolicited routine, and unchanged-review outcomes.
 
-The generated [Pi supervision protocol](supervision-protocols/pi.md) owns main's event ownership, acknowledgement duty, and conversational treatment for merged outcomes, while the persisted entry itself owns captain visibility.
+The generated [Pi supervision protocol](supervision-protocols/pi.md) owns main's event ownership, acknowledgement duty, and conversational treatment for merged outcomes, while the persisted entry itself owns user visibility.
 A task-level routine no-change outcome or a no-change heartbeat explicitly reported with `silent=true` is delivered without a rendered note; the branch prompt owns task-level eligibility, and every other routine outcome still appends a rendered, sailboat-prefixed note.
 
 ## Pi supervision branch model and effort (config/supervision-branch-model, config/supervision-branch-effort)
 
-The branch can run on a cheaper model than main because supervision is an easier job than the captain's own conversation.
+The branch can run on a cheaper model than main because supervision is an easier job than the user's own conversation.
 It can also use a lower reasoning effort because supervision needs less reasoning than that conversation.
 
 ### Choose a model and effort
@@ -244,7 +244,7 @@ In Pi's terminal TUI, the model step uses Pi's bounded scrolling list with its i
 The non-TUI RPC, JSON, and print modes have no custom-component surface and keep Pi's generic selector without search, where terminal overflow does not apply.
 The effort list is a handful of levels and stays on Pi's plain selector dialog.
 
-Both picks change the supervision branch alone and never the captain's own conversation model or effort.
+Both picks change the supervision branch alone and never the user's own conversation model or effort.
 
 ### Saved settings and available models
 
@@ -254,7 +254,7 @@ When `FM_CONFIG_OVERRIDE` is present for tests or specialized setup, it selects 
 Firstmate keeps no model catalog of its own.
 The list is the intersection of what Pi reports when the picker opens and what a fresh isolated branch runtime can run.
 
-A provider that exists only because an extension registered it inside the captain's session, such as pi-devin-auth's `devin`, is offered and can be pinned or followed like any other; [pi-supervision-branch.md](pi-supervision-branch.md#cost-model-and-the-byte-stable-prefix) owns how that registration reaches the isolated branch runtime.
+A provider that exists only because an extension registered it inside the user's session, such as pi-devin-auth's `devin`, is offered and can be pinned or followed like any other; [pi-supervision-branch.md](pi-supervision-branch.md#cost-model-and-the-byte-stable-prefix) owns how that registration reaches the isolated branch runtime.
 Stored OAuth and API-key credentials retain their native credential type because Firstmate never copies, converts, installs, or overwrites credentials for the branch runtime.
 
 ### Model file format and default
@@ -296,7 +296,7 @@ Picking also releases the live branch so the next wake reopens this session's ow
 ### Effort file format and available levels
 
 The effort file holds one Pi thinking level followed by one newline.
-Model and effort pins are independent: a captain may pin either, both, or neither.
+Model and effort pins are independent: a user may pin either, both, or neither.
 The effort step follows the model step because the effective branch model determines which levels exist.
 The menu uses Pi's own supported-level list.
 Models without extended levels do not offer them; a non-reasoning model offers only `off`.
@@ -319,7 +319,7 @@ Only when main's own effort cannot be read either does an unpinned build fall ba
 
 Pi maps an unsupported pinned level to the branch model's nearest supported level.
 Effort never causes the branch to refuse a build.
-The captain's raw pick is kept so it applies again on a model that supports it, and the command reports the level the branch will actually use.
+The user's raw pick is kept so it applies again on a model that supports it, and the command reports the level the branch will actually use.
 An effort token Pi would not recognize at all is treated as no pin rather than passed to that clamp, which would otherwise collapse a typo into the model's lowest level.
 
 ### Cancellation and inheritance
@@ -386,12 +386,12 @@ Run `node bin/fm-backlog-md/decisions.cjs render DECISIONS_DIR PROJECT` to inclu
 Use `render-full` in place of `render` to include the source text for global and matching project records.
 A missing date or provenance is recorded as `unknown`.
 
-### Captain holds on Beads
+### User holds on Beads
 
-Captain-hold row creation is owned by [`bin/fm-captain-hold.sh`](../bin/fm-captain-hold.sh) `hold`: when no work item exists, it creates an ordinary backlog row (`--kind captain` metadata; Beads native type `task`) and then applies the captain hold.
-Captain rows have no Beads due semantics, so that create path waives a Beads `due.required` setting rather than passing a synthetic `--due`; `--until` remains the optional hold deferral.
+Captain-hold row creation is owned by [`bin/fm-captain-hold.sh`](../bin/fm-captain-hold.sh) `hold`: when no work item exists, it creates an ordinary backlog row (`--kind captain` metadata; Beads native type `task`) and then applies the user hold.
+User rows have no Beads due semantics, so that create path waives a Beads `due.required` setting rather than passing a synthetic `--due`; `--until` remains the optional hold deferral.
 
-Do not register a Beads `types.custom` `captain` type for this: captain is a hold kind, and the fleet Beads `due.required` policy for ordinary work stays in the federated beads config.
+Do not register a Beads `types.custom` `captain` type for this: user is a hold kind, and the fleet Beads `due.required` policy for ordinary work stays in the federated beads config.
 
 ### Automatic dispatch and completion
 
@@ -533,8 +533,8 @@ A pull request merges only when every one of these holds, each read by the progr
 - Every check the base expects has reported on this head.
   The expected checks are the names carried by each of the base's last five merged pull requests that carried any check, so a head whose workflow runs GitHub has not created yet waits instead of reading as green.
   A head with no check at all merges only when none of those five carried one, and waits when the base has no merged pull request or they cannot be read.
-- The task is not held for the captain and has no open `needs-decision` or `blocked` key.
-- The pull request carries no merge hold for the captain, recorded with `bin/fm-merge-hold.sh` against the pull request itself so it survives a task hold answer or release.
+- The task is not held for the user and has no open `needs-decision` or `blocked` key.
+- The pull request carries no merge hold for the user, recorded with `bin/fm-merge-hold.sh` against the pull request itself so it survives a task hold answer or release.
 - The pull request is the newest one the task's `done:` or `ready:` reports name.
   When the record still holds an earlier pull request that has already landed, the newest report wins.
   A recorded pull request that has not landed keeps its claim.
@@ -551,11 +551,11 @@ A pull request merges only when every one of these holds, each read by the progr
   It is settled when the last check finished at least `FM_MERGE_ON_GREEN_SETTLE_SECS` ago, or when the same head read green on two sweeps that far apart.
   The default is 10 seconds.
 
-Every merge goes through `bin/fm-pr-merge.sh`, which re-verifies the live head, the captain hold, the per-pull-request merge hold, the away record, and every check before the forge call.
+Every merge goes through `bin/fm-pr-merge.sh`, which re-verifies the live head, the user hold, the per-pull-request merge hold, the away record, and every check before the forge call.
 It is given the head that read green, so a head pushed since then is refused instead of merged on the earlier head's checks.
 A head that is behind its base is first brought up to date with `gh pr update-branch`, which merges the base into the branch and never rebases, and merges once its new head is green.
 A refused merge or a failed update is retried at the same head only after `FM_MERGE_ON_GREEN_RETRY_SECS`, 300 seconds by default.
-A merge refused for security-sensitive paths instead holds the task for the captain once, and that head is never retried.
+A merge refused for security-sensitive paths instead holds the task for the user once, and that head is never retried.
 A pull request skipped for what the forge reported, such as a red check, is read again only every `FM_MERGE_ON_GREEN_SKIP_RECHECK_SECS`, 60 seconds by default, so a standing red pull request does not spend a forge read on every sweep.
 A task its own record rules out, because it is not a ship task, its yolo is off, or its project lacks `+yolo`, is skipped before any report is resolved through the forge.
 Reports are read newest first, so a waiting task with a long history costs no forge read per sweep.
@@ -584,7 +584,7 @@ Write the primary home's file by hand; firstmate never grants itself a role, and
 Supported secondmate propagation writes or removes the inherited copy as described below.
 A malformed, unreadable, or symlinked file - including one with a second directive anywhere - resolves to user/operator; the role fails closed rather than guessing.
 
-Authority is also available for one task at a time: `--upstream-consent <host>/<owner>/<repo>` on `bin/fm-brief.sh`, `bin/fm-spawn.sh`, and `bin/fm-promote.sh` records the captain's explicit approval in the task's delivery contract and metadata without changing the home's role.
+Authority is also available for one task at a time: `--upstream-consent <host>/<owner>/<repo>` on `bin/fm-brief.sh`, `bin/fm-spawn.sh`, and `bin/fm-promote.sh` records the user's explicit approval in the task's delivery contract and metadata without changing the home's role.
 Role is never inferred from GitHub identity, forge permissions, remotes, repository ownership, authentication state, environment, or CI.
 `bin/fm-role.sh report` prints the resolved role with no network call, and the session-start digest shows it in the HOME ROLE subsection.
 
@@ -669,7 +669,7 @@ max-load1 20           # keep a raw 1-minute load rule while beats replace it
 
 `pressure-file` and `reserve-flag` may repeat and take an absolute or `~/` path; a `reserve-flag` path may be followed by the label it is reported by.
 Every other key may appear at most once.
-An unknown key, a repeated single key, or a malformed value makes the whole file invalid: the report exits 1 naming the line, and the published facts carry the cap as invalid, because the captain's limits are never guessed.
+An unknown key, a repeated single key, or a malformed value makes the whole file invalid: the report exits 1 naming the line, and the published facts carry the cap as invalid, because the user's limits are never guessed.
 
 A pressure file is any producer of the `lookout.beat` 1.x shape, read by its own file age on this machine; a missing, stale, or unreadable one is skipped with its reason and the host's own probes stand in, so a broken beat never blocks anything.
 `captain-idle` reads input idle time locally and publishes only `present`, `idle`, or `away` (an away record), never the idle time itself.
@@ -736,7 +736,7 @@ Only strictly valid committed generations older than 30 completed days are prune
 If the archive cannot commit, teardown reports the reason and stops before deleting metadata, status, or inbox sources.
 Removing `config/record-export-root` is the explicit escape hatch back to ordinary teardown behavior.
 
-Briefs and handled inbox messages carry captain text, and every exported record can contain other sensitive operational data.
+Briefs and handled inbox messages carry user text, and every exported record can contain other sensitive operational data.
 Keep the export root private and never serve it directly.
 The schema is versioned for compatible readers, but it is not a Firstmate command API and no Firstmate reader consumes it.
 [`architecture.md`](architecture.md#read-only-record-exports) describes the mechanism boundary; [`bin/fm-record-export.sh`](../bin/fm-record-export.sh) owns the exact allowlist, schema, path checks, publication, and retention mechanics.
@@ -764,7 +764,7 @@ The optional local, gitignored `config/wedge-defer-parked-gate` presence flag op
 ### When a waiting gate defers an alarm
 
 With it present, a provably-working pane about to escalate is also deferred to the `FM_PAUSE_RESURFACE_SECS` recheck cadence when its crew's own current state is a validation gate whose answer is owed to the supervisor and whose decision for that run is still open, and the recheck names the supervisor and the action that clears the lane instead of reporting a suspected wedge.
-It stays opt-in because the other evidence is a written record of the lane's silence - the worker's own declaration or firstmate's backlog captain hold - while this is derived from a pipeline's gate state, so which lanes give up the escalation ladder for it is a home's choice.
+It stays opt-in because the other evidence is a written record of the lane's silence - the worker's own declaration or firstmate's backlog user hold - while this is derived from a pipeline's gate state, so which lanes give up the escalation ladder for it is a home's choice.
 
 With the flag absent the wedge timer spends no fold or current-state read for it, writes no record, and keeps the unchanged escalation schedule, reasons, and `demand-deep-inspection` wording.
 The flag is a home-local supervision-noise preference, which supervise their own crew and own that trade separately.
@@ -819,7 +819,7 @@ The flag is a home-local supervision-noise preference.
 
 The optional local, gitignored `config/open-decision-reminders` presence flag enables a default-off watcher backstop for unanswered keyed `needs-decision` and `blocked` records.
 On each poll, the watcher queues at most one `check: open decision overdue: <task> key=<key> age=<seconds>s` wake for the oldest eligible overdue key, independently of pane state or supervision-branch classification.
-Declared `paused:` waits and tasks already held for the captain are exempt.
+Declared `paused:` waits and tasks already held for the user are exempt.
 Resolving a key stops its reminders, and a later opening starts a new reminder episode.
 Only explicit keys with valid source `[at=<epoch>]` timestamps can be aged.
 
@@ -876,7 +876,7 @@ Portable shard evidence and coverage rules are in [fm-test-portable-shards.md](f
 
 ## User preferences (data/captain.md)
 
-Domain-local preferences for one captain's fleet live locally in each home's `data/captain.md`; it is gitignored and printed in the session-start context digest after `data/projects.md` and optional `data/secondmates.md`.
+Domain-local preferences for one user's fleet live locally in each home's `data/captain.md`; it is gitignored and printed in the session-start context digest after `data/projects.md` and optional `data/secondmates.md`.
 Before changing it, inspect the current file and curate the matching bullet in place under the internal [`stow` skill's](../.agents/skills/stow/SKILL.md) tiering and archive contract; add a new bullet only for a genuinely new durable preference.
 
 When the home holds a decisions clone at `projects/decisions`, the context digest closes with an Unfiled rulings subsection listing dated `data/captain.md` bullets no record there cites yet.
@@ -888,7 +888,7 @@ The subsection stays silent when the clone is absent or every ruling is cited.
 Fleet-local operational facts and gotchas live locally in `data/learnings.md`; it is gitignored and printed after the captain-preference files in the session-start context digest.
 The file is created lazily on first learning and follows the internal [`stow` skill's](../.agents/skills/stow/SKILL.md) aging-tier and cold-archive contract: inspect the current file first and curate it instead of appending forever.
 
-There is no shared learnings file by captain decision.
+There is no shared learnings file by user decision.
 
 ## External memory tiers (Memory layering section)
 
@@ -904,8 +904,8 @@ Each declared tier states, in plain prose or a table:
 
 For example, one home declares a Palimpsest MCP store authoritative for reasoning continuity (decisions, hypotheses, corrections), an OpenBrain MCP store authoritative for retrievable facts (people, projects, references), and its own `data/` as a disposable per-machine cache; those stores are that home's choice, not a template default.
 
-The declaration is per-home untracked state under `data/`, like every other captain preference, so no clone or update carries it.
-A fresh primary home has no declaration until the captain re-declares the `Memory layering` section there from their own records.
+The declaration is per-home untracked state under `data/`, like every other user preference, so no clone or update carries it.
+A fresh primary home has no declaration until the user re-declares the `Memory layering` section there from their own records.
 Until then local files are the only memory owners.
 
 [`AGENTS.md`](../AGENTS.md) section 6 owns what a declaration changes about knowledge routing, and the internal [`stow` skill](../.agents/skills/stow/SKILL.md) owns how curation reads the declaration and protects tier-owned entries from pruning.
@@ -1015,11 +1015,11 @@ The file holds one line with the pinned nono version, such as `0.80.0`.
 A home with the file set refuses the spawn when nono is missing or its version differs from the pin, instead of launching unsandboxed.
 `fm-spawn.sh` renders a per-task profile at `state/<id>.nono.json` and launches the worker through it with its own pi directory, its own temp directory, a domain allow list, and the model key held outside the sandbox.
 A no-mistakes ship additionally receives the daemon data directory and read-write git directories, so its pipeline client can reach the gate.
-That grant reaches state the daemon mediates for other tasks, so a ship is isolated from secrets and captain files but not from all other task state.
+That grant reaches state the daemon mediates for other tasks, so a ship is isolated from secrets and user files but not from all other task state.
 A claude-bridge worker receives a dedicated token route instead of the proxy key: the setup token stays outside the sandbox, a supervisor-side capture hands it to the nono proxy, and the worker sees only a phantom placeholder in `ANTHROPIC_AUTH_TOKEN` with its config redirected to a task-owned directory.
 The opencode-go and claude-bridge providers are routed through the sandbox today.
 A claude-bridge worker without a passing setup token, and a worker on any other provider, launches unsandboxed with a warning.
-The setup token for sandboxed Claude workers lives at `config/agent-sandbox-claude-token` with owner-only permissions once the captain creates it with `claude setup-token`.
+The setup token for sandboxed Claude workers lives at `config/agent-sandbox-claude-token` with owner-only permissions once the user creates it with `claude setup-token`.
 Secondmates, direct-PR workers, and local-only workers stay unsandboxed.
 After a sandboxed launch, `fm-spawn.sh` stops the nono debug log stream with `bin/fm-sandbox-quiet.sh`.
 Enforcement stays in the kernel profile, but the post-run denial footer can no longer attribute denials and falls back to its no-denials text.
@@ -1245,11 +1245,11 @@ Regression coverage executes emitted launch commands with synthetic nonsecret va
 
 ### Compact adviser setting
 
-Every crewmate, scout, and secondmate Firstmate launches starts with `COMPACT_ADVISER_DISABLE=1` in its environment, on a fresh spawn and on a relaunch alike, so an unattended session never activates the compact adviser.
+Every worker, scout, and secondmate Firstmate launches starts with `COMPACT_ADVISER_DISABLE=1` in its environment, on a fresh spawn and on a relaunch alike, so an unattended session never activates the compact adviser.
 This guarantee also covers raw launch commands, remote secondmates, and launches filtered by `config/launch-env-allowlist`; it does not depend on the destination environment already containing the variable.
 
 Firstmate provides no configuration or flag to change this value.
-This applies only to agents Firstmate launches; the captain's own primary Firstmate session is never given the variable.
+This applies only to agents Firstmate launches; the user's own primary Firstmate session is never given the variable.
 
 [`fm-spawn.sh --help`](../bin/fm-spawn.sh) owns the delivery mechanics, with focused regression coverage in [`tests/fm-spawn-compact-adviser-disable.test.sh`](../tests/fm-spawn-compact-adviser-disable.test.sh) and [`tests/fm-spawn-compact-adviser-disable-remote.test.sh`](../tests/fm-spawn-compact-adviser-disable-remote.test.sh).
 
@@ -1289,7 +1289,7 @@ A line that is only `#`, or that begins with `#` followed by whitespace, is a co
 A project name may begin with `#` when that `#` is written immediately against the rest of the name and the line ends with the project's capacity.
 A name that is `#`, or that begins with `#` and a space, cannot be declared, because that line is a comment.
 A line whose name starts with `@` is a machine-wide setting rather than a project: `@heavy-limit` caps heavy workers across every project with a standing 3 from 06:00 up to but not including 21:00 UTC and 4 at other hours, and `@load-limit` caps the five-minute load average a heavy start tolerates with a standing 10.
-A worker that is only waiting on the captain or on a set time holds no heavy worker place, and counts again once its status shows it resumed.
+A worker that is only waiting on the user or on a set time holds no heavy worker place, and counts again once its status shows it resumed.
 On Linux the standing caps are 4 from 06:00 up to but not including 21:00 UTC and 6 at other hours with a load cap of 16.
 `@core-budget` caps trailing-hour core hours on the Mac with a standing 6, so a heavy start waits while the hour already burned that budget and resumes on its own once use drops back under, while a light start never waits.
 On a Linux host that two Firstmate homes share without a common local root, each home lists the other in `config/linux-load-siblings`, and the same two lines cap heavy starts across both homes with a standing 4 from 06:00 up to but not including 21:00 UTC and 6 at other hours, while the load average cap stays 16.
@@ -1345,23 +1345,23 @@ A tier orders dispatch only, and dependencies, holds, time gates, and [project c
 
 ## Crew dispatch profiles (config/crew-dispatch.json)
 
-`config/crew-dispatch.json` is an optional local, gitignored file containing natural-language rules that firstmate reads before dispatching a crewmate or scout.
+`config/crew-dispatch.json` is an optional local, gitignored file containing natural-language rules that firstmate reads before dispatching a worker or scout.
 Firstmate chooses the best matching rule with judgment; shell scripts do not match the natural-language rules.
 Firstmate resolves the rule's profile object or array under `AGENTS.md` section 4 and `quota-array-dispatch`, then passes only concrete `--harness`, `--model`, and `--effort` flags to `fm-spawn.sh`.
 
 **Spawn requirements**
 
-- When the file exists, `fm-spawn.sh` enforces that contract by refusing crewmate and scout spawns that lack an explicit harness (`--harness`, a positional adapter, or a raw launch command).
+- When the file exists, `fm-spawn.sh` enforces that contract by refusing worker and scout spawns that lack an explicit harness (`--harness`, a positional adapter, or a raw launch command).
 - An explicit harness alone is not proof the rules were read, so the same spawn also refuses when the task data directory holds neither the resolver output saved as `data/<id>/dispatch-resolve.out` with a clear status whose profile line matches the launch nor the selection record at `data/<id>/dispatch-selection.md`.
 - The selection record names the matched rule by index such as `rule_1` or `default` for the default array, carries exactly one candidate line per entry of that rule's `use` array with each line naming its harness and model plus provider and remaining or spendPriority quota reading, and chooses a profile that is one of those candidates and equals the launch, so an unknown rule, a missing candidate, a candidate with no quota reading, or a chosen profile outside the candidates is refused.
 - A resolver clear result satisfies the check on its own.
-- An explicit per-task captain override stays possible with the stated reason recorded on an `override` line in that same selection record.
+- An explicit per-task user override stays possible with the stated reason recorded on an `override` line in that same selection record.
 - A stated override keeps the full candidate accounting and waives only the requirement that the chosen profile is one of those candidates.
 - The same spawn, and any relaunch, checks quota against every profile whose harness, model, and effort match the launch, and refuses one exhausted now or below a profile `floor` unless `--quota-override-reason` states why.
   A floor skipped near its window's reset under "Profile quota floors" below needs no override, prints the skip, and records it as `quota_gate=checked:<skip>`.
 - A profile without `claude_account` also matches a launch that passes `--claude-account`, and is checked against that account's clauth reading.
-- A launch that matches no profile prints a warning naming the launch and records `quota_gate=skipped:no matching dispatch profile` instead of refusing, because a stated captain override may choose a profile outside the rules.
-  Firstmate reports that warning to the captain.
+- A launch that matches no profile prints a warning naming the launch and records `quota_gate=skipped:no matching dispatch profile` instead of refusing, because a stated user override may choose a profile outside the rules.
+  Firstmate reports that warning to the user.
 - Relaunches reuse the recorded task and its original proof.
 - Batch spawns satisfy the harness requirement with a shared `--harness`, and each pair needs its own proof under its own task data directory.
 
@@ -1498,7 +1498,7 @@ See [`docs/examples/crew-dispatch.json`](examples/crew-dispatch.json) for a star
 - The resolver validates those declarations itself before any request.
 - Without a typesafe key, bootstrap retains its pre-existing verified-harness baseline.
 - Missing `jq` is reported through the normal `MISSING: jq` install-consent flow.
-- While the file remains present, no crewmate or scout spawn may proceed without an explicit resolved harness; malformed configuration must be reported and corrected rather than selected around.
+- While the file remains present, no worker or scout spawn may proceed without an explicit resolved harness; malformed configuration must be reported and corrected rather than selected around.
 
 **Inheritance**
 
@@ -1509,7 +1509,7 @@ Inheritance preserves the link thereafter.
 
 ## Typed dispatch resolution (.env FM_DISPATCH_PROVIDER, FM_DISPATCH_MODEL)
 
-`bin/fm-dispatch-resolve.sh` resolves one concrete crewmate or scout profile from a written brief through typesafe.ai, OpenRouter, any System One-compatible host, or OpenAI, so the rule match that firstmate otherwise reasons out in its own context becomes one short tool turn.
+`bin/fm-dispatch-resolve.sh` resolves one concrete worker or scout profile from a written brief through typesafe.ai, OpenRouter, any System One-compatible host, or OpenAI, so the rule match that firstmate otherwise reasons out in its own context becomes one short tool turn.
 `FM_DISPATCH_PROVIDER` selects `typesafe`, `openrouter`, `systemone`, or `openai`, and `FM_DISPATCH_MODEL` selects the model.
 Each setting comes from the calling environment or the home's gitignored `.env` through `bin/fm-env-lib.sh`; a non-empty environment value wins.
 The accessor reads dispatch keys without logging their values.
@@ -1656,7 +1656,7 @@ Every result above exits 0.
 The tool never replaces firstmate's judgment, `quota-array-dispatch`, the captain-approval gate, or `fm-spawn.sh` validation; `AGENTS.md` section 4 owns what firstmate does with each outcome.
 By accepted design, a `clear` result does not enforce catalog/authentication, reasoning-class, or completion-runway gates.
 Firstmate still applies those gates before dispatch, including when `preferred_provider` is present.
-Explicit captain overrides retain precedence over the resolver's suggestion.
+Explicit user overrides retain precedence over the resolver's suggestion.
 
 Firstmate passes its profile line unless it states a reason to override, such as the brief's reasoning class or an eligible-unranked-candidate note; every non-clear result returns to the full existing intake.
 
@@ -1745,7 +1745,7 @@ The live rule-match evidence is recorded in [`verification/dispatch-resolve.md`]
 
 ## Toolchain
 
-On session start the first mate detects what its required toolchain is missing or too old and lists each problem with its exact install or upgrade command, or with manual instructions.
+On session start the supervisor detects what its required toolchain is missing or too old and lists each problem with its exact install or upgrade command, or with manual instructions.
 It installs missing automatically supported tools only after you say go; for an installed but outdated tool, run the printed upgrade command after consent, while manual-only tools remain for you to install from the printed instructions.
 
 Required tools come in two parts: a universal toolchain every home needs regardless of backend, and a per-backend delta that follows the runtime backend actually resolved for this home.
@@ -1856,7 +1856,7 @@ Both names of a rename count.
 `config/security-paths` in the home, when present, replaces that default list entirely.
 Blank lines and `#` lines are ignored.
 An autonomous merge, one run without `--attended-override`, is refused when a changed path matches a line.
-Those paths need the captain's explicit word.
+Those paths need the user's explicit word.
 A missing or empty list, an unreadable changed-file list, or a pattern that does not compile refuses the merge.
 It never passes.
 
@@ -1868,7 +1868,7 @@ A renamed workflow file, a diff the forge did not send, or a path matched by any
 
 ### Workflow owners: config/workflow-owners
 
-`config/workflow-owners` is an optional local, gitignored file listing the owners whose actions a workflow change may add without the captain's word.
+`config/workflow-owners` is an optional local, gitignored file listing the owners whose actions a workflow change may add without the user's word.
 It holds one GitHub account or organisation name per line, compared without regard to case.
 Blank lines and `#` lines are ignored.
 Without the file, the list is the pull request's own repository owner.
@@ -1882,7 +1882,7 @@ These optional local, gitignored files configure a home's `forge=external` proje
 | --- | --- | --- |
 | `config/external-review.md` | yes, for any `forge=external` scaffold or spawn | Worker instructions for the home's review tool: how to validate, upload, and read review state, and which state is the stopping point. `bin/fm-dod-lib.sh` appends it verbatim to the Definition of done under `## Review tool instructions (home configuration)`. |
 | `config/external-review-url` | no | One extended regular expression a ready review URL must match in full. Without it, any `https://` URL with no whitespace, control characters, query, or fragment that is not a forge pull request URL is accepted. |
-| `config/external-review-backup` | no | Line 1 names a git remote in the project clone that is the captain's personal backup remote; an optional line 2, `prefix=<ref-prefix>`, sets the backup ref prefix, default `backup/`. |
+| `config/external-review-backup` | no | Line 1 names a git remote in the project clone that is the user's personal backup remote; an optional line 2, `prefix=<ref-prefix>`, sets the backup ref prefix, default `backup/`. |
 
 A missing, unreadable, or empty adapter stops the scaffold or spawn, as does an adapter carrying its own `Delivery contract: mode=` line, because a worker with no upload instructions would otherwise improvise a push.
 A backup remote named `origin`, absent from the project clone, or pointing at one of origin's URLs stops the spawn, as does a backup prefix that is empty, invalid, or equal to or starting with the task branch prefix.
@@ -2179,14 +2179,14 @@ A read that runs out of time is printed as unreadable.
 
 ## Day review
 
-The day review is a short evening board for the captain: where the time and the API price went per finished task, the quality signals, three recommendations, lessons from repeated mistakes, and whether the last advice helped.
+The day review is a short evening board for the user: where the time and the API price went per finished task, the quality signals, three recommendations, lessons from repeated mistakes, and whether the last advice helped.
 `config/day-review` is an optional local gitignored file holding `HH:MM` with an optional IANA time zone, such as `21:00 Europe/Moscow`.
 When it is absent the review is due daily after 21:00 Europe/Moscow, whatever the host clock's zone.
 A bare `HH:MM` uses Europe/Moscow.
 The word `off` disables it, and a malformed file is reported once until edited.
 
 Arm the check in the main home only with `bin/fm-day-review.sh arm`.
-Second mates need no check of their own, because the main home's run reads them.
+Secondary workers need no check of their own, because the main home's run reads them.
 That writes `state/day-review.check.sh` and binds its bytes with `bin/fm-check-register.sh`, so the existing watcher polls it and turns its one line into a `check:` wake.
 `bin/fm-day-review.sh disarm` removes the shim, its trust binding, and the due record.
 The check stays silent while `state/.afk` exists.
@@ -2371,7 +2371,7 @@ The Lavish version floors and feature probe are owned by `bin/fm-bootstrap.sh`.
 
 **Deliver feedback to the worker**
 
-- The captured result is stored with immutable task-owner routing evidence and delivered directly to that task's steering inbox, without a firstmate `check` wake for the captain's words while the owner's agent is running.
+- The captured result is stored with immutable task-owner routing evidence and delivered directly to that task's steering inbox, without a firstmate `check` wake for the user's words while the owner's agent is running.
 - When the doorbell finds the owner's agent exited or its endpoint missing, the same capture is also published as the ordinary `check` wake and the note is marked as already surfaced, so firstmate acts when the board is answered instead of when the steering inbox later escalates the unread note.
 - The doorbell rings only when that idempotent write creates a fresh inbox record; filing the note into `handled/` is the worker's own acknowledgement of the delivery, so a later reconcile never moves an already-filed note back into the active inbox or re-rings its owner, and re-delivery of a note still open in the inbox is left to the steering inbox's own re-ring ladder.
 - A task-owned source with an unhandled capture is not relaunched, so delivery failure cannot consume a round and start another poll.
@@ -2451,13 +2451,13 @@ Whether a captured result is a routine no-op is adapter knowledge too, and the r
 - Before publishing, the runner asks the immutable captured owner through the built-in `silent` command or external `result.silent` operation and treats exit 0 as the only silence verdict: the result is recorded as durably handled and never announced, so it neither wakes a handler now nor returns on a later reconcile.
 - The task-owned terminal exception is evaluated first, so an empty terminal board round goes to its owner's steering inbox for the required conclusion instead of entering this generic silence path.
 - A missing command, an error, any other exit, or a silence the runner cannot durably record all publish the `check` wake exactly as before, so an adapter with no notion of a no-op needs no change and an unknown or degraded result always reaches its handler.
-- For built-ins, silence remains independent of the keyed-answer feed below: suppressing an announcement never suppresses the captain's own answer.
+- For built-ins, silence remains independent of the keyed-answer feed below: suppressing an announcement never suppresses the user's own answer.
 
 **Lavish silence rules**
 
 - For Lavish that verdict covers two shapes - a session the adapter classifies `ended` that carries no queued content block at all, which is a review surface closed with nothing said, and `browser_disconnected` (classified `disconnected`), which carries no answer while the session remains open.
 - Any recognized top-level `prompts` or `feedback` block counts as content regardless of its declared count, and a malformed header makes the result indeterminate rather than empty.
-- A `Send & End` close carrying the captain's answer arrives as `status: feedback` with `session_ended`, so it classifies `feedback` and is announced unchanged, as is any `ended` result that still carries content, and every `waiting`, `missing`, `unknown`, or unreadable result.
+- A `Send & End` close carrying the user's answer arrives as `status: feedback` with `session_ended`, so it classifies `feedback` and is announced unchanged, as is any `ended` result that still carries content, and every `waiting`, `missing`, `unknown`, or unreadable result.
 
 **Retire terminal sources**
 
@@ -2498,14 +2498,14 @@ The built-in `bin/fm-procevent-<adapter>.sh self-announcing` command declares an
 
 The remote-secondmate reply adapter declares itself self-announcing: a captured reply reaches its local status mirror and settles its correlated pending-reply expectation without any handler step, the mirrored status bytes are the single wake for one remote note through the same signal classification a local secondmate's append gets, and only a capture the adapter could not fully apply is published as a `check` wake, whose adapter handling remains idempotent.
 
-**Feed keyed captain answers**
+**Feed keyed user answers**
 
-Keyed captain answers from built-in adapters use one more seam of the same kind, and the runner still decides nothing about them.
-Some built-in sources carry the captain's answer to a captain-held task, and what such an answer means is owned once by `bin/fm-captain-hold.sh`'s keyed-answer intake rather than by any channel.
+Keyed user answers from built-in adapters use one more seam of the same kind, and the runner still decides nothing about them.
+Some built-in sources carry the user's answer to a captain-held task, and what such an answer means is owned once by `bin/fm-captain-hold.sh`'s keyed-answer intake rather than by any channel.
 
 - A built-in source bound with `bin/fm-captain-hold.sh bind` therefore has each captured result passed to `bin/fm-procevent-<adapter>.sh answers <result-file>`, and whatever that prints is piped straight into that intake.
 - A binding can select one decision origin or the script's cross-origin mode; the command header owns the exact forms and key interpretation.
-- The built-in adapter reports only what the captain chose; the intake owns every rule about what happens next, so the runner names no adapter, parses no result, and carries no decision rule, and a future built-in answer source needs nothing here beyond an `answers` command and a binding.
+- The built-in adapter reports only what the user chose; the intake owns every rule about what happens next, so the runner names no adapter, parses no result, and carries no decision rule, and a future built-in answer source needs nothing here beyond an `answers` command and a binding.
 
 **Reconcile selections and handling boundaries**
 

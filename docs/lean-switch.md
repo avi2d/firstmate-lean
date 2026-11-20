@@ -34,7 +34,7 @@ Work in `OLD`.
 2. For every other live task, tell its worker to commit and push its branch with `bin/fm-send.sh <task> "<text>"`.
    Wait for its status line.
 3. Stop each of those workers with `bin/fm-control.sh <task> exit`.
-4. Stop each second mate the same way, because a lean home has no second mates.
+4. Stop each secondary worker the same way, because a lean home has no secondary workers.
    Its projects move to the lean home, and its own home stays as it is.
 
 Never run `bin/fm-teardown.sh` on unlanded work.
@@ -97,7 +97,7 @@ archive: tasks=2096 drafts=0
 
 `handover` matches each old task record in `$OLD/state/` to the In Flight ticket that carries its `old:<task>` label.
 It refuses and changes nothing while an old record has no such ticket.
-It lists second mates and leaves their records alone.
+It lists secondary workers and leaves their records alone.
 Then land or tear down that task in the old home, or give its ticket the label, and run `handover` again.
 
 Each In Flight ticket becomes a queued ticket on hold of kind `parked`.

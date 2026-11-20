@@ -95,8 +95,8 @@ The session-start nudge remains on its existing non-displayed custom-message pat
 ### Queued Firstmate inputs on Pi
 
 While a turn runs, Calm also keeps those Firstmate inputs out of Pi's queued-message listing.
-The captain's own queued messages stay listed.
-Escape and the dequeue key return only the captain's queued messages to the editor.
+The user's own queued messages stay listed.
+Escape and the dequeue key return only the user's queued messages to the editor.
 Hidden Firstmate inputs stay queued in their original order and are never shown as raw text or dropped.
 When Escape, or navigating the session tree, stops a run with Firstmate inputs still queued, Pi either drains them itself or Calm starts one new turn to deliver them.
 When Calm starts that turn, it shows the one-line notice `Firstmate supervision continues in a new turn.`

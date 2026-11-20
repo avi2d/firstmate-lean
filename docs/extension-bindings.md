@@ -21,7 +21,7 @@ The host validates identity and accidental or supply-chain change, but an execut
 Do not bind a package that is not trusted to that level.
 
 Protocol responses are still untrusted evidence.
-The host accepts only the fields and operations below, and no response can authorize a captain decision, merge, destination, stronger operation, force, discard, cleanup, or credential use.
+The host accepts only the fields and operations below, and no response can authorize a user decision, merge, destination, stronger operation, force, discard, cleanup, or credential use.
 External adapters do not receive the built-in `answers`, `autohandle`, or `self-announcing` seams.
 A captured external result therefore remains unhandled until the existing Firstmate handling owner acknowledges it.
 

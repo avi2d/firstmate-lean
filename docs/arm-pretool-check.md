@@ -155,7 +155,7 @@ Prose may improve without changing adapter behavior.
 ## Live validation record, 2026-07-09
 
 Validation ran in a git-initialized scratch firstmate-shaped project with copies of the checker and policy, a dummy checkpoint, a dummy arm script, and a private sentinel path.
-No live watcher, fleet state, or herdr lifecycle command was used.
+No live watcher, worker state, or herdr lifecycle command was used.
 Pi 0.80.5 ran `pi -p -e .pi/extensions/fm-primary-turnend-guard.ts --no-context-files --no-session "$PROMPT"` and issued these exact commands as separate tool calls:
 
 ```sh

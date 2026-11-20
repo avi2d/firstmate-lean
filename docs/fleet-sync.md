@@ -1,4 +1,4 @@
-# Fleet sync
+# Project sync
 
 `bin/fm-fleet-sync.sh` refreshes project clones.
 It fast-forwards the checked-out local default branch to `origin/<default>` when that is safe.
