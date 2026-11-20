@@ -200,9 +200,14 @@ fm_poll_derived_grace() {
 # stale beacon is a slow cycle; at or past it bin/fm-watch.sh evicts that holder
 # and bin/fm-watch-arm.sh stops following it, so both read this one definition.
 fm_watcher_stall_bound() {
-  local poll=${1:-${FM_POLL:-15}} grace
-  grace=${FM_WATCHER_STALE_GRACE:-${FM_GUARD_GRACE:-$(fm_poll_derived_grace "$poll")}}
+  local grace
+  grace=$(fm_watcher_stale_grace "${1:-}")
   printf '%s\n' "${FM_WATCHER_STALL_BOUND:-$((grace * 3))}"
+}
+
+fm_watcher_stale_grace() {
+  local poll=${1:-${FM_POLL:-15}}
+  printf '%s\n' "${FM_WATCHER_STALE_GRACE:-${FM_GUARD_GRACE:-$(fm_poll_derived_grace "$poll")}}"
 }
 
 # fm_watcher_lock_unheld <state>
@@ -2629,6 +2634,25 @@ fm_wake_append_locked() {
     FM_WAKE_APPEND_RECOVERY_PUBLISHED_TOKEN=
   fi
   return "$status"
+}
+
+# fm_wake_queue_overdue_line <max-age-seconds>
+# Prints nothing while every queued wake is younger than <max-age-seconds>.
+fm_wake_queue_overdue_line() {
+  local max_age=$1 now
+  [ -s "$FM_WAKE_QUEUE" ] || return 0
+  fm_epoch_seconds_to now
+  awk -F '\t' -v now="$now" -v max_age="$max_age" '
+    NF >= 5 && $1 ~ /^[0-9]+$/ {
+      rows++
+      if (oldest == "" || $1 + 0 < oldest + 0) { oldest = $1; seq = $2 }
+    }
+    END {
+      if (rows && now - oldest > max_age) {
+        printf "watcher: FAILED - %d queued wake(s) not handled within one watcher cycle (%ds): oldest seq %s waited %ds; the watcher runs but its wakes do not reach the supervisor\n", rows, max_age, seq, now - oldest
+      }
+    }
+  ' "$FM_WAKE_QUEUE" 2>/dev/null || true
 }
 
 # fm_wake_queued_keys <kind>

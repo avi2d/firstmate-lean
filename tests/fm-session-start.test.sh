@@ -1279,6 +1279,25 @@ EOF
   pass "the digest caps each wake-queue row with a truncation marker while the queue and drain keep it whole"
 }
 
+test_session_start_reports_a_wake_older_than_one_cycle_as_a_watcher_failure() {
+  local rec root home fakebin out queue old
+  rec=$(new_world wake-overdue)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  make_fake_tmux "$fakebin" "fm-sess:live"
+  append_wake "$home/state" signal task-wake.status "signal: $home/state/task-wake.status"
+  queue="$home/state/.wake-queue"
+  old=$(( $(date +%s) - 1000 ))
+  awk -F '\t' -v OFS='\t' -v old="$old" '{ $1 = old; print }' "$queue" > "$queue.tmp" && mv "$queue.tmp" "$queue"
+  out=$(FM_WATCHER_STALE_GRACE=300 run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_contains "$out" "watcher: FAILED - 1 queued wake(s) not handled within one watcher cycle (300s): oldest seq 1 waited" \
+    "a wake older than one watcher cycle was not reported as a watcher failure"
+  pass "session start reports a wake older than one watcher cycle as a watcher failure"
+}
+
 test_orphan_status_logs_are_printed() {
   local rec root home fakebin out matched_count orphan_count
   rec=$(new_world orphan-status)
@@ -3288,6 +3307,7 @@ test_session_start_relaunches_herdr_husk_secondmate
 test_task_line_prints_latest_status_not_older_lines_or_meta_body
 test_task_line_caps_status_and_keeps_endpoint_verdict
 test_wake_queue_rows_capped_in_digest_whole_in_queue
+test_session_start_reports_a_wake_older_than_one_cycle_as_a_watcher_failure
 test_orphan_status_logs_are_printed
 test_endpoint_liveness_tmux
 test_endpoint_liveness_herdr
