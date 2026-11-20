@@ -459,7 +459,7 @@ SH
   chmod +x "$bin/gh" "$bin/bunx"
   scan_step_run "$root/scan.sh"
   rm -f "$record"
-  (cd "$root/repo" && PATH="$bin:$PATH" GITHUB_REPOSITORY=avi2d/firstmate FM_CI_CHECKS_VERSION=0.89.0 \
+  (cd "$root/repo" && PATH="$bin:$PATH" GITHUB_REPOSITORY=avi2d/firstmate-lean FM_CI_CHECKS_VERSION=0.89.0 \
     FAKE_RUNS_JSON="$root/runs.json" FAKE_BUNX_RECORD="$record" bash "$root/scan.sh") \
     || fail "the daily scan step exited non-zero"
   tail -n 2 "$record" | paste -sd' ' -

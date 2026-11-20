@@ -13,8 +13,8 @@ See the [Herdr setup guide](docs/herdr-backend.md) for backend requirements.
 
 ```sh
 gh auth login
-git clone --branch lean https://github.com/avi2d/firstmate.git
-cd firstmate
+git clone https://github.com/avi2d/firstmate-lean.git
+cd firstmate-lean
 pi
 ```
 

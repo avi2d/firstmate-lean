@@ -171,12 +171,7 @@ $ echo $?
 1
 ```
 
-A GitHub task is unaffected by a missing `glab`:
-
-```
-$ PATH="$noglab" fm-pr-check.sh e6 https://github.com/kunchenguid/firstmate/pull/750
-armed: state/e6.check.sh
-```
+A GitHub task is unaffected by a missing `glab`, and `fm-pr-check.sh` still arms its check.
 
 ## Registration version
 

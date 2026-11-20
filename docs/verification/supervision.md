@@ -82,11 +82,11 @@ Column layout and newest-first ordering:
 no-mistakes runs --limit 5
 ```
 
-Observed result, abbreviated to two rows:
+Observed result, abbreviated to two rows with each pull-request URL shortened to `<pr-url>`:
 
 ```
-  cancelled    fm/fm-afk-inject-never-delivers eebd9498  2026-08-31 22:48  https://github.com/kunchenguid/firstmate/pull/3050
-  completed    fm/fm-stooddown-worker-false-wedge-alarms b387086f  2026-08-30 10:03  https://github.com/kunchenguid/firstmate/pull/3281
+  cancelled    fm/fm-afk-inject-never-delivers eebd9498  2026-08-31 22:48  <pr-url>
+  completed    fm/fm-stooddown-worker-false-wedge-alarms b387086f  2026-08-30 10:03  <pr-url>
 ```
 
 The date column stamps a run's START, not its end:
@@ -105,7 +105,7 @@ no-mistakes axi status --run 01M14G3F9BEYBSYSZRVRQJ9XYT
 ```
 
 Observed result: `status: failed`, `review,failed` with `test` through `ci` still pending, `outcome: failed`, and no `pr:` line at all.
-The completed run above reports `pr: "https://github.com/kunchenguid/firstmate/pull/3281"` in the same field.
+The completed run above reports its pull-request URL in that same `pr:` field.
 That absence is what lets a terminal outcome take its pull-request identity from the same record as its state instead of an older recorded one.
 
 The ledger's first column is the RUN STATUS, not the axi outcome, established on 2026-09-19 against the installed no-mistakes v1.72.0 (9fcc865):

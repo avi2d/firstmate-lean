@@ -1,9 +1,9 @@
 {
   "forks": [
     {
-      "project": "firstmate",
-      "fork": "avi2d/firstmate",
-      "upstream": "kunchenguid/firstmate",
+      "project": "widgets",
+      "fork": "you/widgets",
+      "upstream": "acme/widgets",
       "trigger": "upstream-head"
     },
     {

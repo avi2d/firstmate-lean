@@ -189,7 +189,7 @@ reap() {
 size_of() { LC_ALL=C wc -c < "$1" | tr -d '[:space:]'; }
 
 # --- the wedge threshold consults the worker's own declared wait ------------
-# Upstream kunchenguid/firstmate#3909 and #2614: wedge_timer_check escalated on
+# wedge_timer_check escalated on
 # elapsed idle time alone, without ever asking whether the worker had already
 # said why its pane was quiet. Nothing re-consulted that declaration once the
 # timer was running, so the ladder climbed for as long as the wait lasted and

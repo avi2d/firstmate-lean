@@ -3,28 +3,15 @@
 Thanks for wanting to contribute.
 One rule up front:
 
-You may open a plain PR from a fork, or route it through [`no-mistakes`](https://github.com/kunchenguid/no-mistakes) for its local review/test/lint pipeline.
-
-`no-mistakes` puts a local git proxy in front of your real remote.
-Pushing through it runs an AI-driven review/test/lint pipeline in an isolated worktree, forwards the push upstream only after every check passes, and opens a clean PR automatically.
+Open a pull request against `main` of [avi2d/firstmate-lean](https://github.com/avi2d/firstmate-lean), either directly or through [`no-mistakes`](https://github.com/kunchenguid/no-mistakes) for its local review/test/lint pipeline.
 
 ## Workflow
 
-1. Fork the repo, then clone the parent repo or set your local `origin` back to the parent (`git@github.com:kunchenguid/firstmate.git`).
+1. Clone `https://github.com/avi2d/firstmate-lean.git`.
 2. Create a branch and make your changes.
-3. Initialize the gate with your fork as the push target: `no-mistakes init --fork-url git@github.com:<you>/firstmate.git` (contributing to firstmate requires **no-mistakes v1.46.0+** for structured attestation; without a fork, plain `no-mistakes init` still works for maintainers with push access).
-4. Commit your changes.
-5. Push through the gate instead of pushing to `origin`:
-
-   ```sh
-   git push no-mistakes
-   ```
-
-6. Run `no-mistakes` to attach to the pipeline, watch findings, authorize auto-fixes, and review ask-user findings as needed.
+3. Commit your changes.
+4. Push the branch and open a pull request against `main`, or run `no-mistakes init` once and push with `git push no-mistakes` so the pipeline opens the pull request.
    Follow the installed no-mistakes version's SKILL.md and live `axi` help for gate mechanics.
-7. Once the pipeline passes, it pushes the branch to your fork and opens the PR against the parent repo for you.
-
-See the [no-mistakes quick start](https://kunchenguid.github.io/no-mistakes/start-here/quick-start/) for the full first-run walkthrough.
 
 ## Agent-driven contributions
 
@@ -47,7 +34,6 @@ Coordinate any workflow rollback with its required-check names so a retired chec
   [`AGENTS.md`](AGENTS.md) owns the supervisor contract, role boundary, and skill triggers.
 - Only shared material is tracked: `AGENTS.md`, `README.md`, `CONTRIBUTING.md`, `.tasks.toml`, `.github/workflows/`, `bin/`, `.agents/skills/`, and `skills/`.
   `.agents/skills/` holds agent-loaded skills that assume a live firstmate home and carry `metadata.internal: true` so installers such as [skills.sh](https://skills.sh) hide them from discovery; `skills/` holds standalone, installer-facing public skills with no firstmate dependency (see the README's "Two-tier skill layout").
-  A module may load through `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS` or Claude Code's `tengu_plugin_hooks_modules` rollout flag, but the Calm mod activates only when `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS` is exactly `1` and is otherwise a complete no-op; Firstmate never sets that variable in any settings file, and [`docs/calm.md`](docs/calm.md) owns the contract.
   Everything personal to one user's fleet (`.env`, `data/`, `state/`, `config/`, `projects/`, `.no-mistakes/`) is gitignored; never commit it.
   The root `.tasks.toml` is tracked `tasks-axi` config for `data/backlog.md`; compatible `tasks-axi` is the default backend for routine backlog mutations, with the compatibility definition owned by [`docs/configuration.md`](docs/configuration.md) ("Backlog backend").
   A local `config/backlog-backend=manual` opt-out forces firstmate's routine backlog updates to hand-editing and stays gitignored; validated secondmate handoffs still delegate through `tasks-axi mv`.
@@ -58,7 +44,6 @@ Coordinate any workflow rollback with its required-check names so a retired chec
   Test scripts and helpers in `tests/` are plain bash too.
   `bin/fm-lint.sh` must pass: it is the single owner of the lint definition (the shellcheck file set, config, pinned shellcheck version, pinned actionlint workflow lint, and the backend-purity check rejecting direct Beads CLI calls in core `bin/` scripts).
   CI uses its full canonical partitions; the no-mistakes pre-push gate uses its context-selected default.
-  `docs/fm-test-portable-shards.md` owns partition verification and performance evidence.
   Its header and `--help` output own the exact local lint modes, file-set selection, and analysis flags.
   A malformed `.github/workflows/*.yml`, including a self-broken `ci.yml`, fails that local lint path before merge because a broken workflow cannot report its own breakage.
   It pins one exact shellcheck version and one exact actionlint version and refuses to run under any other.
@@ -115,7 +100,6 @@ tmp=$(mktemp -d) && printf 'done: smoke\n' > "$tmp/smoke.status" && FM_STATE_OVE
 `bin/fm-test-run.sh` is the single owner of behavior-suite selection, portable CI lane composition, bounded concurrency admission, per-script timing markers, family totals, the coverage guard, and the optional JSON timing artifact.
 Its header and `--help` own the flags, family labels, lanes, and changed-file map; this section only documents the entry points.
 `bin/fm-test-isolation-proof.sh` remains the single owner of the portable candidate proof and reusable family proof harness; see `docs/fm-test-isolation-proof.md`.
-Portable shard balance evidence lives in `docs/fm-test-portable-shards.md`.
 `bin/fm-test-linux.sh` is optional and never part of CI: on macOS, run it before publishing a branch whose tests depend on `stat`, `date`, or process behavior, because BSD and GNU tools differ.
 Its header owns selection, runtime detection, and exit codes.
 Family selection is the ordinary local path; `--all` is deliberate full regression only.
@@ -147,4 +131,4 @@ The [Herdr backend guide](docs/herdr-backend.md#destructive-lab-safety) owns the
 
 ## Questions
 
-Open an issue, or talk to me on [Discord](https://discord.gg/Wsy2NpnZDu).
+Open an issue on [avi2d/firstmate-lean](https://github.com/avi2d/firstmate-lean/issues).

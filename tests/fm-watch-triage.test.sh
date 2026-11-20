@@ -2465,7 +2465,7 @@ test_live_and_unproven_endpoints_still_wedge_escalate() {
 }
 
 # --- opt-in operator guards consulted at the wedge threshold -----------------
-# Upstream kunchenguid/firstmate#6919: docs/jev-guards.md says a CRITICAL guard
+# docs/jev-guards.md says a CRITICAL guard
 # verdict explains worker silence and its caller should not escalate a wedge
 # while it holds, but nothing called a guard. config/wedge-evidence-guards lists
 # operator guard executables the at-threshold branch consults after every other

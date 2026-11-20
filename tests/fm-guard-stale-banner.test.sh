@@ -206,7 +206,7 @@ test_first_stale_call_prints_full_banner() {
 }
 
 test_full_banner_names_quiet_mode_when_active() {
-  # kunchenguid/firstmate#2356: the banner's repair line must not misdirect a
+  # The banner's repair line must not misdirect a
   # captain in quiet mode to /afk - fm-guard.sh threads the flag's declared
   # mode through to fm-supervision-instructions.sh's --afk-mode.
   local dir home out
