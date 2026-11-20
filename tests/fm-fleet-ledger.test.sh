@@ -1,45 +1,11 @@
 #!/usr/bin/env bash
-# tests/fm-fleet-ledger.test.sh - the opt-in fleet activity ledger, driven
-# through the real producers: bin/fm-spawn.sh (fake tmux, real git worktree),
-# the real watcher through bin/fm-watch-checkpoint.sh, bin/fm-pr-check.sh,
-# bin/fm-merge-local.sh, the shared PR merge outcome in bin/fm-merge-outcome-lib.sh, and
-# bin/fm-teardown.sh. docs/fleet-ledger.md owns the record contract.
 set -u
 
-# shellcheck source=tests/lib.sh
-. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=tests/fixtures.sh
+. "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
+
 
 TMP_ROOT=$(fm_test_tmproot fm-fleet-ledger)
-
-make_fakebin() {  # <dir>
-  local fakebin
-  fakebin=$(fm_fakebin "$1")
-  cat > "$fakebin/tmux" <<'SH'
-#!/usr/bin/env bash
-window_file="$(dirname "$0")/.spawn-window"
-case "$*" in
-  *"#{pane_current_path}"*) printf '%s\n' "${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
-esac
-case "${1:-}" in
-  display-message) printf 'firstmate\n' ;;
-  list-windows) [ ! -s "$window_file" ] || cat "$window_file" ;;
-  new-window)
-    name=
-    previous=
-    for arg in "$@"; do
-      [ "$previous" = -n ] && name=$arg
-      previous=$arg
-    done
-    printf '%s\n' "$name" > "$window_file"
-    ;;
-  kill-window) : > "$window_file" ;;
-esac
-exit 0
-SH
-  chmod +x "$fakebin/tmux"
-  fm_fake_exit0 "$fakebin" treehouse no-mistakes claude codex opencode grok gemini
-  printf '%s\n' "$fakebin"
-}
 
 # Sets HOME_DIR PROJ_DIR WT_DIR FAKEBIN TASK for one isolated case.
 make_case() {  # <name> <on|off>
@@ -49,9 +15,10 @@ make_case() {  # <name> <on|off>
   TASK="$1-t1"
   WT_DIR="$dir/wt"
   mkdir -p "$HOME_DIR/data/$TASK" "$HOME_DIR/projects" "$HOME_DIR/state" "$HOME_DIR/config" "$HOME_DIR/user-home"
-  printf 'claude\n' > "$HOME_DIR/config/crew-harness"
+  printf 'pi\n' > "$HOME_DIR/config/crew-harness"
+  printf 'off\n' > "$HOME_DIR/config/herdr-presentation-spaces"
   printf '%s\n' "$$" > "$HOME_DIR/state/.lock"
-  touch "$HOME_DIR/state/.last-watcher-beat"
+  date +%s > "$HOME_DIR/state/.last-watcher-beat"
   [ "$2" = off ] || : > "$HOME_DIR/config/fleet-ledger"
   fm_git_worktree "$PROJ_DIR" "$WT_DIR" "fm/$TASK"
   cat > "$HOME_DIR/data/$TASK/brief.md" <<EOF
@@ -62,15 +29,14 @@ Exercise the fleet ledger for $TASK.
 ## Firstmate spec
 Nothing to build.
 EOF
-  FAKEBIN=$(make_fakebin "$dir")
+  FAKEBIN=$(fm_test_make_spawn_fakebin "$dir" no-mistakes)
 }
 
-in_home() {  # <command...>: run one real script against the case home
+in_home() {
   env -u FM_TRACE_CONTEXT FM_ROOT_OVERRIDE='' FM_HOME="$HOME_DIR" \
-    HOME="$HOME_DIR/user-home" CLAUDE_CONFIG_DIR='' \
-    FM_STATE_OVERRIDE="$HOME_DIR/state" FM_DATA_OVERRIDE="$HOME_DIR/data" \
+    HOME="$HOME_DIR/user-home" FM_STATE_OVERRIDE="$HOME_DIR/state" FM_DATA_OVERRIDE="$HOME_DIR/data" \
     FM_PROJECTS_OVERRIDE="$HOME_DIR/projects" FM_CONFIG_OVERRIDE="$HOME_DIR/config" \
-    FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$WT_DIR" TMUX="fake,1,0" \
+    FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$WT_DIR" FM_BACKEND=herdr HERDR_SESSION=spawn-fixture \
     PATH="$FAKEBIN:$PATH" "$@"
 }
 
@@ -85,9 +51,16 @@ run_lifecycle() {
     printf 'resolved: [key=pick-one]  chose a\n'
     printf 'partial line without its newline'
   } >> "$HOME_DIR/state/$TASK.status"
-  out=$(in_home env FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 \
-    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 2 2>&1)
-  case "$out" in *"checkpoint:"*|*"signal:"*) ;; *) fail "watcher checkpoint did not run: $out" ;; esac
+  local rc=0
+  rm -f "$HOME_DIR/state/.last-watcher-beat"
+  out=$(FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 \
+    in_home bash -s -- "$ROOT" 2>&1 <<'SH'
+. "$1/bin/fm-timeout-lib.sh"
+fm_run_timed 6 "$1/bin/fm-watch.sh"
+SH
+  ) || rc=$?
+  case "$rc" in 0|124) ;; *) fail "watcher poll failed: $out" ;; esac
+  [ -s "$HOME_DIR/state/.last-watcher-beat" ] || fail "watcher never wrote its beat: $out"
   LEDGER_AFTER_POLL=$(cat "$HOME_DIR/state/fleet-ledger.jsonl" 2>/dev/null || true)
   printf ' finished\ndone: ready in branch\n' >> "$HOME_DIR/state/$TASK.status"
   printf 'landed\n' > "$WT_DIR/landed.txt"
@@ -113,7 +86,7 @@ test_flag_on_records_the_task_lifecycle() {
     || fail "every record must carry v, ts, event, and task: $(cat "$HOME_DIR/state/fleet-ledger.jsonl")"
   rows=$(ledger_rows '[.event, .task] + (del(.v, .ts, .event, .task) | to_entries | map(.value))')
   assert_equals "$(cat <<EOF
-["task.dispatched","$TASK","ship","sample","claude",null]
+["task.dispatched","$TASK","ship","sample","pi",null]
 ["task.status","$TASK","working",null," setup done"]
 ["task.status","$TASK","needs-decision","pick-one"," choose \"a\"\\\\b or c"]
 ["task.status","$TASK","resolved","pick-one"," [key=pick-one]  chose a"]
@@ -184,8 +157,7 @@ worker_status_command() {  # <state> <note> [<state-dir> [<config-dir>]]
     FM_CONFIG_OVERRIDE="${4:-$HOME_DIR/config}" \
     "$ROOT/bin/fm-brief.sh" "$TASK" sample --mode no-mistakes >/dev/null) \
     || fail "brief scaffold failed"
-  # shellcheck disable=SC2016 # Match literal backticks in the generated brief.
-  cmd=$(sed -n '/`echo "{state}/s/.*`\(echo .*\)`.*/\1/p' "$HOME_DIR/data/$TASK/brief.md" | head -1)
+  cmd=$(awk 'BEGIN {FS = sprintf("%c", 96)} $2 ~ /^echo "{state}/ {print $2; exit}' "$HOME_DIR/data/$TASK/brief.md")
   [ -n "$cmd" ] || fail "the brief carries no status command"
   cmd=${cmd//\{state\}/$1}
   cmd=${cmd//<epoch>/1790000000}
