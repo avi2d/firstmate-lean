@@ -14,7 +14,10 @@ LABEL=dev.firstmate.herdr.fm-remote
 INTERACTIVE_LABEL=dev.firstmate.herdr
 mkdir -p "$TMP_ROOT"
 TMP_ROOT=$(cd "$TMP_ROOT" && pwd -P)
-JOB_LABEL=dev.firstmate.remote-job
+# shellcheck source=bin/fm-remote-job-lib.sh
+. "$ROOT/bin/fm-remote-job-lib.sh"
+JOB_KEY=$(fm_remote_job_root_key "$ROOT") || fail "could not name the test worker"
+JOB_LABEL="dev.firstmate.remote-job.$JOB_KEY"
 CASE_N=0
 DOCTOR_WORKER_PID=
 HOLDER_PIDS=()
@@ -106,6 +109,7 @@ new_case() {
   CASE_PLIST="$CASE_HOME/Library/LaunchAgents/$LABEL.plist"
   CASE_INTERACTIVE_PLIST="$CASE_HOME/Library/LaunchAgents/$INTERACTIVE_LABEL.plist"
   CASE_JOB_PLIST="$CASE_HOME/Library/LaunchAgents/$JOB_LABEL.plist"
+  CASE_JOB_STATE="$CASE_HOME/.firstmate/remote-job-$JOB_KEY"
   mkdir -p "$CASE_BIN" "$CASE_HOME" "$CASE_PROJECT_HOME" "$CASE_STATE"
   printf 'false\n' > "$CASE_HERDR_RUNNING"
   : > "$CASE_LAUNCHCTL_LOG"
@@ -136,7 +140,7 @@ case "${1:-}" in
         cat "$loaded"
         printf 'pid = %s\n' "$FM_FAKE_AQUA_PID"
         ;;
-      */dev.firstmate.remote-job)
+      */dev.firstmate.remote-job.*)
         [ -f "$loaded" ] || exit 113
         cat "$loaded"
         printf 'pid = %s\n' "$FM_FAKE_WORKER_PID"
@@ -169,7 +173,7 @@ case "${1:-}" in
     loaded="$FM_FAKE_STATE/loaded-$label"
     [ ! -f "$loaded" ] || { printf 'Bootstrap failed: service already loaded\n' >&2; exit 5; }
     case "$label" in
-      dev.firstmate.remote-job)
+      dev.firstmate.remote-job.*)
         cat > "$loaded" <<EOF
 path = $FM_FAKE_JOB_PLIST
 program = $FM_FAKE_JOB_WORKER
@@ -204,7 +208,7 @@ EOF
   kickstart)
     [ ! -f "$FM_FAKE_STATE/kickstart-fail" ] || { printf 'Kickstart failed: service unavailable\n' >&2; exit 6; }
     case "$label" in
-      dev.firstmate.remote-job) : ;;
+      dev.firstmate.remote-job.*) : ;;
       *)
         # The real job execs the guard, which stops a foreign server and
         # becomes the Aqua-born owner; the fixture models that outcome.
@@ -908,11 +912,11 @@ HOME="$CASE_HOME" FM_ROOT_OVERRIDE="$ROOT" FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux
   "$ROOT/bin/fm-remote-job-worker.sh" > "$CASE_STATE/worker.out" 2> "$CASE_STATE/worker.err" &
 DOCTOR_WORKER_PID=$!
 for _ in $(seq 1 100); do
-  [ -f "$CASE_HOME/.firstmate/remote-job/worker.ready" ] && break
+  [ -f "$CASE_JOB_STATE/worker.ready" ] && break
   sleep 0.05
 done
-assert_present "$CASE_HOME/.firstmate/remote-job/worker.ready" "the stale-identity fixture worker did not start"
-printf 'stale-worker-identity\n' > "$CASE_HOME/.firstmate/remote-job/worker.identity"
+assert_present "$CASE_JOB_STATE/worker.ready" "the stale-identity fixture worker did not start"
+printf 'stale-worker-identity\n' > "$CASE_JOB_STATE/worker.identity"
 doctor
 expect_code 1 "$DOCTOR_RC" "doctor accepted a live worker with stale code identity"
 assert_contains "$DOCTOR_OUT" 'check remote-job-worker=fixable: the running remote job worker does not match the current Firstmate code' \
@@ -925,7 +929,7 @@ assert_contains "$DOCTOR_OUT" 'fix remote-job-worker=applied:' "--fix did not re
 assert_contains "$DOCTOR_OUT" 'check remote-job-worker=ok:' "the refreshed worker was not confirmed ready"
 assert_contains "$DOCTOR_OUT" 'check remote-job-probe=ok: the remote job worker completed the required-tool probe' \
   "doctor did not probe tools through the refreshed worker"
-DOCTOR_WORKER_PID=$(cat "$CASE_HOME/.firstmate/remote-job/worker.pid")
+DOCTOR_WORKER_PID=$(cat "$CASE_JOB_STATE/worker.pid")
 kill -TERM "$DOCTOR_WORKER_PID"
 for _ in $(seq 1 100); do
   kill -0 "$DOCTOR_WORKER_PID" 2>/dev/null || break
@@ -937,29 +941,42 @@ fi
 DOCTOR_WORKER_PID=
 pass "doctor refreshes stale worker identity before probing tools"
 
-# --- the entrypoint symlink is recreated when it is missing ------------------
-
 new_case Linux with-herdr no-gui
-REMOTE_ROOT="$CASE_DIR/remote-root"
-mkdir -p "$REMOTE_ROOT/bin"
-printf '#!/usr/bin/env bash\n' > "$REMOTE_ROOT/bin/fm-remote-entrypoint.sh"
-export FM_ROOT_OVERRIDE="$REMOTE_ROOT"
+FIRST_ROOT="$CASE_DIR/first-root"
+SECOND_ROOT="$CASE_DIR/second-root"
+LEGACY_LINK="$CASE_HOME/.local/bin/fm-remote-entrypoint.sh"
+mkdir -p "$FIRST_ROOT/bin" "$SECOND_ROOT/bin" "$CASE_HOME/.local/bin"
+for root in "$FIRST_ROOT" "$SECOND_ROOT"; do
+  printf '#!/usr/bin/env bash\n' > "$root/bin/fm-remote-entrypoint.sh"
+done
+ln -s "$FIRST_ROOT/bin/fm-remote-entrypoint.sh" "$LEGACY_LINK"
+export FM_ROOT_OVERRIDE="$FIRST_ROOT"
 doctor
-assert_contains "$DOCTOR_OUT" 'check entrypoint-link=fixable:' "a missing entrypoint symlink was not tagged fixable"
+assert_contains "$DOCTOR_OUT" 'check entrypoint-link=fixable:' "a missing root link was not tagged fixable"
 doctor --fix
-assert_contains "$DOCTOR_OUT" 'fix entrypoint-link=applied:' "--fix did not report linking the entrypoint"
-assert_contains "$DOCTOR_OUT" 'check entrypoint-link=ok:' "the recreated entrypoint symlink was not confirmed"
-[ "$(readlink "$CASE_HOME/.local/bin/fm-remote-entrypoint.sh")" = "$REMOTE_ROOT/bin/fm-remote-entrypoint.sh" ] \
-  || fail "the entrypoint symlink does not point at this code root"
-printf 'not a symlink\n' > "$CASE_HOME/.local/bin/other"
-rm -f "$CASE_HOME/.local/bin/fm-remote-entrypoint.sh"
-printf 'operator wrapper\n' > "$CASE_HOME/.local/bin/fm-remote-entrypoint.sh"
+assert_contains "$DOCTOR_OUT" 'fix entrypoint-link=applied:' "--fix did not report linking the first root"
+FIRST_LINK=$(printf '%s\n' "$DOCTOR_OUT" | sed -n 's/^check entrypoint-link=ok: //p')
+[ "$FIRST_LINK" != "$LEGACY_LINK" ] &&
+  [ "$(readlink "$FIRST_LINK")" = "$FIRST_ROOT/bin/fm-remote-entrypoint.sh" ] ||
+  fail "doctor did not link the first root separately from the shared link"
+
+export FM_ROOT_OVERRIDE="$SECOND_ROOT"
+doctor --fix
+SECOND_LINK=$(printf '%s\n' "$DOCTOR_OUT" | sed -n 's/^check entrypoint-link=ok: //p')
+[ "$SECOND_LINK" != "$FIRST_LINK" ] && [ "$SECOND_LINK" != "$LEGACY_LINK" ] &&
+  [ "$(readlink "$SECOND_LINK")" = "$SECOND_ROOT/bin/fm-remote-entrypoint.sh" ] ||
+  fail "doctor reused an entrypoint belonging to the first root"
+[ "$(readlink "$FIRST_LINK")" = "$FIRST_ROOT/bin/fm-remote-entrypoint.sh" ] &&
+  [ "$(readlink "$LEGACY_LINK")" = "$FIRST_ROOT/bin/fm-remote-entrypoint.sh" ] ||
+  fail "--fix repointed a link belonging to the first root"
+
+rm -f "$SECOND_LINK"
+printf 'operator wrapper\n' > "$SECOND_LINK"
 doctor --fix
 assert_contains "$DOCTOR_OUT" 'check entrypoint-link=human:' "an operator-owned entrypoint file was not left to the operator"
-[ "$(cat "$CASE_HOME/.local/bin/fm-remote-entrypoint.sh")" = 'operator wrapper' ] \
-  || fail "--fix overwrote a file it did not create"
+[ "$(cat "$SECOND_LINK")" = 'operator wrapper' ] || fail "--fix overwrote a file it did not create"
 unset FM_ROOT_OVERRIDE
-pass "the entrypoint symlink is recreated when absent and never overwritten when operator-owned"
+pass "doctor leaves another root's entrypoints and operator-owned files alone"
 
 
 # --- the rex backend: CLI, API floor, and the persistent-server contract ------

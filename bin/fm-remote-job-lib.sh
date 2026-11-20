@@ -4,7 +4,7 @@ _FM_REMOTE_JOB_LIB_DIR=${BASH_SOURCE[0]%/*}
 # shellcheck source=bin/fm-mkdir-lib.sh
 . "$_FM_REMOTE_JOB_LIB_DIR/fm-mkdir-lib.sh"
 unset _FM_REMOTE_JOB_LIB_DIR
-FM_REMOTE_JOB_LABEL=dev.firstmate.remote-job
+FM_REMOTE_JOB_LEGACY_LABEL=dev.firstmate.remote-job
 FM_REMOTE_JOB_MAX_BYTES=${FM_REMOTE_JOB_MAX_BYTES:-1048576}
 FM_REMOTE_JOB_QUEUE_TIMEOUT=${FM_REMOTE_JOB_QUEUE_TIMEOUT:-360}
 FM_REMOTE_JOB_TIMEOUT=${FM_REMOTE_JOB_TIMEOUT:-360}
@@ -264,23 +264,12 @@ fm_remote_job_has_forbidden_text_bytes() { # <file>
 }
 
 fm_remote_job_normalize_absolute_path() { # <absolute-path>
-  local path=$1 part old_ifs out=/
+  local path=$1
   case "$path" in /*) ;; *) return 1 ;; esac
-  case "$path" in *'//'*) return 1 ;; esac
-  old_ifs=$IFS
-  IFS=/
-  for part in $path; do
-    case "$part" in
-      '') ;;
-      .|..) IFS=$old_ifs; return 1 ;;
-      *)
-        case "$part" in *$'\n'*|*$'\r'*|*$'\t'*) IFS=$old_ifs; return 1 ;; esac
-        if [ "$out" = / ]; then out="/$part"; else out="$out/$part"; fi
-        ;;
-    esac
-  done
-  IFS=$old_ifs
-  printf '%s\n' "$out"
+  case "$path" in *'//'*|*$'\n'*|*$'\r'*|*$'\t'*) return 1 ;; esac
+  case "$path/" in */./*|*/../*) return 1 ;; esac
+  path=${path%/}
+  printf '%s\n' "${path:-/}"
 }
 
 fm_remote_job_canonical_existing_dir() { # <path>
@@ -317,7 +306,8 @@ fm_remote_job_safe_child_dir() { # <canonical-parent> <single child basename>
   if [ -e "$candidate" ] || [ -L "$candidate" ]; then
     [ -d "$candidate" ] && [ ! -L "$candidate" ] || return 1
   else
-    (umask 077; mkdir "$candidate") || return 1
+    (umask 077; mkdir "$candidate") 2>/dev/null || [ -d "$candidate" ] || return 1
+    [ ! -L "$candidate" ] || return 1
   fi
   chmod 700 "$candidate" 2>/dev/null || return 1
   physical=$(CDPATH='' cd -- "$candidate" 2>/dev/null && pwd -P) || return 1
@@ -325,8 +315,42 @@ fm_remote_job_safe_child_dir() { # <canonical-parent> <single child basename>
   printf '%s\n' "$physical"
 }
 
-fm_remote_job_prepare_state() { # <account-home>
-  local account_home=$1 root parent base firstmate
+fm_remote_job_root_key() {
+  local root checksum digest
+  root=$(fm_remote_job_canonical_existing_dir "$1") || return 1
+  if [ -x /usr/bin/sha256sum ]; then
+    checksum=$(printf '%s' "$root" | /usr/bin/sha256sum) || return 1
+  else
+    checksum=$(printf '%s' "$root" | /usr/bin/shasum -a 256) || return 1
+  fi
+  digest=${checksum%% *}
+  case "$digest" in *[!0-9a-f]*) return 1 ;; esac
+  [ "${#digest}" -eq 64 ] || return 1
+  printf '%s\n' "$digest"
+}
+
+fm_remote_job_label() {
+  local key
+  key=$(fm_remote_job_root_key "$1") || return 1
+  printf '%s.%s\n' "$FM_REMOTE_JOB_LEGACY_LABEL" "$key"
+}
+
+fm_remote_job_legacy_state_path() {
+  printf '%s/.firstmate/remote-job\n' "$1"
+}
+
+fm_remote_job_state_path() {
+  local account_home=$1 code_root=${2:-${FM_ROOT:-}} key
+  if [ -n "${FM_REMOTE_JOB_STATE_ROOT:-}" ]; then
+    fm_remote_job_normalize_absolute_path "$FM_REMOTE_JOB_STATE_ROOT"
+    return
+  fi
+  key=$(fm_remote_job_root_key "$code_root") || return 1
+  printf '%s/.firstmate/remote-job-%s\n' "$account_home" "$key"
+}
+
+fm_remote_job_prepare_state() {
+  local account_home=$1 code_root=${2:-${FM_ROOT:-}} root parent base
   fm_remote_job_validate_settings || {
     FM_REMOTE_JOB_ERROR="remote job bounds or timeout are invalid"
     return 1
@@ -335,33 +359,25 @@ fm_remote_job_prepare_state() { # <account-home>
     FM_REMOTE_JOB_ERROR="remote account home is unavailable or unsafe"
     return 1
   }
-  if [ -n "${FM_REMOTE_JOB_STATE_ROOT:-}" ]; then
-    root=$(fm_remote_job_normalize_absolute_path "$FM_REMOTE_JOB_STATE_ROOT") || {
-      FM_REMOTE_JOB_ERROR="remote job state root is not a safe absolute path"
-      return 1
-    }
-    parent=$(dirname "$root")
-    base=$(basename "$root")
-    parent=$(fm_remote_job_canonical_existing_dir "$parent") || {
-      FM_REMOTE_JOB_ERROR="remote job state parent is unavailable or unsafe"
-      return 1
-    }
-    [ "$parent/$base" = "$root" ] || return 1
-    root=$(fm_remote_job_safe_child_dir "$parent" "$base") || {
-      FM_REMOTE_JOB_ERROR="remote job state root is unsafe"
-      return 1
-    }
-  else
-    firstmate=$(fm_remote_job_safe_child_dir "$account_home" .firstmate) || {
+  root=$(fm_remote_job_state_path "$account_home" "$code_root") || {
+    FM_REMOTE_JOB_ERROR="cannot determine a safe remote job state path"
+    return 1
+  }
+  if [ -z "${FM_REMOTE_JOB_STATE_ROOT:-}" ]; then
+    fm_remote_job_safe_child_dir "$account_home" .firstmate >/dev/null || {
       FM_REMOTE_JOB_ERROR="cannot prepare $account_home/.firstmate for remote jobs"
       return 1
     }
-    root=$(fm_remote_job_safe_child_dir "$firstmate" remote-job) || {
-      FM_REMOTE_JOB_ERROR="cannot prepare remote job state"
-      return 1
-    }
   fi
-  FM_REMOTE_JOB_STATE=$root
+  parent=$(fm_remote_job_canonical_existing_dir "${root%/*}") || {
+    FM_REMOTE_JOB_ERROR="remote job state parent is unavailable or unsafe"
+    return 1
+  }
+  base=${root##*/}
+  FM_REMOTE_JOB_STATE=$(fm_remote_job_safe_child_dir "$parent" "$base") || {
+    FM_REMOTE_JOB_ERROR="remote job state root is unsafe"
+    return 1
+  }
   FM_REMOTE_JOB_JOBS=$(fm_remote_job_safe_child_dir "$FM_REMOTE_JOB_STATE" jobs) || {
     FM_REMOTE_JOB_ERROR="remote job queue is unsafe"
     return 1
@@ -574,11 +590,11 @@ fm_remote_job_cancel() { # <account-home> <id>
 fm_remote_job_stage() { # <account-home> <root> <home> <command> [args...]; stdin is captured
   local account_home=$1 root=$2 home=$3 command=$4 stage id destination bytes queue_deadline owner_start
   shift 4
-  fm_remote_job_prepare_state "$account_home" || return 1
   root=$(fm_remote_job_canonical_existing_dir "$root") || {
     FM_REMOTE_JOB_ERROR="remote job root is unavailable or unsafe"
     return 1
   }
+  fm_remote_job_prepare_state "$account_home" "$root" || return 1
   home=$(fm_remote_job_canonical_home "$home") || {
     FM_REMOTE_JOB_ERROR="remote job home is unavailable or unsafe"
     return 1
@@ -806,8 +822,12 @@ fm_remote_job_reap_stale() { # <account-home>
   done
 }
 
-fm_remote_job_launchagent_paths() { # <account-home>
-  local account_home=$1
+fm_remote_job_launchagent_paths() {
+  local root=$1 account_home=$2
+  FM_REMOTE_JOB_LABEL=${3:-}
+  if [ -z "$FM_REMOTE_JOB_LABEL" ]; then
+    FM_REMOTE_JOB_LABEL=$(fm_remote_job_label "$root") || return 1
+  fi
   FM_REMOTE_JOB_LAUNCH_AGENT_DIR="$account_home/Library/LaunchAgents"
   FM_REMOTE_JOB_LAUNCH_AGENT_PLIST="$FM_REMOTE_JOB_LAUNCH_AGENT_DIR/$FM_REMOTE_JOB_LABEL.plist"
   FM_REMOTE_JOB_LAUNCH_AGENT_LOG_DIR="$account_home/Library/Logs"
@@ -819,9 +839,12 @@ fm_remote_job_plist_safe_path() {
 }
 
 fm_remote_job_render_launchagent() { # <remote-root> <account-home>
-  local root=$1 account_home=$2 worker
+  local root=$1 account_home=$2 worker serve_arg=''
   worker="$root/bin/fm-remote-job-worker.sh"
-  fm_remote_job_launchagent_paths "$account_home"
+  fm_remote_job_launchagent_paths "$root" "$account_home" "${3:-}" || return 1
+  if [ "$FM_REMOTE_JOB_LABEL" != "$FM_REMOTE_JOB_LEGACY_LABEL" ]; then
+    serve_arg=$'\n\t\t<string>--serve</string>'
+  fi
   fm_remote_job_plist_safe_path "$worker" && fm_remote_job_plist_safe_path "$account_home" &&
     fm_remote_job_plist_safe_path "$FM_REMOTE_JOB_LAUNCH_AGENT_LOG" || return 1
   cat <<XML
@@ -833,7 +856,7 @@ fm_remote_job_render_launchagent() { # <remote-root> <account-home>
 	<string>$FM_REMOTE_JOB_LABEL</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>$worker</string>
+		<string>$worker</string>$serve_arg
 	</array>
 	<key>EnvironmentVariables</key>
 	<dict>
@@ -859,10 +882,11 @@ XML
 
 fm_remote_job_launchagent_contract_matches() { # <remote-root> <account-home>
   local root=$1 account_home=$2 actual expected
-  fm_remote_job_launchagent_paths "$account_home"
+  fm_remote_job_launchagent_paths "$root" "$account_home" || return 1
   [ -f "$FM_REMOTE_JOB_LAUNCH_AGENT_PLIST" ] && [ ! -L "$FM_REMOTE_JOB_LAUNCH_AGENT_PLIST" ] || return 1
   actual=$(tr -d ' \t\r\n' < "$FM_REMOTE_JOB_LAUNCH_AGENT_PLIST" 2>/dev/null) || return 1
-  expected=$(fm_remote_job_render_launchagent "$root" "$account_home" | tr -d ' \t\r\n') || return 1
+  expected=$(fm_remote_job_render_launchagent "$root" "$account_home" "$FM_REMOTE_JOB_LABEL") || return 1
+  expected=$(printf '%s' "$expected" | tr -d ' \t\r\n') || return 1
   [ "$actual" = "$expected" ]
 }
 
@@ -871,15 +895,18 @@ fm_remote_job_gui_available() { # <uid>
   command -v launchctl >/dev/null 2>&1 && launchctl print "gui/$uid" >/dev/null 2>&1
 }
 
-fm_remote_job_launchagent_loaded() { # <remote-root> <account-home> <uid>
-  local root=$1 account_home=$2 uid=$3 worker loaded compact
-  fm_remote_job_launchagent_paths "$account_home"
-  worker="$root/bin/fm-remote-job-worker.sh"
+fm_remote_job_launchagent_loaded() {
+  local root=$1 account_home=$2 uid=$3 loaded line program=0 plist=0
+  fm_remote_job_launchagent_paths "$root" "$account_home" "${4:-}" || return 1
   loaded=$(launchctl print "gui/$uid/$FM_REMOTE_JOB_LABEL" 2>/dev/null) || return 1
-  compact=$(printf '%s' "$loaded" | tr -d ' \t\r\n') || return 1
-  [[ "$compact" == *"$FM_REMOTE_JOB_LABEL"* ]] || return 1
-  [[ "$compact" == *"$worker"* ]] || return 1
-  [[ "$compact" == *"$FM_REMOTE_JOB_LAUNCH_AGENT_PLIST"* ]] || return 1
+  while IFS= read -r line; do
+    line=${line#"${line%%[![:space:]]*}"}
+    case "$line" in
+      "program = $root/bin/fm-remote-job-worker.sh") program=1 ;;
+      "path = $FM_REMOTE_JOB_LAUNCH_AGENT_PLIST") plist=1 ;;
+    esac
+  done <<< "$loaded"
+  [ "$program" -eq 1 ] && [ "$plist" -eq 1 ]
 }
 
 fm_remote_job_worker_pid_path() { printf '%s\n' "$FM_REMOTE_JOB_STATE/worker.pid"; }
@@ -1105,7 +1132,7 @@ fm_remote_job_code_identity() { # <remote-root> <account-home>
 fm_remote_job_worker_identity_matches() { # <remote-root> <account-home>
   local root=$1 account_home=$2 identity_file expected actual extra
   [ "${FM_REMOTE_JOB_ACTIVE:-}" != 1 ] || return 0
-  fm_remote_job_prepare_state "$account_home" || return 1
+  fm_remote_job_prepare_state "$account_home" "$root" || return 1
   identity_file=$(fm_remote_job_worker_identity_path)
   fm_remote_job_regular_bounded "$identity_file" 256 || return 1
   IFS= read -r actual < "$identity_file" || return 1
@@ -1151,7 +1178,7 @@ fm_remote_job_wait_for_probe() { # <remote-root> <account-home>
 
 fm_remote_job_write_launchagent() { # <remote-root> <account-home>
   local root=$1 account_home=$2 tmp
-  fm_remote_job_launchagent_paths "$account_home"
+  fm_remote_job_launchagent_paths "$root" "$account_home" || return 1
   if ! mkdir -p "$FM_REMOTE_JOB_LAUNCH_AGENT_DIR" 2>/dev/null ||
     ! mkdir -p "$FM_REMOTE_JOB_LAUNCH_AGENT_LOG_DIR" 2>/dev/null; then
     FM_REMOTE_JOB_ERROR="cannot create the remote job LaunchAgent directories"
@@ -1276,9 +1303,9 @@ fm_remote_job_launchagent_owner_current() { # <remote-root> <account-home> <uid>
   fm_remote_job_worker_identity_matches "$root" "$account_home"
 }
 
-fm_remote_job_reload_launchagent() { # <account-home> <uid>
-  local account_home=$1 uid=$2 out i=0
-  fm_remote_job_launchagent_paths "$account_home"
+fm_remote_job_reload_launchagent() {
+  local root=$1 account_home=$2 uid=$3 out i=0
+  fm_remote_job_launchagent_paths "$root" "$account_home" || return 1
   launchctl bootout "gui/$uid/$FM_REMOTE_JOB_LABEL" >/dev/null 2>&1 || true
   while launchctl print "gui/$uid/$FM_REMOTE_JOB_LABEL" >/dev/null 2>&1; do
     if [ "$i" -ge 100 ]; then
@@ -1334,12 +1361,12 @@ fm_remote_job_repair_launchagent() { # <remote-root> <account-home> <uid>
   if [ "$FM_REMOTE_JOB_REPAIRED" -eq 1 ] ||
     ! fm_remote_job_launchagent_loaded "$root" "$account_home" "$uid" ||
     ! fm_remote_job_worker_identity_matches "$root" "$account_home"; then
-    fm_remote_job_reload_launchagent "$account_home" "$uid" || return 1
+    fm_remote_job_reload_launchagent "$root" "$account_home" "$uid" || return 1
     FM_REMOTE_JOB_REPAIRED=1
   fi
   fm_remote_job_wait_for_probe "$root" "$account_home" && return 0
   fm_remote_job_stale_heartbeat_owner "$account_home" && return 1
-  fm_remote_job_reload_launchagent "$account_home" "$uid" || return 1
+  fm_remote_job_reload_launchagent "$root" "$account_home" "$uid" || return 1
   FM_REMOTE_JOB_REPAIRED=1
   fm_remote_job_wait_for_probe "$root" "$account_home" && return 0
   # shellcheck disable=SC2034 # Sourceable API consumed by the entrypoint and remote doctor.
@@ -1367,7 +1394,7 @@ fm_remote_job_ensure_launchagent() { # <remote-root> <account-home> <uid>
 }
 
 fm_remote_job_start_linux_worker() { # <remote-root> <account-home>
-  local root=$1 account_home=$2 worker pid
+  local root=$1 account_home=$2 worker pid label
   worker="$root/bin/fm-remote-job-worker.sh"
   [ -f "$worker" ] && [ ! -L "$worker" ] && [ -x "$worker" ] || {
     FM_REMOTE_JOB_ERROR="remote job worker is not a genuine executable in the configured code root"
@@ -1387,6 +1414,7 @@ fm_remote_job_start_linux_worker() { # <remote-root> <account-home>
     wait "$pid" 2>/dev/null || true
     FM_REMOTE_JOB_REPAIRED=1
   fi
+  label=$(fm_remote_job_label "$root") || return 1
   # Job control puts the worker tree in its own process group, so a later stop
   # can signal every descendant at once without ever reaching the caller's own
   # group. Without this the group of a leaked worker is the launching command's.
@@ -1396,15 +1424,93 @@ fm_remote_job_start_linux_worker() { # <remote-root> <account-home>
     FM_ROOT_OVERRIDE="$root" \
     FM_REMOTE_JOB_STATE_ROOT="$FM_REMOTE_JOB_STATE" \
     FM_REMOTE_JOB_PLATFORM_OVERRIDE="${FM_REMOTE_JOB_PLATFORM_OVERRIDE:-}" \
-    "$worker" >> "$FM_REMOTE_JOB_STATE/logs/$FM_REMOTE_JOB_LABEL.log" 2>&1 < /dev/null &
+    "$worker" >> "$FM_REMOTE_JOB_STATE/logs/$label.log" 2>&1 < /dev/null &
   pid=$!
   set +m
   case "$pid" in ''|*[!0-9]*) FM_REMOTE_JOB_ERROR="could not start the remote job worker"; return 1 ;; esac
   FM_REMOTE_JOB_REPAIRED=1
 }
 
+fm_remote_job_legacy_queue_idle() {
+  local jobs=$1 stage job state
+  fm_remote_job_canonical_existing_dir "$jobs" >/dev/null || return 1
+  for stage in "$jobs"/.stage.*; do
+    [ -d "$stage" ] && [ ! -L "$stage" ] || continue
+    fm_remote_job_stage_owner_alive "$stage" && return 1
+  done
+  for job in "$jobs"/job-*; do
+    [ -d "$job" ] && [ ! -L "$job" ] || continue
+    fm_remote_job_read_state "$job" state || return 1
+    [ "$state" = 'done' ] || return 1
+  done
+  return 0
+}
+
+fm_remote_job_is_linux_worker_command() {
+  local root=$1 command=$2
+  case "$command" in
+    "/bin/bash $root/bin/fm-remote-job-worker.sh"|"/bin/bash $root/bin/fm-remote-job-worker.sh --serve") return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+fm_remote_job_legacy_linux_pid() {
+  local root=$1 lock=$2 pid command pgid
+  fm_remote_job_recorded_owner_alive "$lock" || return 1
+  pid=$FM_REMOTE_JOB_RECORDED_PID
+  command=$(fm_remote_job_process_command "$pid") || return 1
+  fm_remote_job_is_linux_worker_command "$root" "$command" || return 1
+  if pgid=$(fm_remote_job_worker_process_group "$pid"); then
+    command=$(fm_remote_job_process_command "$pgid") || return 1
+    fm_remote_job_is_linux_worker_command "$root" "$command" || return 1
+  fi
+  printf '%s\n' "$pid"
+}
+
+fm_remote_job_retire_legacy_linux() {
+  local root=$1 account_home=$2 legacy pid
+  [ -z "${FM_REMOTE_JOB_STATE_ROOT:-}" ] || return 0
+  legacy=$(fm_remote_job_canonical_existing_dir "$(fm_remote_job_legacy_state_path "$account_home")") || return 0
+  pid=$(fm_remote_job_legacy_linux_pid "$root" "$legacy/worker.lock") || return 0
+  fm_remote_job_legacy_queue_idle "$legacy/jobs" || return 0
+  [ "$(fm_remote_job_legacy_linux_pid "$root" "$legacy/worker.lock")" = "$pid" ] || return 0
+  fm_remote_job_stop_worker_tree "$pid"
+}
+
+fm_remote_job_retire_legacy_launchagent() {
+  local root=$1 account_home=$2 uid=$3 legacy lock target plist expected
+  legacy=$(fm_remote_job_canonical_existing_dir "$(fm_remote_job_legacy_state_path "$account_home")") || return 0
+  fm_remote_job_launchagent_loaded "$root" "$account_home" "$uid" "$FM_REMOTE_JOB_LEGACY_LABEL" || return 0
+  lock="$legacy/launchagent.repair"
+  fm_remote_job_reload_lock_acquire "$lock" || return 1
+  if fm_remote_job_launchagent_loaded "$root" "$account_home" "$uid" "$FM_REMOTE_JOB_LEGACY_LABEL" &&
+    fm_remote_job_legacy_queue_idle "$legacy/jobs"; then
+    target="gui/$uid/$FM_REMOTE_JOB_LEGACY_LABEL"
+    plist=$FM_REMOTE_JOB_LAUNCH_AGENT_PLIST
+    if launchctl bootout "$target" >/dev/null 2>&1 &&
+      [ -f "$plist" ] && [ ! -L "$plist" ] &&
+      expected=$(fm_remote_job_render_launchagent "$root" "$account_home" "$FM_REMOTE_JOB_LEGACY_LABEL") &&
+      [ "$(<"$plist")" = "$expected" ]; then
+      rm -f -- "$plist"
+    fi
+  fi
+  fm_remote_job_reload_lock_release "$lock"
+}
+
+fm_remote_job_ensure_linux_worker() {
+  local root=$1 account_home=$2
+  fm_remote_job_start_linux_worker "$root" "$account_home" || return 1
+  fm_remote_job_wait_for_probe "$root" "$account_home" && return 0
+  # A replacement can lose its first race while the prior supervisor releases the lock.
+  fm_remote_job_start_linux_worker "$root" "$account_home" || return 1
+  FM_REMOTE_JOB_REPAIRED=1
+  fm_remote_job_wait_for_probe "$root" "$account_home" && return 0
+  FM_REMOTE_JOB_ERROR="remote job worker did not report ready after startup"
+  return 1
+}
+
 fm_remote_job_ensure_worker() { # <remote-root> <account-home>
-  local root=$1 account_home=$2 platform uid
+  local root=$1 account_home=$2 platform uid FM_ROOT
   FM_REMOTE_JOB_ERROR=
   FM_REMOTE_JOB_REPAIRED=0
   root=$(fm_remote_job_canonical_existing_dir "$root") || {
@@ -1420,6 +1526,7 @@ fm_remote_job_ensure_worker() { # <remote-root> <account-home>
     FM_REMOTE_JOB_ERROR="configured remote root has no safe executable remote job worker"
     return 1
   }
+  FM_ROOT=$root
   platform=$(fm_remote_job_platform)
   if [ "$platform" = darwin ]; then
     if [ -n "${FM_REMOTE_JOB_STATE_ROOT:-}" ]; then
@@ -1432,18 +1539,10 @@ fm_remote_job_ensure_worker() { # <remote-root> <account-home>
       FM_REMOTE_JOB_ERROR="no Aqua login session exists for uid $uid; log that account in at the console, then run fm-on.sh <route> fm-remote-doctor.sh --fix"
       return 1
     fi
-    fm_remote_job_ensure_launchagent "$root" "$account_home" "$uid"
-    return
+    fm_remote_job_ensure_launchagent "$root" "$account_home" "$uid" || return 1
+    fm_remote_job_retire_legacy_launchagent "$root" "$account_home" "$uid" || true
+  else
+    fm_remote_job_ensure_linux_worker "$root" "$account_home" || return 1
+    fm_remote_job_retire_legacy_linux "$root" "$account_home" || true
   fi
-  fm_remote_job_start_linux_worker "$root" "$account_home" || return 1
-  fm_remote_job_wait_for_probe "$root" "$account_home" && return 0
-  # A replaced Linux supervisor can lose its first ownership race while the
-  # prior supervisor finishes releasing the shared worker lock. Retry the
-  # idempotent start once before reporting a startup failure.
-  fm_remote_job_start_linux_worker "$root" "$account_home" || return 1
-  FM_REMOTE_JOB_REPAIRED=1
-  fm_remote_job_wait_for_probe "$root" "$account_home" && return 0
-  # shellcheck disable=SC2034 # Sourceable API consumed by the entrypoint and remote doctor.
-  FM_REMOTE_JOB_ERROR="remote job worker did not report ready after startup"
-  return 1
 }

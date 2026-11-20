@@ -2877,7 +2877,8 @@ set -eu
 while [ "$#" -gt 0 ]; do
   case "$1" in -o) shift 2 ;; --) shift; break ;; *) exit 90 ;; esac
 done
-[ "$#" -eq 6 ] && [ "$1" = inherit-host ] && [ "$2" = fm-remote-entrypoint.sh ] && [ "$3" = 1 ] || exit 91
+[ "$#" -eq 6 ] && [ "$1" = inherit-host ] && [ "$3" = 1 ] || exit 91
+case "$2" in \'/*/bin/fm-remote-entrypoint.sh\') ;; *) exit 91 ;; esac
 remote_root=$(printf '%s' "$4" | base64 --decode)
 remote_home=$(printf '%s' "$5" | base64 --decode)
 args=()

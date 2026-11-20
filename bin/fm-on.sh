@@ -91,7 +91,11 @@ done < "$EXEC_REG"
 [ "$MATCHES" -gt 0 ] || die "no execution-home route or SSH alias matches '$ROUTE'"
 [ "$MATCHES" -eq 1 ] || die "remote route '$ROUTE' is ambiguous across $MATCHES configured execution homes; use a route id"
 case "$HOST" in ''|-*|*[!A-Za-z0-9._-]*) die "configured SSH alias is unsafe: $HOST" ;; esac
-case "$ROOT" in /*) ;; *) die "configured remote root is not absolute: $ROOT" ;; esac
+case "$ROOT" in
+  /) die "configured remote root cannot be the filesystem root" ;;
+  /*) ;;
+  *) die "configured remote root is not absolute: $ROOT" ;;
+esac
 case "$HOME_PATH" in /*) ;; *) die "configured remote home is not absolute: $HOME_PATH" ;; esac
 case "$ROOT$HOME_PATH" in *$'\n'*|*$'\r'*|*$'\t'*) die "configured remote root or home contains control characters" ;; esac
 for configured_path in "$ROOT" "$HOME_PATH"; do
@@ -99,6 +103,9 @@ for configured_path in "$ROOT" "$HOME_PATH"; do
   case "$configured_path" in *'//'*) die "configured remote root or home contains an empty path component" ;; esac
 done
 
+# OpenSSH joins remote arguments into shell input; the root may contain shell metacharacters.
+ENTRYPOINT="${ROOT%/}/bin/fm-remote-entrypoint.sh"
+ENTRYPOINT="'${ENTRYPOINT//\'/\'\\\'\'}'"
 ROOT_B64=$(printf '%s' "$ROOT" | encode_base64)
 HOME_B64=$(printf '%s' "$HOME_PATH" | encode_base64)
 ARGV_B64=$(printf '%s\0' "$COMMAND" "$@" | encode_base64)
@@ -116,7 +123,7 @@ SSH_ARGS=(
   -o 'SendEnv=-*'
   -o "ServerAliveInterval=$ALIVE_INTERVAL"
   -o "ServerAliveCountMax=$ALIVE_COUNT_MAX"
-  -- "$HOST" fm-remote-entrypoint.sh "$PROTOCOL" "$ROOT_B64" "$HOME_B64" "$ARGV_B64"
+  -- "$HOST" "$ENTRYPOINT" "$PROTOCOL" "$ROOT_B64" "$HOME_B64" "$ARGV_B64"
 )
 if [ "$STDIN_MODE" = caller ]; then
   exec "$SSH_BIN" "${SSH_ARGS[@]}"

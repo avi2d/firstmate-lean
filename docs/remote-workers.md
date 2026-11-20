@@ -12,13 +12,28 @@ This home keeps the backlog, the task records, the status stream, and every deci
 1. Configure an SSH alias with public-key authentication and strict host-key verification.
    Do not enable agent forwarding.
 2. Clone Firstmate on the execution host.
-   Put a symlink to that clone's `bin/fm-remote-entrypoint.sh` on the account's non-interactive SSH `PATH`.
+   Use the clone's canonical absolute path as the route's code root.
+   `fm-on.sh` invokes `bin/fm-remote-entrypoint.sh` in that clone without relying on the account's SSH `PATH`.
    The entrypoint accepts encoded arguments for tracked Firstmate commands, not shell command strings.
    The host needs Herdr, the selected worker tool, and access to the project origins.
 3. Seed the route with `bin/fm-remote-home-seed.sh --exec`.
    [Execution home routes](configuration.md#execution-home-routes) describes the record and its markers.
 4. Annotate each placed project with `host=<route>` in `data/projects.md`.
    `fm-project-mode.sh --placement <project>` reads that annotation.
+
+## Share an execution account
+
+Each code root has its own remote job queue, worker lock, and log.
+Linux runs a detached supervisor per root, and macOS loads a separate Aqua LaunchAgent per root.
+A different route that uses the same code root uses the same runner.
+
+Run `bin/fm-on.sh <route> fm-remote-doctor.sh --fix` to check the runner and install the root's `~/.local/bin/fm-remote-entrypoint-<key>.sh` link.
+The key is the SHA-256 digest of the canonical code root.
+Doctor does not replace an existing entrypoint link or modify the shared `~/.local/bin/fm-remote-entrypoint.sh` link that older callers use.
+
+If the shared runner belongs to the same root, Firstmate retires it once the new runner is ready and the shared queue is idle.
+Later calls retry retirement if the queue was busy.
+Firstmate leaves a shared runner owned by a different root alone.
 
 ## Lifecycle
 

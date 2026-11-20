@@ -132,7 +132,7 @@ make_lab() {  # <name> [host-ref]
 while [ "\$#" -gt 0 ]; do
   case "\$1" in -o) shift 2 ;; --) shift; break ;; *) exit 255 ;; esac
 done
-[ "\${1:-}" = lab-remote ] && [ "\${2:-}" = fm-remote-entrypoint.sh ] || exit 255
+[ "\${1:-}" = lab-remote ] && [ "\${2:-}" = "'$fm/bin/fm-remote-entrypoint.sh'" ] || exit 255
 printf '%s' "\${6:-}" | base64 --decode 2>/dev/null | tr '\\0' '\\n' | head -n 1 | grep -qx fm-remote-delta-read.sh || exit 255
 shift 2
 exec "$fm/bin/fm-remote-entrypoint.sh" "\$@"

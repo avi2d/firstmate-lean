@@ -37,7 +37,7 @@ cleanup() {
 }
 trap cleanup EXIT
 LOCAL_HOME="$TMP_ROOT/local-home"
-REMOTE_ROOT="$TMP_ROOT/remote-root"
+REMOTE_ROOT="$TMP_ROOT/remote root's checkout"
 REMOTE_HOME="$TMP_ROOT/remote-home"
 TOOL_PROBE_LOG="$TMP_ROOT/tool-probe.log"
 FAKEBIN=$(fm_fakebin "$TMP_ROOT/fakebin")
@@ -110,20 +110,20 @@ host=$1
 entry=$2
 shift 2
 [ "$host" = remote-mac ] || exit 91
-[ "$entry" = fm-remote-entrypoint.sh ] || exit 92
+case "$entry" in \'/*/bin/fm-remote-entrypoint.sh\') ;; *) exit 92 ;; esac
 case "${FM_FAKE_SSH_MODE:-normal}" in
   unreachable) exit 255 ;;
   ambiguous)
-    "$FM_FAKE_REMOTE_ENTRYPOINT" "$@"
+    sh -c "$entry $*"
     exit 255
     ;;
-  *) exec "$FM_FAKE_REMOTE_ENTRYPOINT" "$@" ;;
+  *) exec sh -c "$entry $*" ;;
 esac
 SH
 chmod +x "$FAKEBIN/fake-ssh"
 
 write_registry() {
-  cat > "$LOCAL_HOME/data/secondmates.md" <<EOF
+  cat > "$LOCAL_HOME/data/remote-homes.md" <<EOF
 - ios - iOS delivery (host: remote-mac; root: $REMOTE_ROOT; home: $REMOTE_HOME; scope: iOS work; projects: alpha; added 2026-08-02)
 EOF
 }
@@ -135,7 +135,6 @@ fm_on() {
   FM_SSH_BIN="$FAKEBIN/fake-ssh" \
   FM_FAKE_SSH_COUNT="$SSH_COUNT" \
   FM_FAKE_SSH_LOG="$SSH_LOG" \
-  FM_FAKE_REMOTE_ENTRYPOINT="$REMOTE_ROOT/bin/fm-remote-entrypoint.sh" \
   FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux \
   FM_REMOTE_JOB_STATE_ROOT="$TMP_ROOT/remote-jobs" \
   "$ROOT/bin/fm-on.sh" "$@"
@@ -506,7 +505,7 @@ if FM_HOME="$LOCAL_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_SSH_BIN="$FAKEBIN/fa
   fail "an option-shaped SSH route was accepted"
 fi
 ssh_before_bad_path=$(cat "$SSH_COUNT")
-cat > "$LOCAL_HOME/data/secondmates.md" <<EOF
+cat > "$LOCAL_HOME/data/remote-homes.md" <<EOF
 - ios - iOS delivery (host: remote-mac; root: $REMOTE_ROOT/../remote-root; home: $REMOTE_HOME; scope: iOS work; projects: alpha; added 2026-08-02)
 EOF
 if fm_on ios fm-probe-two.sh >/dev/null 2>&1; then
@@ -528,7 +527,7 @@ if "$REMOTE_ROOT/bin/fm-remote-entrypoint.sh" 1 "$traversal_root_b64" "$home_b64
 fi
 pass "the fixed entrypoint refuses incompatible protocols and unsafe roots"
 
-cat >> "$LOCAL_HOME/data/secondmates.md" <<EOF
+cat >> "$LOCAL_HOME/data/remote-homes.md" <<EOF
 - build - build delivery (host: remote-mac; root: $REMOTE_ROOT; home: $TMP_ROOT/other-remote-home; scope: build work; projects: beta; added 2026-08-02)
 EOF
 if fm_on remote-mac fm-probe-two.sh >/dev/null 2>&1; then

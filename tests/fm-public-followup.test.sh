@@ -2452,7 +2452,7 @@ host=$1
 entry=$2
 shift 2
 [ "$host" = remote-mac ] || exit 91
-[ "$entry" = fm-remote-entrypoint.sh ] || exit 92
+case "$entry" in \'/*/bin/fm-remote-entrypoint.sh\') ;; *) exit 92 ;; esac
 case "${FM_FAKE_SSH_MODE:-normal}" in
   unreachable) exit 255 ;;
   *) exec "$FM_FAKE_REMOTE_ENTRYPOINT" "$@" ;;

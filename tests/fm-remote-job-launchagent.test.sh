@@ -13,7 +13,7 @@ TMP_ROOT=$(fm_test_tmproot fm-remote-job-launchagent)
 TMP_ROOT=$(cd "$TMP_ROOT" && pwd -P)
 REMOTE_ROOT="$TMP_ROOT/remote-root"
 ACCOUNT_HOME="$TMP_ROOT/account"
-STATE_ROOT="$ACCOUNT_HOME/.firstmate/remote-job"
+FM_ROOT=$REMOTE_ROOT
 STUB_BIN="$TMP_ROOT/stub-bin"
 LAUNCH_LOG="$TMP_ROOT/launchctl.log"
 SWEEP_GATE="$TMP_ROOT/sweep-gate"
@@ -26,6 +26,11 @@ git -C "$REMOTE_ROOT" config user.email test@example.com
 git -C "$REMOTE_ROOT" config user.name Test
 git -C "$REMOTE_ROOT" add AGENTS.md bin
 git -C "$REMOTE_ROOT" commit -qm 'launchagent fixture'
+
+# shellcheck source=bin/fm-remote-job-lib.sh
+. "$ROOT/bin/fm-remote-job-lib.sh"
+STATE_ROOT=$(fm_remote_job_state_path "$ACCOUNT_HOME") || fail "could not name the test queue"
+JOB_LABEL=$(fm_remote_job_label "$REMOTE_ROOT") || fail "could not name the test agent"
 
 # The first sequence-claim removal holds the real worker inside its sweep until
 # the test releases it, far beyond the probe's freshness bound and wait.
@@ -101,7 +106,7 @@ start_worker() {
     /bin/sleep "${FM_TEST_SPAWN_DELAY:-1}"
     HOME="$FM_TEST_ACCOUNT" FM_ROOT_OVERRIDE="$FM_TEST_ROOT" \
       FM_REMOTE_JOB_PLATFORM_OVERRIDE=Darwin \
-      exec "$FM_TEST_WORKER"
+      exec "$FM_TEST_WORKER" --serve
   ) >> "$FM_TEST_WORKER_LOG" 2>&1 < /dev/null &
   printf '%s\n' "$!" > "$FM_TEST_TRACKED"
   set +m
@@ -109,12 +114,13 @@ start_worker() {
 case "${1:-}" in
   print)
     case "${2:-}" in
-      gui/*/dev.firstmate.remote-job)
+      gui/*/"$FM_TEST_LABEL")
         [ -f "$FM_TEST_LOADED" ] || exit 113
         printf 'path = %s\nprogram = %s\n' "$FM_TEST_PLIST" "$FM_TEST_WORKER"
         if pid=$(tracked_pid); then printf '\tpid = %s\n' "$pid"; fi
-        printf 'label = dev.firstmate.remote-job\n'
+        printf 'label = %s\n' "$FM_TEST_LABEL"
         ;;
+      gui/*/*) exit 113 ;;
       gui/[0-9]*) exit 0 ;;
       *) exit 113 ;;
     esac
@@ -154,13 +160,12 @@ export FM_TEST_WORKER="$REMOTE_ROOT/bin/fm-remote-job-worker.sh"
 export FM_TEST_WORKER_LOG="$TMP_ROOT/worker.log" FM_TEST_STATE="$STATE_ROOT"
 export FM_TEST_LOADED="$TMP_ROOT/launchagent.loaded" FM_TEST_TRACKED="$TMP_ROOT/launchagent.pid"
 export FM_TEST_REMOVING="$TMP_ROOT/launchagent.removing"
-export FM_TEST_PLIST="$ACCOUNT_HOME/Library/LaunchAgents/dev.firstmate.remote-job.plist"
+export FM_TEST_LABEL="$JOB_LABEL"
+export FM_TEST_PLIST="$ACCOUNT_HOME/Library/LaunchAgents/$JOB_LABEL.plist"
 export FM_TEST_SWEEP_GATE="$SWEEP_GATE"
 # The account-default state root: a private FM_REMOTE_JOB_STATE_ROOT makes
 # Darwin ensure refuse before it reaches launchctl.
 export FM_REMOTE_JOB_PLATFORM_OVERRIDE=Darwin
-# shellcheck source=bin/fm-remote-job-lib.sh
-. "$ROOT/bin/fm-remote-job-lib.sh"
 
 stop_pid() {
   local pid=$1
@@ -238,7 +243,7 @@ wait "$PROBE_WAITER" || fail 'replacement did not become ready after ownership p
 [ "$(fm_remote_job_read_single_line "$STATE_ROOT/worker.ready" 64)" = "$(lock_owner)" ] \
   || fail 'replacement readiness did not identify its recorded lock owner'
 rm -f "$FM_TEST_OWNER_GATE" "$FM_TEST_OWNER_GATE.observed" "$FM_TEST_OWNER_GATE.release"
-launchctl bootout "gui/$(id -u)/dev.firstmate.remote-job" || fail 'could not stop the replacement'
+launchctl bootout "gui/$(id -u)/$JOB_LABEL" || fail 'could not stop the replacement'
 pass 'a stale-code crash heartbeat cannot count as replacement readiness'
 
 # --- a slow sequence-claim sweep must not trigger a LaunchAgent reload -------
@@ -283,7 +288,7 @@ pass 'a slow sequence-claim sweep keeps readiness fresh and cannot trigger a Lau
 
 # --- concurrent callers cannot bootout-war a fresh asynchronous spawn ----------
 
-launchctl bootout "gui/$(id -u)/dev.firstmate.remote-job" || fail 'the stub launchd did not unload the agent'
+launchctl bootout "gui/$(id -u)/$JOB_LABEL" || fail 'the stub launchd did not unload the agent'
 ! kill -0 "$SWEEP_PID" 2>/dev/null || fail 'bootout did not stop the tracked worker'
 : > "$LAUNCH_LOG"
 CALLERS=()
@@ -379,9 +384,9 @@ plant_dead_repair_lock() {
 
 # Caller A reloads the agent and dies before its asynchronous spawn publishes
 # the worker lock or identity. Caller B must let that spawn finish starting.
-launchctl bootout "gui/$(id -u)/dev.firstmate.remote-job" || fail 'the stub launchd did not unload the agent'
+launchctl bootout "gui/$(id -u)/$JOB_LABEL" || fail 'the stub launchd did not unload the agent'
 launchctl bootstrap "gui/$(id -u)" "$FM_TEST_PLIST" || fail 'the stub launchd did not load the agent'
-FM_TEST_SPAWN_DELAY=3 launchctl kickstart -k "gui/$(id -u)/dev.firstmate.remote-job" \
+FM_TEST_SPAWN_DELAY=3 launchctl kickstart -k "gui/$(id -u)/$JOB_LABEL" \
   || fail 'the stub launchd did not kickstart the agent'
 plant_dead_repair_lock || fail 'could not plant the dead caller repair lock'
 SPAWN_PID=$(tracked)

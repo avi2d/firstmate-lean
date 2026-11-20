@@ -31,7 +31,7 @@
 set -eu
 
 PROTOCOL=1
-DOCTOR_SHA256=5133fc796d794a7b8eaf1ae255e4c380b9e50fde7400d7664b130dab51464f00
+DOCTOR_SHA256=b0768e4e3ffb2a351adbb00eee6fa50c5b95faf152865c0e3ce88054fb4b885c
 REAL_SOURCE=$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "${BASH_SOURCE[0]}" 2>/dev/null) ||
   REAL_SOURCE=$(realpath "${BASH_SOURCE[0]}" 2>/dev/null) ||
   REAL_SOURCE=${BASH_SOURCE[0]}
@@ -120,6 +120,7 @@ base64_decode_to "$4" "$TMP/argv" || die "invalid base64 for argv"
 ROOT=$(<"$TMP/root")
 HOME_PATH=$(<"$TMP/home")
 ROOT=$(fm_remote_job_canonical_existing_dir "$ROOT") || die "remote root is not a safe existing directory"
+FM_ROOT=$ROOT
 HOME_PATH=$(fm_remote_job_canonical_home "$HOME_PATH") || die "remote home is not a safe directory"
 [ -f "$ROOT/AGENTS.md" ] && [ ! -L "$ROOT/AGENTS.md" ] || die "remote root is not a Firstmate checkout"
 [ -d "$ROOT/bin" ] && [ ! -L "$ROOT/bin" ] || die "remote root has no safe bin directory"
@@ -141,6 +142,12 @@ ACCOUNT_HOME=$(CDPATH='' cd ~ 2>/dev/null && pwd -P) || die "cannot resolve the 
 fm_remote_job_compose_operator_path "$ACCOUNT_HOME" >/dev/null
 GIT_BIN=$(fm_remote_job_operator_tool git 2>/dev/null || true)
 if [ -n "$GIT_BIN" ]; then
+  if [ "$SCRIPT_DIR" != "$ROOT/bin" ] && [ -x "$ROOT/bin/fm-remote-entrypoint.sh" ] &&
+    [ -f "$ROOT/bin/fm-remote-entrypoint.sh" ] && [ ! -L "$ROOT/bin/fm-remote-entrypoint.sh" ] &&
+    "$GIT_BIN" -C "$ROOT" ls-files --error-unmatch bin/fm-remote-entrypoint.sh >/dev/null 2>&1; then
+    rm -rf -- "$TMP"
+    exec "$ROOT/bin/fm-remote-entrypoint.sh" "$@"
+  fi
   "$GIT_BIN" -C "$ROOT" ls-files --error-unmatch "bin/$COMMAND" >/dev/null 2>&1 \
     || die "command is not tracked by the configured remote root: $COMMAND"
 elif [ "$COMMAND" = fm-remote-doctor.sh ]; then
