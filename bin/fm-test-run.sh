@@ -560,7 +560,7 @@ EOF
 #
 # Membership is empirical, never assumed:
 # `bin/fm-test-isolation-proof.sh --pool <family> --jobs 4` is the owner of the
-# proof, and docs/fm-test-isolation-proof.md records the dated result.
+# proof.
 list_concurrent_safe_families() {
   cat <<'EOF'
 watcher-wake-lock
@@ -1687,7 +1687,6 @@ families_for_changed_path() {
       printf '%s\n' pure-contract-unit
       printf '%s\n' real-herdr-gated
       ;;
-    docs/fm-test-isolation-proof.md|\
     docs/fm-test-isolation-proof.json)
       printf '%s\n' pure-contract-unit
       ;;

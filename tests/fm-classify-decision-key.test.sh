@@ -4,7 +4,7 @@
 # documented between the verb and the colon (needs-decision [key=x]: note), but
 # workers commonly write the colon first (needs-decision: [key=x] note); that
 # stated key must be honored, never silently folded into the shared "default"
-# bucket where an answer can close the wrong record (issue #2109). Also covers
+# bucket where an answer can close the wrong record. Also covers
 # status_line_verb's bracket-tag stripping: a remote secondmate reply prepends
 # a "[corr=...]" correlation tag before (or without) "[key=...]", and every
 # such tag before the colon must be stripped so the leading word is the bare

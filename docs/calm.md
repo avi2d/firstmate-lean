@@ -3,6 +3,8 @@
 Calm is Firstmate's conversation-only transcript presentation toggle.
 Calm on Pi hides some transcript rows and keeps others visible, and one file owns each part of that behavior.
 
+- [`calm-mode-feasibility.md`](calm-mode-feasibility.md) owns the version-scoped renderer taxonomy, built-in override constraints, and empirical evidence.
+
 ## Harness support and default
 
 Calm is off by default.
@@ -164,7 +166,6 @@ How Calm handles that shared slot depends on whether Calm was already on when th
 
 ### Owning docs and files
 
-- [`calm-mode-feasibility.md`](calm-mode-feasibility.md) owns the version-scoped renderer taxonomy, built-in override constraints, and empirical evidence.
 - [`configuration.md`](configuration.md#calm-preference-configcalm) owns the persisted preference file and resolution rules.
 - `.pi/extensions/lib/fm-calm-visibility.ts` owns the visibility policy.
 - `.pi/extensions/lib/fm-calm-preservation.ts` owns the substantive mid-turn text rule.
