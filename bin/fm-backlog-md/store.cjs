@@ -56,21 +56,27 @@ function regularDirectory(dir, optional = false) {
   return true;
 }
 
-function readTicket(file, archived) {
+function readTicketFile(file) {
   const content = fs.readFileSync(file, 'utf8');
   const parsed = /^---\r?\n([^]*?)\r?\n---\r?\n([^]*)$/.exec(content);
   if (!parsed) throw configError(file, 'missing YAML front matter');
-
   const fields = yaml.parse(parsed[1]);
-  if (!object(fields) || typeof fields.id !== 'string' || !SLUG.test(fields.id) ||
-      typeof fields.title !== 'string' || !STATUSES.includes(fields.status) ||
+  if (!object(fields) || typeof fields.id !== 'string' || !SLUG.test(fields.id)) {
+    throw configError(file, 'invalid ticket ID');
+  }
+  return { fields, markdown: parsed[2] };
+}
+
+function readTicket(file, archived) {
+  const { fields, markdown } = readTicketFile(file);
+  if (typeof fields.title !== 'string' || !STATUSES.includes(fields.status) ||
       ['labels', 'dependencies', 'references'].some(key => fields[key] != null && !stringList(fields[key])) ||
-      ['type', 'project', 'priority', 'created_date', 'updated_date', 'closed_date', 'hold_until', 'hold_reason']
+      ['type', 'project', 'priority', 'created_date', 'updated_date', 'closed_date', 'hold_until', 'hold_reason', 'parent_task_id']
         .some(key => fields[key] != null && typeof fields[key] !== 'string') ||
       (fields.ordinal != null && !Number.isSafeInteger(fields.ordinal))) {
     throw configError(file, 'invalid ticket fields');
   }
-  return { file, fields, markdown: parsed[2], archived };
+  return { file, fields, markdown, archived };
 }
 
 function markers(section) {
@@ -148,6 +154,19 @@ function board(root) {
 
   return {
     tickets,
+    draftIds() {
+      const ids = [];
+      for (const directory of [path.join(backlog, 'drafts'), path.join(archive, 'drafts')]) {
+        if (!regularDirectory(directory, true)) continue;
+        for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+          if (!entry.name.endsWith('.md')) continue;
+          const file = path.join(directory, entry.name);
+          if (!entry.isFile()) throw configError(file, 'expected a regular draft file, not a symlink');
+          ids.push(readTicketFile(file).fields.id);
+        }
+      }
+      return ids;
+    },
     add(draft) {
       const { fields } = draft;
       if (boardIds.has(fields.id.toUpperCase())) {

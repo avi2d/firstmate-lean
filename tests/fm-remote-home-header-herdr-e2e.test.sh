@@ -120,7 +120,7 @@ parent() {
 
 launch() {  # <task-id>
   local id=$1 out
-  parent "$ROOT/bin/fm-tasks-axi.sh" add "$id" 'Research alpha' --kind scout >/dev/null \
+  parent tasks-axi add "$id" 'Research alpha' --kind scout --file "$PARENT/data/backlog.md" >/dev/null \
     || fail "could not file backlog item $id"
   mkdir -p "$PARENT/data/$id"
   printf "# Task\n## Captain's intent\nResearch the project.\n\n## Firstmate spec\nReport evidence.\n" \

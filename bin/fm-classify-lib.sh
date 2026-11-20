@@ -169,7 +169,7 @@ last_status_line() {  # <status-file> [<previous-event-var>]
 # 0 when <verb> is exactly one recognized status verb, with no leftover token.
 _fm_status_verb_recognized() {  # <verb>
   case "$1" in
-    working|needs-decision|blocked|done|failed|note|\
+    working|needs-decision|blocked|done|failed|note|followup|\
     "${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}"|\
     "${FM_CLASSIFY_RESOLVE_VERB:-$FM_CLASSIFY_RESOLVE_VERB_DEFAULT}"|\
     "${FM_CLASSIFY_CAPTAIN_HELD_VERB:-$FM_CLASSIFY_CAPTAIN_HELD_VERB_DEFAULT}")
@@ -2492,14 +2492,15 @@ status_new_lines_since_cursor() {  # <status-file> [<captured-end-offset>]
   return "$rc"
 }
 
-# 0 when a status line is an informational `note:` or a reserved-key
-# pending-reply resolution. Those lines never fold into OPEN DECISIONS, so the
-# drain's unread-status surface is their only guaranteed presentation.
+# 0 when a status line is an informational `note:`, a `followup:`, or a
+# reserved-key pending-reply resolution. Those lines never fold into OPEN
+# DECISIONS, so the drain's unread-status surface is their only guaranteed
+# presentation.
 status_line_is_unread_surface() {  # <status-line>
   local line=$1 verb key note resolve held prefix
   [ -n "$line" ] || return 1
   verb=$(status_line_verb "$line")
-  [ "$verb" = note ] && return 0
+  case "$verb" in note|followup) return 0 ;; esac
   resolve=${FM_CLASSIFY_RESOLVE_VERB:-$FM_CLASSIFY_RESOLVE_VERB_DEFAULT}
   held=${FM_CLASSIFY_CAPTAIN_HELD_VERB:-$FM_CLASSIFY_CAPTAIN_HELD_VERB_DEFAULT}
   case "$verb" in
@@ -2520,7 +2521,7 @@ status_line_is_unread_surface() {  # <status-line>
 }
 
 # Fleet-wide unread informational lines: one "<task>\t<status-line>" row per
-# still-unread `note:` or pending-reply resolution, in glob (task id) order.
+# still-unread `note:`, `followup:`, or pending-reply resolution, in glob (task id) order.
 # Prints nothing when none are unread. Directory scan rejects status symlinks
 # the same way scan_open_decisions does.
 scan_unread_surface_lines() {  # <state>

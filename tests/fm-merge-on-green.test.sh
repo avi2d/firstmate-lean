@@ -375,7 +375,7 @@ test_security_refusal_holds_once_and_never_retries() {
   local c
   c=$(make_case security-refused)
   printf '[{"filename":".env"}]\n' > "$c/files.json"
-  run_in "$c" "$ROOT/bin/fm-tasks-axi.sh" add task-x1 "fixture change" --kind ship --repo fixture >/dev/null \
+  run_in "$c" tasks-axi add task-x1 "fixture change" --kind ship --repo fixture --file "$c/home/data/backlog.md" >/dev/null \
     || fail "security-refused: could not file the backlog item"
   sweep "$c"
   [ "$(grep -c ' merge-refused ' "$c/state/merge-on-green.log")" -eq 1 ] \

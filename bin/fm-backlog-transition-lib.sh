@@ -328,6 +328,63 @@ fm_backlog_transition_applies() {  # <config-dir> <data-dir> <kind>
   return 0
 }
 
+# An execution home holds no backlog: the supervising home that routed the task
+# here owns its item.
+fm_home_is_execution_home() {
+  [ -f "${FM_HOME:-}/.fm-exec-home" ] && [ ! -L "${FM_HOME:-}/.fm-exec-home" ]
+}
+
+# A markdown backlog that does not exist is no backlog, the same skip
+# fm_backlog_transition_applies makes for a home that is not manual.
+fm_backlog_manual_home_keeps_backlog() {  # <data-dir>
+  local data root file
+  data=$(fm_backlog_data_absolute "$1") || return 0
+  root=$(fm_backlog_root "$data") || return 0
+  [ "$(fm_tasks_axi_backend "$root" 2>/dev/null)" = markdown ] || return 0
+  file=$(fm_backlog_file "$data") || return 0
+  [ -e "$file" ] || [ -L "$file" ]
+}
+
+# Set by fm_backlog_item_gate: 1 when the item was read from this home's
+# backlog, 0 when this home owns no backlog for the task.
+FM_BACKLOG_ITEM_TRACKED=0
+FM_BACKLOG_ITEM_ERROR=
+
+# The one rule dispatch and steering share: a task this home's backlog owns
+# must have an item there. A manual home skips the transitions but still owns
+# the backlog it keeps, so the manual exemption above does not exempt it here.
+# Returns 1 for a missing item, 2 for an inaccessible data directory and 3 for
+# an unreadable item, each with FM_BACKLOG_ITEM_ERROR set; FM_BACKLOG_ROW_STATE
+# holds the row on success.
+fm_backlog_item_gate() {  # <config-dir> <data-dir> <id> <kind>
+  local config=$1 data=$2 id=$3 kind=$4 applies=0
+  FM_BACKLOG_ITEM_TRACKED=0
+  FM_BACKLOG_ITEM_ERROR=
+  fm_backlog_transition_applies "$config" "$data" "$kind" || applies=$?
+  case "$applies" in
+    0) ;;
+    1)
+      fm_backlog_backend_manual "$config" || return 0
+      ! fm_home_is_execution_home || return 0
+      fm_backlog_manual_home_keeps_backlog "$data" || return 0
+      ;;
+    *)
+      FM_BACKLOG_ITEM_ERROR="task $id's backlog data directory is inaccessible: $data ($FM_BACKLOG_TRANSITION_ERROR)"
+      return 2
+      ;;
+  esac
+  if fm_backlog_row_probe "$data" "$id"; then
+    FM_BACKLOG_ITEM_TRACKED=1
+    return 0
+  fi
+  if [ "$FM_BACKLOG_ROW_RESULT" = not_found ]; then
+    FM_BACKLOG_ITEM_ERROR="task $id has no backlog item in this home"
+    return 1
+  fi
+  FM_BACKLOG_ITEM_ERROR="task $id's backlog item could not be read ($FM_BACKLOG_ROW_ERROR)"
+  return 3
+}
+
 # Run `tasks-axi` with an optional FM_TASKS_AXI_TIMEOUT bound. A caller that
 # holds a lock across the call - the spawn commit and its preservation
 # read-back run under the per-task meta lock - sets the bound, so an
@@ -596,7 +653,7 @@ fm_backlog_row_artifact_supported() {
 # bin/fm-fleet-snapshot.sh classifies that retained hold from its structured
 # fields; only bin/fm-captain-hold.sh answer resolves the call.
 fm_backlog_retain() {  # <data-dir> <id> [flag...]
-  local data authorized_data=$1 id=$2 out command_status previous_arg=''
+  local data authorized_data=$1 id=$2 command_status previous_arg=''
   local arg deliverable='' line body new_body tmp
   local -a row_args=()
   if ! data=$(fm_backlog_data_absolute "$1"); then
@@ -626,36 +683,10 @@ fm_backlog_retain() {  # <data-dir> <id> [flag...]
     previous_arg=$arg
   done
   if [ -n "$deliverable" ]; then
-    out=$(fm_backlog_row_show "$data" "$id" --full)
-    command_status=$?
-    [ "$command_status" -ne 124 ] || FM_BACKLOG_ROW_SHOW_WEDGED=1
-    if [ "$command_status" -ne 0 ]; then
-      FM_BACKLOG_TRANSITION_ERROR=$(printf '%s\n' "$out" | sed -n '1p')
-      [ -n "$FM_BACKLOG_TRANSITION_ERROR" ] \
-        || FM_BACKLOG_TRANSITION_ERROR="tasks-axi show $id failed with no output"
-      return "$command_status"
-    fi
-    # The leading quote selects a JSON-encoded bare string, which is exactly the
-    # value an older JSON::PP rejects unless allow_nonref is asked for, so the
-    # decoder below requests it rather than inheriting the local default. It then
-    # writes bytes, because printing the decoded characters to a stream with no
-    # :raw layer emits a codepoint at or below U+00FF as one latin-1 byte and
-    # silently corrupts the body this rewrites.
-    body=$(printf '%s\n' "$out" | sed -n 's/^  body: //p' | head -1 \
-      | LC_ALL=C perl -MJSON::PP -e '
-        local $/;
-        my $shown = <STDIN>;
-        $shown =~ s/\s+\z//;
-        exit 0 if $shown eq "" || $shown eq "-";
-        my $value = $shown =~ /\A"/
-          ? JSON::PP->new->utf8->allow_nonref->decode($shown) : $shown;
-        binmode STDOUT, ":raw";
-        utf8::encode($value) if utf8::is_utf8($value);
-        print $value unless $value eq "-";
-      ') || {
-      FM_BACKLOG_TRANSITION_ERROR="could not decode the task body of $id"
-      return 1
-    }
+    command_status=0
+    fm_backlog_row_body "$data" "$id" || command_status=$?
+    [ "$command_status" -eq 0 ] || return "$command_status"
+    body=$FM_BACKLOG_ROW_BODY
     line="Deliverable of the finished work: $deliverable"
     case $'\n'"$body"$'\n' in
       *$'\n'"$line"$'\n'*) ;;
@@ -683,6 +714,188 @@ fm_backlog_retain() {  # <data-dir> <id> [flag...]
     fm_backlog_mutate "$authorized_data" update "$id" "${row_args[@]}" || return 1
   fi
   fm_backlog_mutate "$authorized_data" reopen "$id"
+}
+
+# Set by fm_backlog_row_body: the decoded body of the row it read.
+FM_BACKLOG_ROW_BODY=
+
+# Reads <id>'s body into FM_BACKLOG_ROW_BODY, empty when the row has none.
+fm_backlog_row_body() {  # <resolved-data-dir> <id>
+  local data=$1 id=$2 out command_status
+  FM_BACKLOG_ROW_BODY=
+  out=$(fm_backlog_row_show "$data" "$id" --full)
+  command_status=$?
+  [ "$command_status" -ne 124 ] || FM_BACKLOG_ROW_SHOW_WEDGED=1
+  if [ "$command_status" -ne 0 ]; then
+    FM_BACKLOG_TRANSITION_ERROR=$(printf '%s\n' "$out" | sed -n '1p')
+    [ -n "$FM_BACKLOG_TRANSITION_ERROR" ] \
+      || FM_BACKLOG_TRANSITION_ERROR="tasks-axi show $id failed with no output"
+    return "$command_status"
+  fi
+  # The leading quote selects a JSON-encoded bare string, which is exactly the
+  # value an older JSON::PP rejects unless allow_nonref is asked for, so the
+  # decoder below requests it rather than inheriting the local default. It then
+  # writes bytes, because printing the decoded characters to a stream with no
+  # :raw layer emits a codepoint at or below U+00FF as one latin-1 byte and
+  # silently corrupts the body this rewrites.
+  FM_BACKLOG_ROW_BODY=$(printf '%s\n' "$out" | sed -n 's/^  body: //p' | head -1 \
+    | LC_ALL=C perl -MJSON::PP -e '
+      local $/;
+      my $shown = <STDIN>;
+      $shown =~ s/\s+\z//;
+      exit 0 if $shown eq "" || $shown eq "-";
+      my $value = $shown =~ /\A"/
+        ? JSON::PP->new->utf8->allow_nonref->decode($shown) : $shown;
+      binmode STDOUT, ":raw";
+      utf8::encode($value) if utf8::is_utf8($value);
+      print $value unless $value eq "-";
+    ') || {
+    FM_BACKLOG_ROW_BODY=
+    FM_BACKLOG_TRANSITION_ERROR="could not decode the task body of $id"
+    return 1
+  }
+}
+
+# Appends one entry to the "## Messages" section of <id>'s body, creating the
+# section at the end of the body when it is missing. Neither backend offers an
+# atomic append, so the read and the rewrite run under one flock on the data
+# directory, which every caller of this function shares.
+fm_backlog_append_message() {  # <data-dir> <id> <sender> <text>
+  local data authorized_data=$1 id=$2 sender=$3 text=$4 lock_fd tmp stamp entry status=0
+  FM_BACKLOG_TRANSITION_ERROR=
+  if ! data=$(fm_backlog_data_absolute "$1"); then
+    FM_BACKLOG_TRANSITION_ERROR="data directory cannot be resolved: $1"
+    return 1
+  fi
+  stamp=$(date -u +%Y-%m-%dT%H:%MZ)
+  entry=$(printf '%s' "$text" | LC_ALL=C perl -e '
+    local $/;
+    my ($stamp, $sender) = @ARGV;
+    my $text = <STDIN> // "";
+    $text =~ s/\r//g;
+    $text =~ s/\s+\z//;
+    my @lines = split /\n/, $text, -1;
+    my $first = shift @lines // "";
+    print "- $stamp $sender: $first";
+    print "\n", ($_ eq "" ? "" : "  $_") for @lines;
+  ' "$stamp" "$sender")
+  if ! exec {lock_fd}>>"$data/.fm-backlog-messages.lock"; then
+    FM_BACKLOG_TRANSITION_ERROR="cannot open the message lock in $data"
+    return 1
+  fi
+  if ! flock -w "${FM_BACKLOG_MESSAGE_LOCK_SECS:-10}" "$lock_fd"; then
+    exec {lock_fd}>&-
+    FM_BACKLOG_TRANSITION_ERROR="the message lock in $data stayed busy"
+    return 1
+  fi
+  fm_backlog_row_body "$data" "$id" || status=$?
+  if [ "$status" -eq 0 ]; then
+    tmp=$(umask 077; mktemp "${TMPDIR:-/tmp}/fm-backlog-message.XXXXXX") || {
+      FM_BACKLOG_TRANSITION_ERROR="cannot stage the message for $id"
+      status=1
+    }
+  fi
+  if [ "$status" -eq 0 ]; then
+    printf '%s' "$FM_BACKLOG_ROW_BODY" | FM_BACKLOG_MESSAGE_ENTRY=$entry LC_ALL=C perl -e '
+      local $/;
+      my $body = <STDIN> // "";
+      $body =~ s/\s+\z//;
+      my $entry = $ENV{FM_BACKLOG_MESSAGE_ENTRY};
+      if ($body =~ /^## Messages[ \t]*$/m) {
+        my $start = $+[0];
+        my $rest = substr($body, $start);
+        my $end = $rest =~ /\n(?=## )/ ? $-[0] : length $rest;
+        my $section = substr($rest, 0, $end);
+        $section =~ s/\s+\z//;
+        my $tail = substr($rest, $end);
+        $tail =~ s/\A\s+//;
+        $body = substr($body, 0, $start) . $section
+          . ($section =~ /\S/ ? "\n" : "\n\n") . $entry
+          . ($tail eq "" ? "" : "\n\n" . $tail);
+      } else {
+        $body = ($body eq "" ? "" : "$body\n\n") . "## Messages\n\n$entry";
+      }
+      print "$body\n";
+    ' > "$tmp" || {
+      FM_BACKLOG_TRANSITION_ERROR="cannot stage the message for $id"
+      status=1
+    }
+    [ "$status" -ne 0 ] || fm_backlog_mutate "$authorized_data" update "$id" --body-file "$tmp" || status=$?
+    rm -f -- "$tmp"
+  fi
+  exec {lock_fd}>&-
+  return "$status"
+}
+
+# Set by fm_backlog_file_followup: the id of the follow-up item, 1 when this
+# call created it rather than finding it already filed, and why the parent's
+# messages could not log it.
+FM_BACKLOG_FOLLOWUP_ID=
+FM_BACKLOG_FOLLOWUP_CREATED=0
+FM_BACKLOG_FOLLOWUP_LOG_ERROR=
+
+fm_backlog_file_followup() {
+  local config=$1 authorized_data=$2 parent=$3 line=$4 project_path=${5:-}
+  local data title digest key repo out id script_dir parent_number
+  local -a link=() add_command=()
+  FM_BACKLOG_FOLLOWUP_ID=
+  FM_BACKLOG_FOLLOWUP_CREATED=0
+  FM_BACKLOG_FOLLOWUP_LOG_ERROR=
+  FM_BACKLOG_TRANSITION_ERROR=
+  title=$(status_line_note "$line" | tr '\t\r\n' '   ' | sed 's/^ *//; s/ *$//')
+  if [ -z "$title" ]; then
+    FM_BACKLOG_TRANSITION_ERROR="the followup line names no work"
+    return 1
+  fi
+  data=$(fm_backlog_data_absolute "$authorized_data") || {
+    FM_BACKLOG_TRANSITION_ERROR="data directory cannot be resolved: $authorized_data"
+    return 1
+  }
+  fm_backlog_source_present "$data" "$authorized_data" || return
+  if ! out=$(fm_backlog_row_show "$data" "$parent" 2>&1); then
+    FM_BACKLOG_TRANSITION_ERROR=${out%%$'\n'*}
+    return 1
+  fi
+  repo=$(printf '%s\n' "$out" | sed -n 's/^  repo: //p' | head -n 1)
+  if [[ $repo = \"* ]]; then repo=$(printf '%s\n' "$repo" | jq -r .) || repo=; fi
+  if [ -z "$repo" ] || [ "$repo" = - ]; then
+    project_path=${project_path%/}
+    repo=${project_path##*/}
+  fi
+  if [ -z "$repo" ] && [[ $parent = *-* ]]; then
+    parent_number=${parent##*-}
+    case "$parent_number" in
+      ''|*[!0-9]*) ;;
+      *) repo=${parent%-*} ;;
+    esac
+  fi
+  if [ -z "$repo" ]; then
+    FM_BACKLOG_TRANSITION_ERROR="no project is recorded for follow-ups to $parent"
+    return 1
+  fi
+  digest=$(printf '%s' "$line" | cksum | cut -d' ' -f1)
+  key="$parent-fu-$(printf '%08x' "$digest")"
+  [ "$(fm_backlog_backend_value "$config")" != backlog-md ] || link=(--parent "$parent")
+  script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+  add_command=(bash "$script_dir/fm-tasks-axi.sh" add "$title" --mint --repo "$repo" --json \
+    --followup-key "$key" --body "Follow-up reported by the worker on $parent." ${link[@]+"${link[@]}"})
+  if [ -n "${FM_TASKS_AXI_TIMEOUT:-}" ]; then
+    add_command=(fm_exec_timed "$FM_TASKS_AXI_TIMEOUT" "$FM_TASKS_AXI_TIMEOUT" "${add_command[@]}")
+  fi
+  if ! out=$(FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" "${add_command[@]}" 2>&1); then
+    FM_BACKLOG_TRANSITION_ERROR=${out%%$'\n'*}
+    return 1
+  fi
+  if ! id=$(printf '%s\n' "$out" | jq -er 'select(.ok) | .task.id | strings'); then
+    FM_BACKLOG_TRANSITION_ERROR="add returned no follow-up ID for $parent"
+    return 1
+  fi
+  FM_BACKLOG_FOLLOWUP_ID=$id
+  if printf '%s\n' "$out" | jq -e '.already == true' >/dev/null; then return 0; fi
+  FM_BACKLOG_FOLLOWUP_CREATED=1
+  fm_backlog_append_message "$data" "$parent" worker "follow-up filed as $id: $title" \
+    || FM_BACKLOG_FOLLOWUP_LOG_ERROR=$FM_BACKLOG_TRANSITION_ERROR
+  return 0
 }
 
 fm_backlog_canonical_existing() {

@@ -2507,25 +2507,28 @@ herdr_projection_existing_meta_allows_flat() { # <meta>
 # a live pane. The authoritative mutation still runs under the meta lock below.
 BACKLOG_TRANSITION=0
 BACKLOG_ROW_STATE=
-if fm_backlog_transition_applies "$CONFIG" "$DATA" "$KIND"; then
-  BACKLOG_TRANSITION=1
-  if fm_backlog_row_probe "$DATA" "$ID"; then
-    BACKLOG_ROW_STATE=$FM_BACKLOG_ROW_STATE
-  elif [ "$FM_BACKLOG_ROW_RESULT" = not_found ]; then
-    echo "error: task $ID has no backlog item in this home, so dispatching it would leave a worker no record owns; add it first (bin/fm-tasks-axi.sh add $ID '<title>' --kind $KIND) and re-run" >&2
+BACKLOG_GATE_STATUS=0
+fm_backlog_item_gate "$CONFIG" "$DATA" "$ID" "$KIND" || BACKLOG_GATE_STATUS=$?
+case "$BACKLOG_GATE_STATUS" in
+  0) ;;
+  1)
+    echo "error: $FM_BACKLOG_ITEM_ERROR, so dispatching it would leave a worker no record owns; file it first (see bin/fm-tasks-axi.sh add --help), then dispatch using the filed ID" >&2
     exit 1
-  else
+    ;;
+  2)
+    echo "error: task $ID cannot be dispatched because its backlog data directory is inaccessible: $DATA ($FM_BACKLOG_TRANSITION_ERROR)" >&2
+    exit 1
+    ;;
+  *)
     echo "error: task $ID's backlog item could not be read before dispatch ($FM_BACKLOG_ROW_ERROR)" >&2
     exit 1
-  fi
+    ;;
+esac
+if [ "$FM_BACKLOG_ITEM_TRACKED" = 1 ] && ! fm_backlog_backend_manual "$CONFIG"; then
+  BACKLOG_TRANSITION=1
+  BACKLOG_ROW_STATE=$FM_BACKLOG_ROW_STATE
   if ! fm_backlog_row_dispatchable "$BACKLOG_ROW_STATE"; then
     echo "error: this home's backlog item $ID is not dispatchable in state $BACKLOG_ROW_STATE; refusing before creating its endpoint or local copy" >&2
-    exit 1
-  fi
-else
-  BACKLOG_GATE_STATUS=$?
-  if [ "$BACKLOG_GATE_STATUS" -eq 2 ]; then
-    echo "error: task $ID cannot be dispatched because its backlog data directory is inaccessible: $DATA ($FM_BACKLOG_TRANSITION_ERROR)" >&2
     exit 1
   fi
 fi

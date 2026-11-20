@@ -273,7 +273,7 @@ export function installCalmOperationalUserLayout(): void {
     override render(width: number): string[] {
       if (this.hidden()) return [];
       const lines = this.expanded
-        ? super.render(width)
+        ? [...super.render(width)]
         : [renderCollapsedOperationalRow(this.row, width, this.rowOutputPad, expandKey(), patch.theme)];
       return this.hasLeadingSpacer ? ["", ...lines] : lines;
     }
