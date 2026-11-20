@@ -33,7 +33,6 @@ The helper's header owns its provider mapping and quota selection mechanics.
 An `exhausted_now` runway vetoes the candidate.
 The helper selects a candidate only when its applicable quota has a known `effectivePercentRemaining` greater than zero.
 This is an optional narrow helper with a known limitation: it maps each harness to one primary provider family only, so a candidate whose established provider differs from that primary family is checked against the wrong quota row.
-omp has no primary family, so the helper keys an `omp:` candidate on its model prefix, mapping only `openai-codex/` and `claude-bridge/` and refusing every other prefix; the helper's header owns that mapping.
 Authoritative multi-provider routing - including provider discovery from the harness catalog and quota matching by that explicit provider - stays owned by this skill's intake procedure above and AGENTS.md section 4, not by the helper.
 Use it only when the brief already fixed the candidate order and every candidate's provider is the harness's primary family.
 It does not replace the reasoning-class, runway-feasibility, or authentication gates above.
@@ -95,10 +94,9 @@ Uncertainty and ineligibility are different findings:
 - Only concrete contradictory evidence blocks: an authoritative catalog proving the model unsupported, or proof that the credential the candidate actually selects is unusable.
 - Reserve login wording for that proven-unusable case, and name the harness, model, surface, and evidence.
 
-When a credential's local classification is the only thing standing between a candidate and a block, get ground truth before blocking.
-`bin/fm-vendor-auth-probe.sh` is the only approved vendor-credential probe; its `--help` owns the registered probes and mechanics.
-It takes no harness, model, or provider and returns a fact, not a route: only `authenticated` and `unauthenticated` are ground truth, while `indeterminate`, `timeout`, and `unavailable` establish nothing and must never be read as either outcome.
-Never launch a vendor CLI yourself, and never probe a credential store the candidate does not use.
+If the candidate's credential is uncertain, report the uncertainty and name the evidence needed to resolve it.
+Use only the candidate's Pi provider and account evidence.
+Never launch a standalone vendor CLI or read credential files for a dispatch check.
 Grok prepaid `credits` are unrelated to paid-window headroom; never read them as exhaustion.
 
 Malformed configuration is an actionable error, not a candidate to rank around.
@@ -166,10 +164,10 @@ If no candidate passes, stop and report every candidate with its failing gate.
 The duty to account for every candidate, including those after the chosen one, is unchanged.
 
 Account for every candidate visibly before selecting or escalating, naming its catalog evidence, provider relation, applicable quota and authentication facts, remaining uncertainty, fit and reasoning class, `spendPriority`, and runway-versus-horizon result.
-A blocked credential report must name `harness`, `model`, authentication surface, and concrete failure evidence; never emit a bare `Grok unauthenticated` statement.
+A blocked credential report must name `harness`, `model`, authentication surface, and concrete failure evidence; never emit a provider name without the account and failure evidence.
 Never conclude with an unexplained "best quota" label.
 Save that accounting as the task selection record at `data/<id>/dispatch-selection.md` when it drives the launch, because `fm-spawn.sh` refuses a launch its proof does not cover.
 The record names the matched rule by index such as `rule_1` or `default` for the default array, carries exactly one `candidate:` line per entry of that rule's `use` array, and ends with the `chosen:` profile.
-Each candidate line names its entry's harness and model with the quota reading, for example `candidate: grok:grok-4 provider=grok remaining=50% spendPriority=10 runway=through_reset -> eligible`.
+Each candidate line names its entry's harness and model with the quota reading, for example `candidate: pi:openrouter/anthropic/claude-sonnet-4.6 provider=openrouter remaining=50% spendPriority=10 runway=through_reset -> eligible`.
 The chosen profile must be one of those candidates and equal the launch, and a stated `override:` reason line is the only way to launch a profile outside the listed candidates.
 [`docs/configuration.md`](../../../docs/configuration.md#crew-dispatch-profiles-configcrew-dispatchjson) owns the proof contract.
