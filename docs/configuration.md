@@ -345,6 +345,7 @@ List the project's task types, priorities `p0` through `p4`, and project names i
 
 The wrapper supports `show`, `add`, `list`, `ready`, `update`, `done`, `block`, `hold`, `unhold`, `unblock`, and `edit`.
 Use `update --body` to replace a task body.
+Use `add --parent <id>` to record the new ticket as a subtask of an open ticket.
 The wrapper rejects `note`, as does tasks-axi.
 Each task name stays in the ticket's `id` field.
 A held ticket uses the `Waiting` column and a `waiting-on:<kind>` label, with an optional `hold_until` date.
@@ -404,6 +405,25 @@ Completion refuses to report success until the item is closed, and session start
 
 When a spawn is interrupted after launch delivery began, its exit path re-reads the paired task record and the backlog row under the same per-task lock as the commit, repairs a row the commit believed it had moved, and reports only what was verified or honestly attempted, never intent phrased as outcome ([`bin/fm-spawn.sh`](../bin/fm-spawn.sh); [`tests/fm-backlog-atomicity.test.sh`](../tests/fm-backlog-atomicity.test.sh)).
 
+### Every task has a backlog item
+
+Dispatch and steering share one rule, `fm_backlog_item_gate` in [`bin/fm-backlog-transition-lib.sh`](../bin/fm-backlog-transition-lib.sh).
+In a home that keeps a backlog, `bin/fm-spawn.sh` and `bin/fm-send.sh` refuse a task id with no item there, and nothing is created or sent.
+The rule holds in a `manual` home too.
+It does not apply in an execution home, whose supervising home owns the item, or in a home with no backlog file.
+
+Each text message `bin/fm-send.sh` delivers is appended to the `## Messages` section of the task's item, with the UTC time and the sender.
+The sender is `user` when `--resolve-key` answers a decision and `firstmate` otherwise.
+A failed append is reported after delivery and never undoes it, so do not resend the message.
+If the backlog cannot be read, the message is still sent with a warning.
+
+A worker reports a correction or follow-up it found as `followup [at=<epoch>]: <one-line title>` in its status file.
+The wake drain files each such line once as a queued item named `<task>-fu-<hash>` and logs it in the parent item's messages.
+On the Backlog.md backend the item is a subtask of its task.
+The drain's `UNREAD STATUS` line says whether the item was filed or could not be filed.
+
+On the Backlog.md board, a task's detail view shows its messages in the description and its follow-ups under Subtasks.
+
 ### Which backlog receives a transition
 
 Automatic transitions run from the configured data directory's parent, letting that home's effective tasks-axi configuration address its selected adapter while keeping relative scout-report links rooted there.
@@ -413,7 +433,7 @@ Any other configured adapter is addressed by that root alone, because `--file` w
 
 ### Exemptions and refusal conditions
 
-The gate does not apply to persistent secondmates, manual-backend homes, or markdown homes without a backlog file.
+The transition gate does not apply to persistent secondmates, manual-backend homes, or markdown homes without a backlog file.
 Those retain their existing persistent-agent, manual, or ad-hoc lifecycle behavior.
 Configured non-markdown adapters remain active without that file.
 Migrated-hold resolution on a beads home reads its graph path, binary, and prefix from the root `.tasks.toml` `[beads]` section only, and refuses (rc=2) when the beads backend is selected elsewhere (a `TASKS_AXI_BACKEND` override or user-level config) with no root-level `[beads]` section.
@@ -427,7 +447,8 @@ Compatible means the installed build passes the shared version and feature probe
 Bootstrap requires compatible `tasks-axi` on every profile; see "Toolchain" below for required-tool diagnostics and silent default-backend behavior.
 
 Set the local, gitignored `config/backlog-backend` file to `manual` to force manual backlog editing and suppress the verbose `BOOTSTRAP_INFO: tasks-axi available` fact, not required-tool diagnostics.
-A `manual` home owns its backlog file outright: the lifecycle transitions above are skipped there, dispatch and completion never fail over the file's contents, and a completed teardown prints the hand edit that is owed instead.
+A `manual` home owns its backlog file outright: the lifecycle transitions above are skipped there, and a completed teardown prints the hand edit that is owed instead.
+Dispatch and steering still require the task's item, as [Every task has a backlog item](#every-task-has-a-backlog-item) describes.
 
 Absent or `tasks-axi` selects the tasks-axi path.
 On the default markdown adapter, tasks-axi and manual edits produce the same `## In flight`, `## Queued`, and `## Done` sections.

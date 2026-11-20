@@ -255,6 +255,10 @@ fi
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-task-inbox-lib.sh
 . "$SCRIPT_DIR/fm-task-inbox-lib.sh"
+# shellcheck source=bin/fm-tasks-axi-lib.sh
+. "$SCRIPT_DIR/fm-tasks-axi-lib.sh"
+# shellcheck source=bin/fm-backlog-transition-lib.sh
+. "$SCRIPT_DIR/fm-backlog-transition-lib.sh"
 
 FM_GUARD_CONTINUE_LINE='This is a supervision warning only; the requested message WILL still be sent.' "$SCRIPT_DIR/fm-guard.sh" || true
 
@@ -449,6 +453,38 @@ done
 if [ "$TARGET_BACKEND" != remote ]; then
   fm_backend_validate "$TARGET_BACKEND" || exit 1
 fi
+
+# An unreadable backlog only warns: refusing would hold back a correction the
+# worker needs over a record that can be repaired later.
+BACKLOG_TASK_ID=
+BACKLOG_DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
+BACKLOG_TRACKED=0
+if [ -n "$TARGET_META" ]; then
+  BACKLOG_TASK_ID=$(fm_send_id_from_meta "$TARGET_META")
+fi
+if [ -n "$BACKLOG_TASK_ID" ]; then
+  backlog_gate_status=0
+  fm_backlog_item_gate "${FM_CONFIG_OVERRIDE:-$FM_HOME/config}" "$BACKLOG_DATA" "$BACKLOG_TASK_ID" \
+    "$(fm_meta_get "$TARGET_META" kind)" || backlog_gate_status=$?
+  case "$backlog_gate_status" in
+  0) BACKLOG_TRACKED=$FM_BACKLOG_ITEM_TRACKED ;;
+  1)
+    echo "error: $FM_BACKLOG_ITEM_ERROR, so this steer would correct work no record owns; add it first (bin/fm-tasks-axi.sh add $BACKLOG_TASK_ID '<title>') and re-run; nothing was sent" >&2
+    exit 1
+    ;;
+  *) echo "warning: $FM_BACKLOG_ITEM_ERROR; sending anyway, but the message cannot be recorded on the task's backlog item" >&2 ;;
+  esac
+fi
+
+# Logs a delivered text steer on the task's backlog item. A failure is reported
+# and never undoes the delivery, because a resend would deliver it twice.
+fm_send_record_message() { # <text>
+  local sender=firstmate
+  [ "$BACKLOG_TRACKED" = 1 ] || return 0
+  [ "${RESOLVE_IS_DECISION:-0}" != 1 ] || sender=user
+  fm_backlog_append_message "$BACKLOG_DATA" "$BACKLOG_TASK_ID" "$sender" "$1" && return 0
+  echo "warning: the message was delivered to $T, but it could not be added to backlog item $BACKLOG_TASK_ID ($FM_BACKLOG_TRANSITION_ERROR); do not resend it" >&2
+}
 
 # Validate the answerer-closes request before any durable mutation or send: the
 # target must have a task ledger in THIS home, the send must carry an answer
@@ -854,6 +890,7 @@ else
       echo "error: steer not sent to remote $TARGET_REMOTE_NOUN $TARGET_REMOTE_ID (the remote steering-inbox record could not be written; the remote leg's stderr above has the reason)" >&2
       exit 1
     fi
+    fm_send_record_message "$MESSAGE"
     if [ -n "$RESOLVE_KEYS" ]; then
       fm_send_close_resolved_keys "$RESOLVE_ANSWER_TEXT" || exit 1
       fm_send_feed_resolved_holds "$RESOLVE_ANSWER_TEXT" || exit 1
@@ -892,6 +929,7 @@ else
       exit 1
     fi
     fm_lock_release "$INBOX_META_LOCK"
+    fm_send_record_message "$MESSAGE"
     # The answer is durably sent: close each answered decision at enqueue time
     # (answerer-closes; see the header contract).
     if [ -n "$RESOLVE_KEYS" ]; then
@@ -956,6 +994,7 @@ else
     exit 1
     ;;
   esac
+  fm_send_record_message "$MESSAGE"
   # Delivery is fully confirmed: close each answered decision in this home's
   # ledger (answerer-closes; see the header contract).
   if [ -n "$RESOLVE_KEYS" ]; then

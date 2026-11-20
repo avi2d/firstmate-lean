@@ -191,6 +191,10 @@ IFS= read -r -d '' CREWMATE_PAUSE_INSTRUCTIONS <<EOF || true
    Follow the resolution rule below when the wait clears, then resume the task.
    Use \`blocked:\` when you are stuck and need help.
 EOF
+IFS= read -r -d '' FOLLOWUP_INSTRUCTIONS <<'EOF' || true
+   When you report a correction or follow-up work that this task will not do, also append it as its own line, `followup [at=<epoch>]: {one-line title of the work}`, one line per item.
+   Firstmate files each `followup:` line as a backlog item linked to this task; keep working on this task after writing it.
+EOF
 
 resolve_directory_input() {
   local name=$1 path=$2 resolved
@@ -685,7 +689,7 @@ $TASKTMP_RULE
    Whenever you mention a PR anywhere - a status line, your terminal, a summary - write its full
    https:// URL exactly as the forge printed it, never a bare number such as "PR 108"; firstmate
    copies that URL from your line rather than assembling one.
-$CREWMATE_PAUSE_INSTRUCTIONS
+$CREWMATE_PAUSE_INSTRUCTIONS$FOLLOWUP_INSTRUCTIONS
 5. If you hit the same obstacle twice, append \`blocked [at=<epoch>]: {why} | owner=firstmate | recheck=<YYYY-MM-DD>\` and stop; firstmate will help.
 6. If a decision belongs to a human (product choices, destructive actions),
    append \`needs-decision [at=<epoch>]: {summary of options}\` and stop. Firstmate will reply with the decision.
@@ -774,7 +778,7 @@ $TASKTMP_RULE
    copies that URL from your line rather than assembling one.
    A mid-task \`working:\` line (including setup complete) is nonterminal: do not end the
    turn after it; continue the same stage until a defined \`done:\` gate under Definition of done.
-$CREWMATE_PAUSE_INSTRUCTIONS
+$CREWMATE_PAUSE_INSTRUCTIONS$FOLLOWUP_INSTRUCTIONS
 5. If you hit the same obstacle twice, append \`blocked [at=<epoch>]: {why} | owner=firstmate | recheck=<YYYY-MM-DD>\` and stop; firstmate will help.
 6. If a decision belongs above the implementation worker (product choices, destructive actions),
    append \`needs-decision [at=<epoch>]: {summary of options}\` and stop. Firstmate will reply with the decision.
