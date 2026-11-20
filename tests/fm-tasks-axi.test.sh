@@ -221,9 +221,9 @@ test_wrapper_refuses_add_start() {
   expect_code 2 "$rc" "create --start"
   assert_contains "$out" "bin/fm-spawn.sh" "the create --start refusal did not name the dispatch path"
   assert_equals "$before" "$(cat "$dir/home/data/backlog.md")" "a refused create --start still wrote a row"
-  wrapper_from_code "$dir" add hs-2 "queued" >/dev/null || fail "plain add was refused"
-  assert_grep "hs-2" "$dir/home/data/backlog.md" "plain add did not write its row"
-  wrapper_from_code "$dir" start hs-2 >/dev/null || fail "start <id> was refused"
+  wrapper_from_code "$dir" add hs-1 "queued" >/dev/null || fail "plain add was refused"
+  assert_grep "hs-1" "$dir/home/data/backlog.md" "plain add did not write its row"
+  wrapper_from_code "$dir" start hs-1 >/dev/null || fail "start <id> was refused"
   pass "fm-tasks-axi.sh refuses add --start while plain add and start <id> pass through"
 }
 
@@ -258,20 +258,20 @@ test_wrapper_ready_orders_by_project_tier() {
   dir=$(make_split ready-tiers)
   wrapper_from_code "$dir" add career-1 "career" --repo career >/dev/null
   wrapper_from_code "$dir" add mystery-1 "untiered" --repo mystery >/dev/null
-  wrapper_from_code "$dir" add tui-1 "first tui" --repo tui-dash >/dev/null
+  wrapper_from_code "$dir" add tui-dash-1 "first tui" --repo tui-dash >/dev/null
   wrapper_from_code "$dir" add checks-1 "checks" --repo checks >/dev/null
-  wrapper_from_code "$dir" add web-1 "website" --repo website >/dev/null
-  wrapper_from_code "$dir" add tui-2 "second tui" --repo tui-dash >/dev/null
-  wrapper_from_code "$dir" add ru-1 "ru" --repo ru-compliance >/dev/null
+  wrapper_from_code "$dir" add website-1 "website" --repo website >/dev/null
+  wrapper_from_code "$dir" add tui-dash-2 "second tui" --repo tui-dash >/dev/null
+  wrapper_from_code "$dir" add ru-compliance-1 "ru" --repo ru-compliance >/dev/null
   wrapper_from_code "$dir" add none-1 "no project" >/dev/null
 
   out=$(wrapper_from_code "$dir" ready | ready_ids)
-  assert_equals "career-1 mystery-1 tui-1 checks-1 web-1 tui-2 ru-1 none-1" "$out" \
+  assert_equals "career-1 mystery-1 tui-dash-1 checks-1 website-1 tui-dash-2 ru-compliance-1 none-1" "$out" \
     "with no tier file ready must keep tasks-axi's own order"
 
   write_captain_tiers "$dir/home/config"
   out=$(wrapper_from_code "$dir" ready | ready_ids)
-  assert_equals "web-1 checks-1 ru-1 tui-1 tui-2 career-1 mystery-1 none-1" "$out" \
+  assert_equals "website-1 checks-1 ru-compliance-1 tui-dash-1 tui-dash-2 career-1 mystery-1 none-1" "$out" \
     "ready did not list P0, P1, P2, P3, then untiered work, in tasks-axi order within a tier"
 
   printf 'website P0\nskills p2\n' > "$dir/home/config/project-tiers"
@@ -282,7 +282,7 @@ test_wrapper_ready_orders_by_project_tier() {
     "the malformed tier line was not named"
   assert_contains "$out" "fm-tasks-axi: fix or remove $dir/home/config/project-tiers to list ready work" \
     "the refusal did not say how to recover"
-  assert_not_contains "$out" "web-1" "ready listed work in an order the tier file did not give"
+  assert_not_contains "$out" "website-1" "ready listed work in an order the tier file did not give"
 
   printf 'website P0\nwebsite P1\n' > "$dir/home/config/project-tiers"
   out=$(wrapper_from_code "$dir" ready 2>&1) || true
@@ -290,19 +290,70 @@ test_wrapper_ready_orders_by_project_tier() {
   pass "fm-tasks-axi.sh ready lists higher project tiers first and refuses a malformed tier file"
 }
 
-test_backlog_md_lifecycle_does_not_leave_a_held_task_in_flight() {
+make_backlog_md_home() {
+  mkdir -p "$1/data/backlog/tasks" "$1/config" "$1/state"
+  printf '%s\n' 'filesystem_only: true' 'statuses: [Queued, Waiting, In Flight, Done]' 'task_prefix: task' > "$1/data/backlog/config.yml"
+  printf '%s\n' backlog-md > "$1/config/backlog-backend"
+}
+
+write_backlog_md_ticket() {
+  printf '%s\n' '---' "id: $2" 'title: Fixture ticket' "status: $3" '---' '' > "$1"
+}
+
+test_backlog_md_mint_counts_drafts_and_archive_without_reusing_ids() {
+  local home="$TMP_ROOT/backlog-md-numbering" out rc=0
+  make_backlog_md_home "$home"
+  mkdir -p "$home/data/backlog/archive/tasks" "$home/data/backlog/drafts"
+  write_backlog_md_ticket "$home/data/backlog/tasks/task-other.md" reels-studio-site-99 Queued
+  write_backlog_md_ticket "$home/data/backlog/tasks/task-current.md" reels-studio-20 'In Flight'
+  write_backlog_md_ticket "$home/data/backlog/archive/tasks/task-closed.md" reels-studio-32 Done
+
+  out=$(FM_HOME="$home" bash "$WRAPPER" add "First numbered task" --mint --prefix reels-studio) || fail "$out"
+  printf '%s\n' "$out" | grep -Fxq '  id: reels-studio-33' || fail "an archived number was reused: $out"
+  write_backlog_md_ticket "$home/data/backlog/drafts/draft-reserved.md" reels-studio-34 Draft
+
+  out=$(FM_HOME="$home" bash "$WRAPPER" create "Second numbered task" --mint --repo=reels-studio) || fail "$out"
+  printf '%s\n' "$out" | grep -Fxq '  id: reels-studio-35' || fail "a number reserved by a draft was reused: $out"
+  out=$(FM_HOME="$home" bash "$WRAPPER" add reels-studio-descriptive "Should not be added" --repo reels-studio 2>&1) || rc=$?
+  expect_code 2 "$rc" "explicit descriptive ID"
+  assert_contains "$out" "reels-studio-36" "the refused ID did not name the next number"
+  out=$(FM_HOME="$home" bash "$WRAPPER" list) || fail "$out"
+  assert_not_contains "$out" "reels-studio-descriptive" "a refused add still wrote a ticket"
+  pass "Backlog.md counts active, draft, and archived IDs, and refuses an explicit slug"
+}
+
+test_wrapper_does_not_reuse_numbers_from_the_configured_markdown_archive() {
+  local dir out rc=0
+  dir=$(make_split wrapper-numbering)
+  printf '%s\n' 'backend = "markdown"' '[markdown]' 'archive = "data/historical.md"' > "$dir/home/.tasks.toml"
+  printf '%s\n' '## In flight' '' '- **workflows-15** - Older in-flight row' '' '## Queued' '' '## Done' \
+    > "$dir/home/data/backlog.md"
+  printf '\n%s\n' '## Archived 2026-11-20' '- [x] workflows-12 - Archived row' > "$dir/home/data/historical.md"
+
+  out=$(wrapper_from_code "$dir" add 'First' --mint --prefix workflows) || fail "$out"
+  printf '%s\n' "$out" | grep -Fxq '  id: workflows-16' || fail "the older in-flight syntax did not reserve its ID: $out"
+  printf '%s\n' '- [x] workflows-23 - Another archived row' >> "$dir/home/data/historical.md"
+  out=$(wrapper_from_code "$dir" create workflows-17 'Gap below archived maximum' --repo workflows 2>&1) || rc=$?
+  expect_code 2 "$rc" "explicit number below the archived maximum"
+  assert_contains "$out" "workflows-24" "the configured archive did not reserve its IDs"
+  out=$(wrapper_from_code "$dir" add workflows-24 'Explicit next task' --repo workflows) || fail "$out"
+  printf '%s\n' "$out" | grep -Fxq '  id: workflows-24' || fail "the exact next ID was refused: $out"
+  pass "the markdown wrapper counts in-flight work and honors the configured archive"
+}
+
+test_backlog_md_lifecycle_preserves_a_running_slug_id() {
   local home="$TMP_ROOT/backlog-md-lifecycle" out
-  mkdir -p "$home/data/backlog/tasks" "$home/config" "$home/state"
-  printf '%s\n' 'filesystem_only: true' 'statuses: [Queued, Waiting, In Flight, Done]' 'task_prefix: task' > "$home/data/backlog/config.yml"
-  printf '%s\n' backlog-md > "$home/config/backlog-backend"
+  make_backlog_md_home "$home"
+  write_backlog_md_ticket "$home/data/backlog/tasks/task-existing.md" transition-task Queued
   (
     export FM_HOME="$home"
     . "$ROOT/bin/fm-tasks-axi-lib.sh"
     . "$ROOT/bin/fm-backlog-transition-lib.sh"
-    bash "$WRAPPER" add transition-task "Lifecycle task" >/dev/null || exit 1
     printf '%s\n' 'spawn_gen=s1.1.1' > "$home/state/transition-task.meta"
     fm_backlog_transition_applies "$home/config" "$home/data" ship || exit 1
     fm_backlog_atomic_transition dispatch "$home/state/transition-task.meta" "$home/data" transition-task "$home/state" || exit 1
+    out=$(bash "$WRAPPER" list --state in_flight) || exit 1
+    printf '%s\n' "$out" | grep -q 'transition-task,in_flight,' || exit 1
     bash "$ROOT/bin/fm-captain-hold.sh" hold transition-task --reason "Decision needed" >/dev/null || exit 1
     fm_backlog_retain "$home/data" transition-task || exit 1
     out=$(bash "$WRAPPER" show transition-task) || exit 1
@@ -369,13 +420,15 @@ NODE
 }
 
 test_decisions_reject_duplicate_active_topics_and_hide_superseded_entries
-test_backlog_md_lifecycle_does_not_leave_a_held_task_in_flight
+test_backlog_md_mint_counts_drafts_and_archive_without_reusing_ids
+test_backlog_md_lifecycle_preserves_a_running_slug_id
 test_guard_reports_regular_code_root_backlog
 test_guard_reports_foreign_link_and_archive
 test_guard_silent_for_single_home
 if [ "$HAVE_TASKS_AXI" = 1 ]; then
   test_bare_tasks_axi_fork_is_detected
   test_wrapper_writes_through_to_home
+  test_wrapper_does_not_reuse_numbers_from_the_configured_markdown_archive
   test_wrapper_overrides_ambient_file
   test_wrapper_refusals
   test_wrapper_refuses_add_start
