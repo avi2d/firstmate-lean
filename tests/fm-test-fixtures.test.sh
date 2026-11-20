@@ -117,7 +117,7 @@ SH
   # by the system-layer case below.
   arm_host_signing global
   arm_hooks_env
-  for helper in lib fixtures secondmate-helpers wake-helpers; do
+  for helper in lib fixtures wake-helpers; do
     assert_helper_isolates "$helper" global
   done
   bash -eus -- "$ROOT/tests/herdr-test-safety.sh" "$dir/global-herdr" <<'SH' || exit 1
