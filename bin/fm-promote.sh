@@ -64,6 +64,8 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 
 # shellcheck source=bin/fm-dod-lib.sh
 . "$SCRIPT_DIR/fm-dod-lib.sh"
+# shellcheck source=bin/fm-worker-name-lib.sh
+. "$SCRIPT_DIR/fm-worker-name-lib.sh"
 # shellcheck source=bin/fm-role-lib.sh
 . "$SCRIPT_DIR/fm-role-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
@@ -171,12 +173,6 @@ refuse_impossible_forge_posture || exit 1
 
 ID=${POS[0]}
 fm_task_id_creation_valid "$ID" || { echo "error: invalid task id" >&2; exit 2; }
-BRANCH="$BRANCH_PREFIX$ID"
-if ! git check-ref-format --branch "$BRANCH" >/dev/null 2>&1; then
-  echo "error: --branch-prefix and task id must form a valid git branch (got '$BRANCH')" >&2
-  exit 1
-fi
-printf -v BRANCH_Q '%q' "$BRANCH"
 CONTROL_LOCK="$STATE/.control-$ID.lock"
 CONTROL_LOCK_HELD=0
 META_LOCK=
@@ -276,6 +272,16 @@ PROMOTE_CONSENT_WORDS=
 [ -z "$UPSTREAM_CONSENT" ] || PROMOTE_CONSENT_WORDS=" upstream-consent=$UPSTREAM_CONSENT"
 
 SCOUT_BRIEF="$DATA/$ID/brief.md"
+WORKER_NAME=$(fm_worker_name_from_brief "$ID" "$SCOUT_BRIEF") || {
+  echo "error: could not read the worker name from the scout brief for $ID" >&2
+  exit 1
+}
+BRANCH="$BRANCH_PREFIX$WORKER_NAME"
+if ! git check-ref-format --branch "$BRANCH" >/dev/null 2>&1; then
+  echo "error: --branch-prefix and worker name must form a valid git branch (got '$BRANCH')" >&2
+  exit 1
+fi
+printf -v BRANCH_Q '%q' "$BRANCH"
 if fm_brief_task_placeholders_present "$SCOUT_BRIEF"; then
   echo "error: $SCOUT_BRIEF still contains {TASK} or {FIRSTMATE_SPEC}; preserve the original ask in ## Captain's intent and fill the scout-time ## Firstmate spec; promotion generates a separate ship-time spec" >&2
   exit 1

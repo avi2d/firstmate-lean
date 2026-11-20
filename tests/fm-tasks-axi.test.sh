@@ -315,10 +315,9 @@ test_numbered_ticket_does_not_ship_on_legacy_slug_or_number_only() {
     || fail "could not scaffold the numbered task"
   branch=$(sed -n 's/^Ship branch: //p' "$home/data/$id/brief.md")
   [ "$branch" = work/example-site-2-blog-reading-page ] || fail "wrong ship branch: $branch"
-  git init -q "$project" &&
-    git -C "$project" commit -qm fixture --allow-empty &&
-    git -C "$project" worktree add -q --detach "$wt" HEAD &&
-    git -C "$wt" checkout -qb "$branch" -- || fail "could not check out the brief's branch in a disposable worktree"
+  fm_git_init_commit "$project" || fail "could not initialize disposable repository"
+  git -C "$project" worktree add -q --detach "$wt" HEAD || fail "could not create disposable worktree"
+  git -C "$wt" checkout -qb "$branch" -- || fail "could not check out the brief's branch"
   [ "$(git -C "$wt" branch --show-current)" = "$branch" ] || fail "worktree did not switch to the brief's branch"
   grep -qF "old:$legacy" "$home/data/backlog/tasks/task-old-filename.md" || fail "old label was removed"
   pass "the numbered ticket names the ship branch without changing backlog identity"

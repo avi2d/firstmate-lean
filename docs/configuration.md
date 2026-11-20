@@ -347,7 +347,7 @@ The wrapper supports `show`, `add`, `list`, `ready`, `update`, `done`, `block`, 
 Use `update --body` to replace a task body.
 Use `add --parent <id>` to record the new ticket as a subtask of an open ticket.
 The wrapper rejects `note`, as does tasks-axi.
-Each task name stays in the ticket's `id` field.
+The wrapper finds tickets by their `id` field, not their filename or labels such as `old:blog-page-work`.
 `list` includes drafts, and `list --state draft` shows only drafts.
 `ready` and the session-start digest show drafts from `data/backlog/drafts` in a separate section.
 Drafts do not count as ready work.
@@ -386,6 +386,12 @@ If you pass an explicit ID, use the next number for that project.
 Pass `--repo <project>` to identify the project when the ID does not already name it.
 An ID refusal tells you the next ID once the project is known.
 Existing tasks keep their IDs, including IDs that end in words instead of a number.
+
+When you scaffold a brief for a numbered ticket, Firstmate looks up that ID and adds up to three words from the ticket's title to the worker name.
+For example, ticket `example-site-2` titled "Blog reading page" gets the worker name `example-site-2-blog-reading-page` and default ship branch `fm/example-site-2-blog-reading-page`.
+The name is stored in the brief so later title edits do not rename a worker or its branch.
+Use the original ID for every task command and for the brief and state directories.
+Treehouse still chooses the directory of the leased worktree.
 
 ### Automatic dispatch and completion
 

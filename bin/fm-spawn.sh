@@ -154,6 +154,8 @@ fm_backlog_directory_present "$STATE" "state directory" || {
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-dod-lib.sh
 . "$SCRIPT_DIR/fm-dod-lib.sh"
+# shellcheck source=bin/fm-worker-name-lib.sh
+. "$SCRIPT_DIR/fm-worker-name-lib.sh"
 # shellcheck source=bin/fm-role-lib.sh
 . "$SCRIPT_DIR/fm-role-lib.sh"
 # shellcheck source=bin/fm-trace-context-lib.sh
@@ -590,7 +592,7 @@ spawn_choose_machine() {  # <route> <host> <project>
 spawn_remote_worker() {
   local route=$1 project=$2 host=$3 root home session harness backend brief meta tmp out rc target remote_kind remote_harness remote_session worktree remote_project
   local mode_arg yolo_arg base_arg model_arg effort_arg transition=0 started_row=0 contract token forge=none pr=auto standing_forge standing_pr brief_branch remote_spawn_gen remote_account
-  local -a contract_fields launch_args
+  local -a contract_fields launch_args capabilities
   [ "${#POS[@]}" -eq 2 ] || { echo "error: remote workers require one project argument" >&2; return 1; }
   case "$project" in ''|*[!A-Za-z0-9._-]*|*..*) echo "error: invalid remote project name" >&2; return 1 ;; esac
   [ "$KIND" != ship ] || [ "$MODE" != local-only ] || { echo "error: local-only work cannot run remotely" >&2; return 1; }
@@ -639,7 +641,7 @@ spawn_remote_worker() {
     fm_base_branch_valid "$BASE_BRANCH" "$MODE" "$forge" fm-spawn || return 1
     if [ "$YOLO" = on ] && { [ "$forge" = gerrit ] || [ "$forge" = external ]; }; then echo "error: remote forge does not support yolo" >&2; return 1; fi
     brief_branch=$(sed -n 's/^Ship branch: //p' "$brief")
-    [ "$brief_branch" = "$BRANCH_PREFIX$ID" ] || { echo "error: remote worker branch does not match the brief" >&2; return 1; }
+    [ "$brief_branch" = "$BRANCH" ] || { echo "error: remote worker branch does not match the brief" >&2; return 1; }
     mode_arg=$MODE; yolo_arg=$YOLO
   else
     mode_arg=-; yolo_arg=-
@@ -667,7 +669,9 @@ spawn_remote_worker() {
     rc=$?
     [ "$rc" -ne 2 ] || { echo "error: backlog is inaccessible: $FM_BACKLOG_TRANSITION_ERROR" >&2; return 1; }
   fi
-  out=$("$SCRIPT_DIR/fm-on.sh" "$route" fm-remote-worker-control.sh capabilities </dev/null) || return $?
+  capabilities=(capabilities)
+  [ "$WORKER_NAME" = "$ID" ] || capabilities+=(worker-name)
+  out=$("$SCRIPT_DIR/fm-on.sh" "$route" fm-remote-worker-control.sh "${capabilities[@]}" </dev/null) || return $?
   [ "$out" = fm-remote-worker-control.v2 ] || { echo "error: remote worker protocol v2 is unavailable (the remote code root is older than this home; update that host before dispatching workers to it)" >&2; return 1; }
   if [ -n "$CLAUDE_ACCOUNT" ]; then
     rc=0
@@ -704,7 +708,7 @@ spawn_remote_worker() {
     printf 'window=remote:%s\nendpoint_task_id=%s\nworktree=%s\nproject=%s/projects/%s\n' "$ID" "$ID" "$home" "$home" "$project"
     printf 'kind=%s\nharness=%s\nmodel=%s\neffort=%s\nspawn_gen=%s\n' "$KIND" "$harness" "${MODEL:-default}" "${EFFORT:-default}" "$remote_spawn_gen"
     if [ "$KIND" = ship ]; then
-      printf 'mode=%s\nyolo=%s\nbranch=%s\n' "$MODE" "$YOLO" "$BRANCH_PREFIX$ID"
+      printf 'mode=%s\nyolo=%s\nbranch=%s\n' "$MODE" "$YOLO" "$BRANCH"
       [ "$forge" != external ] || printf 'forge=external\n'
     fi
     [ -z "$BASE_BRANCH" ] || printf 'base_branch=%s\n' "$BASE_BRANCH"
@@ -754,7 +758,7 @@ spawn_remote_worker() {
     printf 'window=remote:%s\nendpoint_task_id=%s\nworktree=%s\nproject=%s\n' "$ID" "$ID" "$worktree" "$remote_project"
     printf 'kind=%s\nharness=%s\nmodel=%s\neffort=%s\nspawn_gen=%s\n' "$KIND" "$harness" "${MODEL:-default}" "${EFFORT:-default}" "$remote_spawn_gen"
     if [ "$KIND" = ship ]; then
-      printf 'mode=%s\nyolo=%s\nbranch=%s\n' "$MODE" "$YOLO" "$BRANCH_PREFIX$ID"
+      printf 'mode=%s\nyolo=%s\nbranch=%s\n' "$MODE" "$YOLO" "$BRANCH"
       [ "$forge" != external ] || printf 'forge=external\n'
     fi
     [ -z "$BASE_BRANCH" ] || printf 'base_branch=%s\n' "$BASE_BRANCH"
@@ -1076,7 +1080,7 @@ spawn_herdr_project_task() {  # <session> <cwd> <launcher-pane> [project-path]
     return 0
   fi
   projection_id=$(fm_backend_herdr_projection_journal_create "$STATE" "$ID") || exit 1
-  projection_label=$(fm_backend_herdr_projection_workspace_label "$ID" "$projection_id")
+  projection_label=$(fm_backend_herdr_projection_workspace_label "$ID" "$projection_id" "$WORKER_NAME")
   if ! FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_projection_create_task \
     "$cwd" "$projection_label" "$W" "$session"; then
     if [ "${FM_BACKEND_HERDR_PROJECTION_CLEANUP_SAFE:-0}" = 1 ]; then
@@ -1182,8 +1186,15 @@ fm_task_id_creation_valid "$ID" || {
   echo "error: invalid task id" >&2
   exit 2
 }
+WORKER_NAME=$ID
+if [ -f "$DATA/$ID/brief.md" ]; then
+  WORKER_NAME=$(fm_worker_name_from_brief "$ID" "$DATA/$ID/brief.md") || {
+    echo "error: invalid worker name in the brief for $ID" >&2
+    exit 1
+  }
+fi
 if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" = ship ]; then
-  BRANCH="$BRANCH_PREFIX$ID"
+  BRANCH="$BRANCH_PREFIX$WORKER_NAME"
   if ! git check-ref-format --branch "$BRANCH" >/dev/null 2>&1; then
     echo "error: --branch-prefix and task id must form a valid git branch (got '$BRANCH')" >&2
     exit 1
@@ -2186,7 +2197,7 @@ if [ "$KIND" = ship ]; then
   # guarantees the worker's instructions match the branch this spawn selected.
   STANDING_BRANCH=$("$FM_ROOT/bin/fm-project-mode.sh" --branch-prefix "$PROJ_NAME" 2>/dev/null) || STANDING_BRANCH=
   if [ "$BRANCH" != "$STANDING_BRANCH$ID" ]; then
-    echo "notice: $ID ships branch=$BRANCH while $PROJ_NAME registers the ship-branch prefix '$STANDING_BRANCH' (branch $STANDING_BRANCH$ID) - the task's branch and PR will read as firstmate-authored; proceed only on a current explicit captain instruction or an intake judgment you can state" >&2
+    echo "notice: $ID ships branch=$BRANCH while $PROJ_NAME registers the ship-branch prefix '$STANDING_BRANCH' (branch $STANDING_BRANCH$WORKER_NAME) - the task's branch and PR will read as firstmate-authored; proceed only on a current explicit captain instruction or an intake judgment you can state" >&2
   fi
 fi
 
