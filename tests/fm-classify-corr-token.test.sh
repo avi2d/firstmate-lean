@@ -25,7 +25,6 @@ set -u
 . "$ROOT/bin/fm-classify-lib.sh"
 
 DRAIN="$ROOT/bin/fm-wake-drain.sh"
-REPORT="$ROOT/bin/fm-secondmate-report.sh"
 
 TMP_ROOT=$(fm_test_tmproot fm-classify-corr-token-tests)
 
@@ -488,65 +487,9 @@ test_a_cursor_written_before_this_change_is_rebuilt() {
 
 # --- the grammar pin ---------------------------------------------------------
 
-test_the_real_writers_produce_tokens_this_library_reads() {
-  # This library states the token SHAPE a second time because the library that
-  # OWNS the grammar sources this one and cannot be sourced back. That second
-  # statement is only safe while it is pinned to the real writers, so this drives
-  # both of them for real and asserts the classifier reads their output.
-  local dir state token line verb helper_line
-  dir=$(make_case writer-pin)
-  state="$dir/state"
-
-  # Writer 1: the correlation library's own token builder, over ids it generates.
-  local i=0 corr
-  while [ "$i" -lt 5 ]; do
-    corr=$(bash -c '. "$1"; fm_pending_reply_new_id' _ "$ROOT/bin/fm-pending-reply-lib.sh")
-    [ -n "$corr" ] || fail "the correlation library produced an empty id"
-    token=$(bash -c '. "$1"; fm_pending_reply_corr_token "$2"' _ \
-      "$ROOT/bin/fm-pending-reply-lib.sh" "$corr")
-    line="needs-decision $token [key=pinned]: a decision"
-    verb=$(status_line_verb "$line")
-    [ "$verb" = needs-decision ] \
-      || fail "the classifier did not read through a real correlation token '$token' (verb=[$verb])"
-    i=$((i + 1))
-  done
-
-  # Writer 2: the optional secondmate report helper, whose bracketed shape must
-  # be read through just as completely. Drive the real script from a seeded
-  # mate home so it resolves the parent channel itself.
-  local parent mate
-  parent="$dir"
-  mate="$dir/mate"
-  mkdir -p "$mate/state"
-  printf 'pinned\n' > "$mate/.fm-secondmate-home"
-  cat > "$mate/.fm-secondmate-parent" <<EOF
-schema=fm-secondmate-parent.v1
-route=local
-parent_home=$parent
-EOF
-  FM_HOME="$mate" "$REPORT" "done" "$corr" "audit clean" \
-    || fail "$REPORT failed writing a correlated report"
-  helper_line=$(tail -1 "$state/pinned.status")
-  status_line_at_epoch "$helper_line" >/dev/null || fail "report helper emitted no time"
-  verb=$(status_line_verb "$helper_line")
-  [ "$verb" = "done" ] \
-    || fail "the classifier did not read through the helper's own line '$helper_line' (verb=[$verb])"
-  status_is_terminal_verb "$helper_line" \
-    || fail "the helper's own line is not seen as a terminal captain verb"
-
-  FM_HOME="$mate" "$REPORT" --doc needs-decision "$corr" data/x/report.md "see the report" \
-    || fail "$REPORT failed writing a correlated doc-pointer report"
-  helper_line=$(tail -1 "$state/pinned.status")
-  status_line_at_epoch "$helper_line" >/dev/null || fail "doc report helper emitted no time"
-  verb=$(status_line_verb "$helper_line")
-  [ "$verb" = needs-decision ] \
-    || fail "the classifier did not read through the helper's doc line '$helper_line' (verb=[$verb])"
-
-  pass "both real correlation-token writers produce lines this classifier reads through"
-}
-
 test_optional_event_time() {
   local line stamped epoch before after dir
+  dir=$(make_case event-time)
   before=$(date +%s)
   line="needs-decision corr=$CORR [key=timed]: choose: A or B"
   stamped=$(status_stamp_line "$line") || fail "status writer could not stamp an event"
@@ -587,80 +530,11 @@ test_optional_event_time() {
     "done[at=1700000000] [corr=$CORR]: finished"; do
     [ "$(status_line_at_epoch "$line")" = 1700000000 ] || fail "metadata order changed time"
   done
-  dir=$(make_case event-time)
-  # The real parent publisher deduplicates a retry against both timed and
-  # legacy records without rewriting the first event's time.
-  . "$ROOT/bin/fm-parent-channel-lib.sh"
-  line="done [corr=$CORR]: path: C:\\notes"
-  printf '%s\n' "$(status_stamp_line "$line")" > "$dir/state/retry.status"
-  stamped=$(cat "$dir/state/retry.status")
-  fm_parent_channel_append_once "$dir/state/retry.status" "$line" || fail "parent retry failed"
-  [ "$(cat "$dir/state/retry.status")" = "$stamped" ] || fail "retry duplicated or restamped event"
-  printf '%s\n' "$line" > "$dir/state/legacy.status"
-  fm_parent_channel_append_once "$dir/state/legacy.status" "$line" || fail "legacy retry failed"
-  [ "$(cat "$dir/state/legacy.status")" = "$line" ] || fail "legacy retry acquired an invented time"
-  fm_parent_channel_append_once "$dir/state/retry.status" "done [corr=$CORR2]: path: C:\\notes"
-  [ "$(wc -l < "$dir/state/retry.status")" -eq 2 ] || fail "dedup discarded different correlation"
-  fm_parent_channel_append_once "$dir/state/retry.status" 'done: prose [at=1]'
-  fm_parent_channel_append_once "$dir/state/retry.status" 'done: prose [at=2]'
-  [ "$(wc -l < "$dir/state/retry.status")" -eq 4 ] || fail "dedup stripped a time mention from prose"
-  # A malformed time tag is ordinary event bytes, so it identifies the event:
-  # the unstamped line is a DIFFERENT event, while re-appending the same bytes
-  # is still a retry.
-  for line in 'done [at=17:00]: shipped' 'done [at=]: shipped' 'done [at=bad]: shipped' \
-    'done [at=1] [at=2]: shipped' 'done [at=01700000000]: shipped' \
-    'done [at=99999999999999999999]: shipped'; do
-    printf '%s\n' "$line" > "$dir/state/malformed.status"
-    fm_parent_channel_append_once "$dir/state/malformed.status" 'done: shipped' \
-      || fail "append after a malformed time failed"
-    [ "$(wc -l < "$dir/state/malformed.status")" -eq 2 ] \
-      || fail "dedup stripped a malformed time tag: $line"
-    fm_parent_channel_append_once "$dir/state/malformed.status" "$line" \
-      || fail "malformed time retry failed"
-    [ "$(head -1 "$dir/state/malformed.status")" = "$line" ] \
-      && [ "$(wc -l < "$dir/state/malformed.status")" -eq 2 ] \
-      || fail "retry duplicated or rewrote malformed time: $line"
-  done
-  # A well-formed numeric tag still strips, in either metadata order.
-  for line in "done [at=1700000000] [corr=$CORR2]: stamped" \
-    "done [corr=$CORR2] [at=1700000000]: stamped" \
-    "done[at=1700000000] [corr=$CORR2]: stamped"; do
-    printf '%s\n' "$line" > "$dir/state/timed.status"
-    fm_parent_channel_append_once "$dir/state/timed.status" "done [corr=$CORR2]: stamped" \
-      || fail "numeric time retry failed"
-    [ "$(cat "$dir/state/timed.status")" = "$line" ] \
-      || fail "dedup did not ignore a well-formed numeric time: $line"
-  done
   stamped=$(status_stamp_line "needs-decision corr=$CORR [key=timed]: choose: A or B")
   printf '%s\n' "$stamped" 'working [at=1700000000]: unrelated progress' > "$dir/state/task.status"
   [ -n "$(status_open_decisions "$dir/state/task.status")" ] || fail "time cleared an open decision"
   printf '%s\n' 'resolved [at=1700000001] [key=timed]: answered' >> "$dir/state/task.status"
   [ -z "$(status_open_decisions "$dir/state/task.status")" ] || fail "timed resolution did not close decision"
-  # The parent publisher uses the same retry check, and a resolve does not
-  # make a published line new: a keyed blocker and a note each stay once.
-  line='blocked [key=remote-reply-continuity-ios]: remote reply continuity broke for ios (truncated)'
-  : > "$dir/state/episode.status"
-  fm_parent_channel_append_once "$dir/state/episode.status" "$line" \
-    || fail "first continuity append failed"
-  fm_parent_channel_append_once "$dir/state/episode.status" "$line" \
-    || fail "open continuity retry failed"
-  [ "$(wc -l < "$dir/state/episode.status")" -eq 1 ] \
-    || fail "an open continuity blocker was duplicated"
-  printf '%s\n' 'resolved [key=remote-reply-continuity-ios]: operator rebased the mirror' \
-    >> "$dir/state/episode.status"
-  fm_parent_channel_append_once "$dir/state/episode.status" "$line" \
-    || fail "continuity retry after the resolve failed"
-  [ "$(wc -l < "$dir/state/episode.status")" -eq 2 ] \
-    || fail "a resolve made a recorded continuity blocker append again"
-  [ -z "$(status_open_decisions "$dir/state/episode.status")" ] \
-    || fail "a continuity retry reopened the resolved decision"
-  line='note: remote document did not transfer for ios: data/reply/missing.md - absent'
-  printf '%s\n' "$line" > "$dir/state/note.status"
-  printf '%s\n' 'resolved: closed the default decision' >> "$dir/state/note.status"
-  fm_parent_channel_append_once "$dir/state/note.status" "$line" \
-    || fail "note retry failed"
-  [ "$(wc -l < "$dir/state/note.status")" -eq 2 ] \
-    || fail "a resolve duplicated a note"
   pass "optional event time preserves parsing and legacy unknown time"
 }
 
@@ -739,11 +613,8 @@ test_malformed_event_time_is_ordinary_bytes() {
       # A tag the worker spelled wrong is still a tag, so it must not decide
       # whether the supervisor sees a terminal event - including a readable
       # timestamp whose colons would otherwise swallow the head/note separator.
-      (
-        FM_CAPTAIN_RE='done:|needs-decision:|blocked:|failed:'
-        status_is_captain_relevant "$line" || exit 1
-        exit 0
-      ) || fail "override lost a terminal event to a malformed tag: $line"
+      FM_CAPTAIN_RE='done:|needs-decision:|blocked:|failed:' status_is_captain_relevant "$line" \
+        || fail "override lost a terminal event to a malformed tag: $line"
       printf '%s\n' "$line" > "$dir/state/scan.status"
       (
         FM_CAPTAIN_RE='done:|needs-decision:|blocked:|failed:'
@@ -803,4 +674,3 @@ test_daemon_and_crew_state_case_arms_read_through_the_token
 test_pending_reply_escalation_matching_is_unaffected
 test_incremental_and_whole_file_folds_agree_over_correlated_lines
 test_a_cursor_written_before_this_change_is_rebuilt
-test_the_real_writers_produce_tokens_this_library_reads

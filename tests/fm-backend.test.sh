@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -u
 
+# shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=bin/fm-backend.sh
 . "$ROOT/bin/fm-backend.sh"
 
 TMP_ROOT=$(fm_test_tmproot fm-backend)
@@ -11,10 +13,10 @@ mkdir -p "$FM_BACKEND_CONFIG_DIR"
 
 test_backend_refuses_unknown_config_instead_of_falling_back() {
   local out rc=0
-  [ "$(FM_BACKEND= fm_backend_name)" = herdr ] || fail "missing backend config must select Herdr"
+  [ "$(FM_BACKEND='' fm_backend_name)" = herdr ] || fail "missing backend config must select Herdr"
   printf 'unsupported\n' > "$FM_BACKEND_CONFIG_DIR/backend"
-  [ "$(FM_BACKEND= fm_backend_name)" = unsupported ] || fail "explicit config was silently replaced"
-  out=$(fm_backend_validate "$(FM_BACKEND= fm_backend_name)" 2>&1) || rc=$?
+  [ "$(FM_BACKEND='' fm_backend_name)" = unsupported ] || fail "explicit config was silently replaced"
+  out=$(fm_backend_validate "$(FM_BACKEND='' fm_backend_name)" 2>&1) || rc=$?
   expect_code 1 "$rc" "unsupported backend must stop before touching an endpoint"
   assert_contains "$out" "unknown backend 'unsupported' (known: herdr)" "refusal did not name the supported backend"
   [ "$(FM_BACKEND=herdr fm_backend_name)" = herdr ] || fail "explicit Herdr override did not win"
