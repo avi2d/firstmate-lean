@@ -93,7 +93,7 @@ export REAL_LSOF_FOR_TEST
 
 # Build a fresh sandbox for one test case. Sets up:
 #   $CASE/state/        - firstmate state dir (with a fresh watcher beacon)
-#   $CASE/fakebin/      - mocks for treehouse, tmux (PATH-prepended by caller)
+#   $CASE/fakebin/      - mocks for treehouse, Herdr (PATH-prepended by caller)
 #   $CASE/origin.git/   - bare upstream repo (so the project clone has origin)
 #   $CASE/project/      - clone of origin; acts as the firstmate project dir
 #   $CASE/wt/           - a worktree of the project (the task worktree)
@@ -111,10 +111,33 @@ make_case() {
 # `treehouse return --force <wt>`: succeed silently.
 exit 0
 SH
-  cat > "$fakebin/tmux" <<'SH'
+  cat > "$fakebin/herdr" <<'SH'
 #!/usr/bin/env bash
-# tmux kill-window etc.: succeed silently.
-exit 0
+set -u
+fixture=$(dirname "$0")
+session=${@: -1}
+case "${1:-} ${2:-}" in
+  'status --json')
+    printf '%s\n' '{"client":{"version":"0.9.5","protocol":22},"server":{"running":true}}'
+    ;;
+  'session list')
+    jq -cn --arg name "$session" --arg path "$fixture/herdr.sock" '{sessions:[{name:$name,running:true,socket_path:$path}]}'
+    ;;
+  'pane get')
+    [ ! -e "$fixture/unknown" ] || exit 1
+    if [ -e "$fixture/pending-close" ]; then
+      jq -cn --arg pane "$3" '{result:{pane:{pane_id:$pane}}}'
+    else
+      printf '%s\n' '{"error":{"code":"pane_not_found"}}'
+      exit 1
+    fi
+    ;;
+  'pane close')
+    [ -z "${FM_FAKE_HERDR_CLOSE_LOG:-}" ] || printf '%s\n' "$*" >> "$FM_FAKE_HERDR_CLOSE_LOG"
+    [ ! -e "$fixture/pending-close" ]
+    ;;
+  *) exit 1 ;;
+esac
 SH
   # Default gh-axi mock: no PR is associated with the branch, and viewing any PR
   # number fails. This keeps the landed-work check hermetic (never reaching the real
@@ -198,7 +221,7 @@ case "${1:-}" in
 esac
 exit 0
 SH
-  chmod +x "$fakebin/treehouse" "$fakebin/tmux" "$fakebin/gh-axi" "$fakebin/gh" "$fakebin/no-mistakes"
+  chmod +x "$fakebin/treehouse" "$fakebin/herdr" "$fakebin/gh-axi" "$fakebin/gh" "$fakebin/no-mistakes"
 
   # Bare origin so the clone has an `origin` remote and origin/HEAD.
   git init -q --bare "$case_dir/origin.git"
@@ -226,7 +249,7 @@ write_meta() {
   local case_dir=$1 mode=$2 kind=$3
   local wt=${4:-$case_dir/wt}
   fm_write_meta "$case_dir/state/task-x1.meta" \
-    "window=firstmate:fm-task-x1" \
+    "window=teardown-fixture:w1:task-x1" "backend=herdr" "herdr_session=teardown-fixture" "herdr_workspace_id=w1" "herdr_tab_id=w1:t-task-x1" "herdr_pane_id=w1:task-x1" \
     "endpoint_task_id=task-x1" \
     "worktree=$wt" \
     "project=$case_dir/project" \
@@ -2014,9 +2037,6 @@ assert_dirty_diagnostic() {
     for n in 01 02 03 04 05 06 07 08 09 10 11; do
       touch "$case_dir/wt/$n-scratch.txt"
     done
-    # Preserve the existing exemptions without counting them as leftovers.
-    mkdir "$case_dir/wt/.claude"
-    touch "$case_dir/wt/.claude/settings.local.json" "$case_dir/wt/.fm-grok-turnend"
   fi
   before=$(git -C "$case_dir/wt" status --porcelain)
   rc=0
@@ -2035,7 +2055,7 @@ assert_dirty_diagnostic() {
   if [ "$kind" != tracked ]; then
     grep -Fq '00 proof scratch/' "$case_dir/stderr" || fail "$kind/$mode: scratch folder not named"
     grep -Fxq '  09-scratch.txt' "$case_dir/stderr" || fail "$kind/$mode: tenth path missing"
-    ! grep -q '10-scratch.txt\|11-scratch.txt\|\.claude/\|\.fm-grok-turnend' "$case_dir/stderr" \
+    ! grep -q '10-scratch.txt\|11-scratch.txt' "$case_dir/stderr" \
       || fail "$kind/$mode: path list exceeded its bound or included exempt files"
     grep -Fq 'additional untracked paths omitted' "$case_dir/stderr" || fail "$kind/$mode: no truncation notice"
   else
@@ -2221,38 +2241,6 @@ test_dirty_return_warns_which_slot_was_lost() {
   pass "a return that leaves residue names the lost slot and the remaining paths"
 }
 
-test_dirty_return_warns_even_when_a_later_step_refuses() {
-  local case_dir wt rc
-  case_dir=$(make_case dirty-return-later-refusal)
-  wt=$(move_case_to_pool_slot "$case_dir" 8)
-  write_meta "$case_dir" no-mistakes scout "$wt"
-  prepare_scout_teardown "$case_dir"
-  add_treehouse_that_leaves_residue "$case_dir"
-  cat > "$case_dir/fakebin/tmux" <<'SH'
-#!/usr/bin/env bash
-case "${1:-}" in
-  kill-window) exit 1 ;;
-  list-windows) printf '%s\n' fm-task-x1 ;;
-esac
-exit 0
-SH
-  chmod +x "$case_dir/fakebin/tmux"
-
-  set +e
-  FM_HOME="$case_dir" run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
-  rc=$?
-  set -e
-
-  expect_code 1 "$rc" "dirty-return-later-refusal: the endpoint refusal should fail teardown"
-  assert_grep "could not be closed" "$case_dir/stderr" \
-    "dirty-return-later-refusal: fixture did not reach the endpoint close refusal"
-  assert_grep "pool slot 8" "$case_dir/stderr" \
-    "dirty-return-later-refusal: a later refusal dropped the lost-slot warning"
-  assert_grep "left-behind-clone" "$case_dir/stderr" \
-    "dirty-return-later-refusal: a later refusal dropped the remaining paths"
-  pass "a dirty return is reported even when a later teardown step refuses"
-}
-
 test_forced_secondmate_child_scout_nested_clone_returns_clean() {
   local case_dir home child_wt rc
   case_dir=$(make_case secondmate-child-nested-clean)
@@ -2264,7 +2252,7 @@ test_forced_secondmate_child_scout_nested_clone_returns_clean() {
   child_wt="$case_dir/child-scout-wt"
   git -C "$case_dir/project" worktree add -q -b fm/child-scout "$child_wt" main
   fm_write_meta "$home/state/child-scout.meta" \
-    "window=firstmate:fm-child-scout" \
+    "window=teardown-fixture:w1:child-scout" "backend=herdr" "herdr_session=teardown-fixture" "herdr_workspace_id=w1" "herdr_tab_id=w1:t-child-scout" "herdr_pane_id=w1:child-scout" \
     "endpoint_task_id=child-scout" \
     "worktree=$child_wt" \
     "project=$case_dir/project" \
@@ -2317,7 +2305,7 @@ test_forced_secondmate_dirty_child_return_warns_and_completes() {
   printf '{"worktrees":[{"name":"6","path":"%s"}]}\n' "$child_wt" \
     > "$case_dir/pool/treehouse-state.json"
   fm_write_meta "$home/state/child-scout.meta" \
-    "window=firstmate:fm-child-scout" \
+    "window=teardown-fixture:w1:child-scout" "backend=herdr" "herdr_session=teardown-fixture" "herdr_workspace_id=w1" "herdr_tab_id=w1:t-child-scout" "herdr_pane_id=w1:child-scout" \
     "endpoint_task_id=child-scout" \
     "worktree=$child_wt" \
     "project=$case_dir/project" \
@@ -2347,7 +2335,7 @@ test_host_secondmate_retirement_with_busy_state_completes() {
   mkdir -p "$route" "$home/data" "$home/config" "$home/projects"
   printf '%s\n' task-x1 > "$home/.fm-secondmate-home"
   fm_write_meta "$route/task-x1.meta" \
-    "window=firstmate:fm-task-x1" \
+    "window=teardown-fixture:w1:task-x1" "backend=herdr" "herdr_session=teardown-fixture" "herdr_workspace_id=w1" "herdr_tab_id=w1:t-task-x1" "herdr_pane_id=w1:task-x1" \
     "endpoint_task_id=task-x1" \
     "worktree=$home" \
     "home=$home" \
@@ -2443,13 +2431,13 @@ test_gh_error_and_content_absent_refuses() {
 write_legacy_meta() {
   local case_dir=$1 mode=$2 kind=$3
   fm_write_meta "$case_dir/state/task-x1.meta" \
-    "window=firstmate:fm-task-x1" \
+    "window=teardown-fixture:w1:task-x1" "backend=herdr" "herdr_session=teardown-fixture" "herdr_workspace_id=w1" "herdr_tab_id=w1:t-task-x1" "herdr_pane_id=w1:task-x1" \
     "endpoint_task_id=task-x1" \
     "worktree=$case_dir/wt" \
     "project=$case_dir/project" \
     "kind=$kind" \
     "mode=$mode" \
-    "harness=codex"
+    "harness=pi"
 }
 
 # Count spawn_gen fields in the task's meta, so a refusal can prove it left the
@@ -2460,18 +2448,8 @@ legacy_meta_gen_count() {
     "$case_dir/state/task-x1.meta" 2>/dev/null || printf '0\n'
 }
 
-# Override fakebin/tmux so the recovery-grade classifier reads the endpoint as
-# unreadable (a session inventory failure it cannot attribute), never dead.
-add_unreadable_tmux() {
-  local case_dir=$1
-  cat > "$case_dir/fakebin/tmux" <<'SH'
-#!/usr/bin/env bash
-case "${1:-}" in
-  list-windows) echo "error connecting to fixture: permission denied" >&2 ; exit 1 ;;
-esac
-exit 0
-SH
-  chmod +x "$case_dir/fakebin/tmux"
+add_unreadable_herdr() {
+  touch "$1/fakebin/unknown"
 }
 
 test_legacy_record_without_the_flag_refuses() {
@@ -2499,173 +2477,6 @@ test_legacy_record_without_the_flag_refuses() {
   pass "a record predating spawn_gen refuses teardown until --legacy-record is passed"
 }
 
-write_windowless_legacy_meta() {
-  local case_dir=$1 mode=$2 kind=$3 worktree
-  worktree=${4:-$case_dir/wt}
-  fm_write_meta "$case_dir/state/task-x1.meta" \
-    "worktree=$worktree" \
-    "project=$case_dir/project" \
-    "kind=$kind" \
-    "mode=$mode" \
-    "harness=codex"
-}
-
-test_windowless_legacy_record_with_gone_worktree_tears_down() {
-  local case_dir out
-  case_dir=$(make_case windowless-gone)
-  write_windowless_legacy_meta "$case_dir" no-mistakes ship "$case_dir/missing-wt"
-  seed_backlog_in_flight "$case_dir"
-
-  out=$(run_teardown "$case_dir") \
-    || fail "windowless-gone: teardown refused a leftover with no window, no spawn_gen, and no worktree"
-  printf '%s\n' "$out" | grep -Fq 'legacy record accepted without spawn_gen: endpoint missing' \
-    || fail "windowless-gone: the teardown line did not log the missing-endpoint leftover: $out"
-  printf '%s\n' "$out" | grep -Fq 'window none' \
-    || fail "windowless-gone: the teardown line did not say there was no window: $out"
-  [ "$(backlog_row_state "$case_dir")" = "done" ] \
-    || fail "windowless-gone: teardown returned success with its backlog item still open"
-  assert_absent "$case_dir/state/task-x1.meta" \
-    "windowless-gone: teardown left the leftover record"
-  pass "a windowless leftover with no spawn_gen and no worktree tears down without --legacy-record"
-}
-
-test_windowless_legacy_record_tears_down_with_the_legacy_flag() {
-  local case_dir out
-  case_dir=$(make_case windowless-flag)
-  write_windowless_legacy_meta "$case_dir" no-mistakes ship "$case_dir/missing-wt"
-  seed_backlog_in_flight "$case_dir"
-
-  out=$(run_teardown "$case_dir" --legacy-record) \
-    || fail "windowless-flag: --legacy-record refused a leftover with no window and no spawn_gen"
-  printf '%s\n' "$out" | grep -Fq 'legacy record accepted without spawn_gen: endpoint missing' \
-    || fail "windowless-flag: the teardown line did not log the missing-endpoint leftover: $out"
-  assert_absent "$case_dir/state/task-x1.meta" \
-    "windowless-flag: teardown left the leftover record"
-  [ "$(backlog_row_state "$case_dir")" = "done" ] \
-    || fail "windowless-flag: teardown returned success with its backlog item still open"
-  pass "a windowless leftover with no spawn_gen also tears down when --legacy-record is passed"
-}
-
-test_windowless_legacy_record_still_refuses_unlanded_work() {
-  local case_dir rc before
-  case_dir=$(make_case windowless-unlanded)
-  write_windowless_legacy_meta "$case_dir" no-mistakes ship
-  seed_backlog_in_flight "$case_dir"
-  wt_commit_file "$case_dir" feature.txt unique-windowless-content "real unlanded work"
-  before=$(cksum "$case_dir/state/task-x1.meta" | awk '{print $1, $2}')
-
-  set +e
-  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
-  rc=$?
-  set -e
-
-  expect_code 1 "$rc" "windowless-unlanded: a still-present unlanded worktree must refuse"
-  grep -q REFUSED "$case_dir/stderr" \
-    || fail "windowless-unlanded: no REFUSED line for unlanded windowless work"
-  [ "$(cksum "$case_dir/state/task-x1.meta" | awk '{print $1, $2}')" = "$before" ] \
-    || fail "windowless-unlanded: the unlanded refusal modified the task record"
-  [ "$(backlog_row_state "$case_dir")" = in_flight ] \
-    || fail "windowless-unlanded: the unlanded refusal closed the backlog item anyway"
-  pass "a windowless leftover still refuses while its worktree holds unlanded work"
-}
-
-assert_windowless_record_refuses() {  # <case-dir> <description> <refusal>
-  local case_dir=$1 description=$2 refusal=$3 rc before
-  before=$(cksum "$case_dir/state/task-x1.meta" | awk '{print $1, $2}')
-  set +e
-  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
-  rc=$?
-  set -e
-  expect_code 1 "$rc" "$description: a windowless record outside the leftover class must refuse"
-  grep -Fq "$refusal" "$case_dir/stderr" \
-    || fail "$description: the refusal was not '$refusal': $(cat "$case_dir/stderr")"
-  [ "$(cksum "$case_dir/state/task-x1.meta" | awk '{print $1, $2}')" = "$before" ] \
-    || fail "$description: the refusal modified the task record"
-}
-
-test_windowless_record_outside_the_leftover_class_still_refuses() {
-  local case_dir
-  case_dir=$(make_case windowless-spawn-gen)
-  write_windowless_legacy_meta "$case_dir" no-mistakes ship "$case_dir/missing-wt"
-  printf '%s\n' 'spawn_gen=s1700000000.1.abc' >> "$case_dir/state/task-x1.meta"
-  seed_backlog_in_flight "$case_dir"
-  assert_windowless_record_refuses "$case_dir" windowless-spawn-gen "missing, empty, or ambiguous window endpoint"
-
-  case_dir=$(make_case windowless-orca)
-  write_windowless_legacy_meta "$case_dir" no-mistakes ship "$case_dir/missing-wt"
-  printf '%s\n' 'backend=orca' 'terminal=term-7' >> "$case_dir/state/task-x1.meta"
-  seed_backlog_in_flight "$case_dir"
-  assert_windowless_record_refuses "$case_dir" windowless-orca "no spawn_gen that identifies one exact incarnation"
-
-  case_dir=$(make_case windowless-no-backlog)
-  write_windowless_legacy_meta "$case_dir" no-mistakes ship "$case_dir/missing-wt"
-  assert_windowless_record_refuses "$case_dir" windowless-no-backlog "missing, empty, or ambiguous window endpoint"
-
-  case_dir=$(make_case windowless-dup-project)
-  write_windowless_legacy_meta "$case_dir" no-mistakes ship "$case_dir/missing-wt"
-  printf '%s\n' "project=$case_dir/other-project" >> "$case_dir/state/task-x1.meta"
-  seed_backlog_in_flight "$case_dir"
-  assert_windowless_record_refuses "$case_dir" windowless-dup-project "no spawn_gen that identifies one exact incarnation"
-  case_dir=$(make_case windowless-foreign-binding)
-  write_windowless_legacy_meta "$case_dir" no-mistakes ship "$case_dir/missing-wt"
-  printf '%s\n' 'endpoint_task_id=task-other' >> "$case_dir/state/task-x1.meta"
-  seed_backlog_in_flight "$case_dir"
-  assert_windowless_record_refuses "$case_dir" windowless-foreign-binding "no spawn_gen that identifies one exact incarnation"
-
-  case_dir=$(make_case windowless-terminal)
-  write_windowless_legacy_meta "$case_dir" no-mistakes ship "$case_dir/missing-wt"
-  printf '%s\n' 'terminal=term-7' >> "$case_dir/state/task-x1.meta"
-  seed_backlog_in_flight "$case_dir"
-  assert_windowless_record_refuses "$case_dir" windowless-terminal "no spawn_gen that identifies one exact incarnation"
-
-  case_dir=$(make_case windowless-herdr-identity)
-  write_windowless_legacy_meta "$case_dir" no-mistakes ship "$case_dir/missing-wt"
-  printf '%s\n' 'backend=tmux' 'herdr_session=s1' 'herdr_pane_id=p1' >> "$case_dir/state/task-x1.meta"
-  seed_backlog_in_flight "$case_dir"
-  assert_windowless_record_refuses "$case_dir" windowless-herdr-identity "no spawn_gen that identifies one exact incarnation"
-
-  case_dir=$(make_case windowless-cmux-identity)
-  write_windowless_legacy_meta "$case_dir" no-mistakes ship "$case_dir/missing-wt"
-  printf '%s\n' 'cmux_surface_id=surface-1' >> "$case_dir/state/task-x1.meta"
-  seed_backlog_in_flight "$case_dir"
-  assert_windowless_record_refuses "$case_dir" windowless-cmux-identity "no spawn_gen that identifies one exact incarnation"
-
-  case_dir=$(make_case windowless-control-char)
-  write_windowless_legacy_meta "$case_dir" no-mistakes ship "$case_dir/missing"$'\t'"wt"
-  seed_backlog_in_flight "$case_dir"
-  assert_windowless_record_refuses "$case_dir" windowless-control-char "no spawn_gen that identifies one exact incarnation"
-  pass "a windowless record with a spawn_gen, a non-tmux backend or endpoint identity, no backlog validation, or ambiguous, foreign, or malformed identity still refuses"
-}
-
-test_windowless_leftover_retries_its_retained_legacy_stamp_without_the_flag() {
-  local case_dir rc out
-  case_dir=$(make_case windowless-retry)
-  write_windowless_legacy_meta "$case_dir" no-mistakes ship "$case_dir/missing-wt"
-  printf '%s\n' 'pr=not-a-valid-url' >> "$case_dir/state/task-x1.meta"
-  seed_backlog_in_flight "$case_dir"
-  add_failing_truncate_perl "$case_dir"
-
-  set +e
-  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
-  rc=$?
-  set -e
-  expect_code 1 "$rc" "windowless-retry: an unrecordable close must fail the first attempt"
-  [ "$(legacy_meta_gen_count "$case_dir")" = 1 ] \
-    || fail "windowless-retry: the failed attempt did not leave its legacy stamp on the record"
-
-  rm -f "$case_dir/fakebin/perl"
-  sed -i.bak '/^pr=/d' "$case_dir/state/task-x1.meta" && rm -f "$case_dir/state/task-x1.meta.bak"
-  out=$(run_teardown "$case_dir") \
-    || fail "windowless-retry: the flag-less retry refused the retained legacy stamp"
-  printf '%s\n' "$out" | grep -Fq 'legacy record accepted without spawn_gen: endpoint missing' \
-    || fail "windowless-retry: the retry did not accept the missing-endpoint leftover: $out"
-  assert_absent "$case_dir/state/task-x1.meta" \
-    "windowless-retry: the retry left the leftover record"
-  [ "$(backlog_row_state "$case_dir")" = "done" ] \
-    || fail "windowless-retry: the retry returned success with its backlog item still open"
-  pass "a windowless leftover retries its retained legacy stamp without --legacy-record"
-}
-
 test_legacy_record_teardown_completes_when_landed_and_endpoint_dead() {
   local case_dir out
   case_dir=$(make_case legacy-allow)
@@ -2673,9 +2484,6 @@ test_legacy_record_teardown_completes_when_landed_and_endpoint_dead() {
   seed_backlog_in_flight "$case_dir"
   wt_commit "$case_dir" "landed legacy work"
   add_fork_with_pushed_branch "$case_dir"
-  # The default fakebin tmux answers every query with success and no output, so
-  # the classifier reads the recorded window as authoritatively missing.
-
   out=$(run_teardown "$case_dir" --legacy-record) \
     || fail "legacy-allow: teardown refused a landed legacy record with a dead endpoint"
   [ "$(backlog_row_state "$case_dir")" = "done" ] \
@@ -2722,7 +2530,7 @@ test_legacy_record_teardown_refuses_an_ambiguous_endpoint() {
   seed_backlog_in_flight "$case_dir"
   wt_commit "$case_dir" "landed legacy work"
   add_fork_with_pushed_branch "$case_dir"
-  add_unreadable_tmux "$case_dir"
+  add_unreadable_herdr "$case_dir"
   before=$(cksum "$case_dir/state/task-x1.meta" | awk '{print $1, $2}')
 
   set +e
@@ -2818,7 +2626,7 @@ test_retained_legacy_stamp_still_faces_the_endpoint_gate() {
   # The stamp the failed rollback left behind is the whole risk: a retry must
   # not read it as an incarnation some spawn published and sail past the
   # dead-or-agent-less endpoint gate onto a reused endpoint.
-  add_unreadable_tmux "$case_dir"
+  add_unreadable_herdr "$case_dir"
   set +e
   run_teardown "$case_dir" --legacy-record > "$case_dir/stdout2" 2> "$case_dir/stderr2"
   rc=$?
@@ -3412,7 +3220,6 @@ test_secondmate_home_teardown_delivers_final_line_or_refuses() {
   channel="$case_dir/parent/state/mate-x.status"
   write_meta "$case_dir" local-only ship
   mkdir -p "$case_dir/tasktmp"
-  printf '!\n' > "$case_dir/state/task-x1.grok-turnend-token"
   printf '!\n' > "$case_dir/state/task-x1.kimi-turnend-token"
   printf 'tasktmp=%s\n' "$case_dir/tasktmp" >> "$case_dir/state/task-x1.meta"
   wt_commit "$case_dir" "merged work"
@@ -3471,30 +3278,11 @@ test_teardown_missing_busy_sidecar_completes() {
   pass "teardown completes when an exact busy-state sidecar is already absent"
 }
 
-test_teardown_preserves_opencode_busy_plugin_on_pool_return() {
-  local case_dir rc plugin
-  case_dir=$(make_case opencode-busy-wiring)
-  write_meta "$case_dir" local-only ship
-  printf 'harness=opencode\n' >> "$case_dir/state/task-x1.meta"
-  # Keep scratch cleanup from removing the file independently of hook retirement.
-  printf '.opencode/\n' >> "$(git -C "$case_dir/wt" rev-parse --git-path info/exclude)"
-  plugin="$case_dir/wt/.opencode/plugins/fm-busy-state.js"
-  mkdir -p "$(dirname "$plugin")"
-  printf 'prior busy plugin\n' > "$plugin"
-  rc=0
-  run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
-  expect_code 0 "$rc" "opencode-busy-wiring: teardown should succeed ($(cat "$case_dir/stderr"))"
-  [ -f "$plugin" ] || fail "opencode-busy-wiring: pool return must retain the busy plugin as on main"
-  assert_contains "$(cat "$plugin")" "prior busy plugin" \
-    "opencode-busy-wiring: pool return must leave the plugin unchanged"
-  pass "teardown leaves opencode's busy plugin in the returned pool worktree as on main"
-}
-
 test_herdr_teardown_clears_escalation_marker() {
   local case_dir marker
   case_dir=$(make_case herdr-marker-cleanup)
   write_meta "$case_dir" local-only ship
-  sed -i.bak 's/^window=.*/window=default:wG:pQ/' "$case_dir/state/task-x1.meta"
+  sed -i.bak '/^backend=/d; /^herdr_/d; s/^window=.*/window=default:wG:pQ/' "$case_dir/state/task-x1.meta"
   rm -f "$case_dir/state/task-x1.meta.bak"
   printf '%s\n' \
     'backend=herdr' \
@@ -3528,7 +3316,7 @@ SH
 # lock never collides with another test or a real fleet session.
 configure_flat_herdr_teardown_case() {  # <case-dir>
   local case_dir=$1
-  sed -i.bak 's/^window=.*/window=default:wG:pQ/' "$case_dir/state/task-x1.meta"
+  sed -i.bak '/^backend=/d; /^herdr_/d; s/^window=.*/window=default:wG:pQ/' "$case_dir/state/task-x1.meta"
   rm -f "$case_dir/state/task-x1.meta.bak"
   printf '%s\n' \
     'backend=herdr' \
@@ -3971,7 +3759,7 @@ SH
   pass "forced secondmate teardown preflights every Herdr child before cleanup mutation"
 }
 
-configure_secondmate_with_tmux_children() {  # <case-dir>
+configure_secondmate_with_children() {  # <case-dir>
   local case_dir=$1 home="$1/secondmate-home" child child_wt
   mkdir -p "$home/state" "$home/data" "$home/config" "$home/projects"
   printf '%s\n' task-x1 > "$home/.fm-secondmate-home"
@@ -3980,7 +3768,7 @@ configure_secondmate_with_tmux_children() {  # <case-dir>
     child_wt="$case_dir/$child-wt"
     git -C "$case_dir/project" worktree add -q -b "fm/$child" "$child_wt" main
     fm_write_meta "$home/state/$child.meta" \
-      "window=firstmate:fm-$child" \
+      "window=teardown-fixture:w1:p-$child" "backend=herdr" "herdr_session=teardown-fixture" "herdr_workspace_id=w1" "herdr_tab_id=w1:t-p-$child" "herdr_pane_id=w1:p-$child" \
       "endpoint_task_id=$child" \
       "worktree=$child_wt" \
       "project=$case_dir/project" \
@@ -3994,21 +3782,16 @@ test_forced_secondmate_teardown_holds_descendant_lifecycle_locks() {
   local case_dir home lock ready release holder_pid rc waited=0 child
   case_dir=$(make_case descendant-locks)
   write_meta "$case_dir" local-only secondmate
-  configure_secondmate_with_tmux_children "$case_dir"
+  configure_secondmate_with_children "$case_dir"
   home="$case_dir/secondmate-home"
   : > "$case_dir/kill.log"
   : > "$case_dir/treehouse.log"
-  cat > "$case_dir/fakebin/tmux" <<SH
-#!/usr/bin/env bash
-printf '%s\n' "\$*" >> "$case_dir/kill.log"
-exit 0
-SH
   cat > "$case_dir/fakebin/treehouse" <<SH
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$case_dir/treehouse.log"
 exit 0
 SH
-  chmod +x "$case_dir/fakebin/tmux" "$case_dir/fakebin/treehouse"
+  chmod +x "$case_dir/fakebin/treehouse"
 
   lock="$home/state/.control-child-b.lock"
   ready="$case_dir/lock-ready"
@@ -4030,7 +3813,7 @@ SH
   [ -e "$ready" ] || fail "descendant-locks: the contending lifecycle action never acquired its lock"
 
   rc=0
-  run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  FM_FAKE_HERDR_CLOSE_LOG="$case_dir/kill.log" run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
   if [ "$rc" -eq 0 ]; then
     : > "$release"
     wait "$holder_pid" 2>/dev/null || true
@@ -4055,7 +3838,7 @@ SH
   : > "$release"
   wait "$holder_pid" 2>/dev/null || true
   rc=0
-  run_teardown "$case_dir" --force > "$case_dir/retry.stdout" 2> "$case_dir/retry.stderr" || rc=$?
+  FM_FAKE_HERDR_CLOSE_LOG="$case_dir/kill.log" run_teardown "$case_dir" --force > "$case_dir/retry.stdout" 2> "$case_dir/retry.stderr" || rc=$?
   expect_code 0 "$rc" "descendant-locks: uncontended retry should complete"
   [ ! -e "$case_dir/state/task-x1.meta" ] && [ ! -d "$home" ] \
     || fail "descendant-locks: uncontended retry retained retired task state"
@@ -4093,7 +3876,7 @@ configure_nested_secondmate_with_herdr_grandchild() {  # <case-dir>
   printf '%s\n' nested-sm > "$nested_home/.fm-secondmate-home"
   printf '%s\n' "home=$home" >> "$case_dir/state/task-x1.meta"
   fm_write_meta "$home/state/nested-sm.meta" \
-    "window=firstmate:fm-nested-sm" \
+    "window=teardown-fixture:w1:nested-sm" "backend=herdr" "herdr_session=teardown-fixture" "herdr_workspace_id=w1" "herdr_tab_id=w1:t-nested-sm" "herdr_pane_id=w1:nested-sm" \
     "endpoint_task_id=nested-sm" \
     "worktree=$case_dir/wt" \
     "project=$case_dir/project" \
@@ -4165,7 +3948,7 @@ test_forced_teardown_retains_nested_secondmate_home_when_grandchild_close_unconf
 
 configure_herdr_projection_teardown_case() {  # <case-dir>
   local case_dir=$1 token=AbCdEfGhIjKlMnOpQrStUv
-  sed -i.bak 's/^window=.*/window=fmtest:w1:p2/' "$case_dir/state/task-x1.meta"
+  sed -i.bak '/^backend=/d; /^herdr_/d; s/^window=.*/window=fmtest:w1:p2/' "$case_dir/state/task-x1.meta"
   rm -f "$case_dir/state/task-x1.meta.bak"
   printf '%s\n' \
     'backend=herdr' \
@@ -4453,7 +4236,7 @@ test_teardown_retains_journal_bound_to_another_pane() {
 # while it is still present the session-start sweep alone owns it.
 configure_herdr_v1_orphan_workspace_case() {  # <case-dir>
   local case_dir=$1 token=AbCdEfGhIjKlMnOpQrStUv
-  sed -i.bak 's/^window=.*/window=fmtest:w1:p2/' "$case_dir/state/task-x1.meta"
+  sed -i.bak '/^backend=/d; /^herdr_/d; s/^window=.*/window=fmtest:w1:p2/' "$case_dir/state/task-x1.meta"
   rm -f "$case_dir/state/task-x1.meta.bak"
   printf '%s\n' \
     'backend=herdr' \
@@ -4715,7 +4498,7 @@ test_teardown_skips_pipeline_spend_when_disabled() {
 test_teardown_records_unavailable_spend_for_a_gone_worktree() {
   local case_dir rc=0 ledger
   case_dir=$(make_case pipeline-spend-gone)
-  write_windowless_legacy_meta "$case_dir" no-mistakes ship "$case_dir/missing-wt"
+  write_meta "$case_dir" no-mistakes ship "$case_dir/missing-wt"
   : > "$case_dir/config/pipeline-spend"
   seed_backlog_in_flight "$case_dir"
   run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
@@ -5424,43 +5207,6 @@ test_leaked_tasktmp_process_is_reaped() {
   pass "a leaked descendant process rooted under the task's per-task tasktmp is reaped by teardown too"
 }
 
-test_lsof_absent_reaps_tmux_process_group() {
-  local case_dir rc pid path_without_lsof
-  case_dir=$(make_case lsof-absent-process-group-reap)
-  write_meta "$case_dir" no-mistakes ship
-  land_shippable_commit "$case_dir"
-  path_without_lsof=$(make_path_without_lsof "$case_dir")
-  PATH="$path_without_lsof" command -v lsof >/dev/null 2>&1 \
-    && fail "lsof-absent-process-group-reap: fixture path unexpectedly exposes lsof"
-
-  perl -e 'setpgrp(0, 0); chdir shift or die; exec "sleep", "300"' "$case_dir/wt" &
-  pid=$!
-  disown
-  sleep 0.3
-  kill -0 "$pid" 2>/dev/null || fail "lsof-absent-process-group-reap: setup sleeper did not start"
-  cat > "$case_dir/fakebin/tmux" <<EOF
-#!/usr/bin/env bash
-if [ "\${1:-}" = display-message ] && [ "\${*: -1}" = '#{pane_pid}' ]; then
-  printf '%s\n' '$pid'
-fi
-exit 0
-EOF
-  chmod +x "$case_dir/fakebin/tmux"
-
-  rc=0
-  FM_TEARDOWN_TEST_PATH="$path_without_lsof" \
-    run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
-
-  expect_code 0 "$rc" "lsof-absent-process-group-reap: teardown should succeed"
-  if kill -0 "$pid" 2>/dev/null; then
-    kill -KILL "$pid" 2>/dev/null || true
-    fail "lsof-absent-process-group-reap: tmux process group survived teardown"
-  fi
-  assert_grep "reaping leaked worktree process group" "$case_dir/stderr" \
-    "lsof-absent-process-group-reap: teardown did not use the process-group fallback"
-  pass "missing lsof falls back to reaping the tmux pane process group"
-}
-
 test_lsof_error_refuses_before_removal() {
   local case_dir rc
   case_dir=$(make_case lsof-error-refusal)
@@ -5842,10 +5588,10 @@ test_missing_adapter_sibling_refuses_before_cleanup() {
   case_dir=$(make_case missing-adapter-sibling)
   write_meta "$case_dir" local-only ship
   prepare_teardown_source_copy "$case_dir"
-  rm -f "$case_dir/test-root/bin/fm-session-lock-lib.sh"
+  rm -f "$case_dir/test-root/bin/fm-transition-lib.sh"
   rc=0
   run_copied_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
-  assert_source_refusal_preserved_state "$case_dir" "missing-adapter-sibling" "required tmux source"
+  assert_source_refusal_preserved_state "$case_dir" "missing-adapter-sibling" "required herdr source"
   pass "a missing adapter sibling refuses before cleanup"
 }
 
@@ -5865,54 +5611,6 @@ test_forced_child_missing_adapter_sibling_refuses_before_cleanup() {
   pass "a forced descendant with a missing adapter sibling refuses before cleanup"
 }
 
-test_forced_secondmate_own_missing_adapter_sibling_refuses_before_child_cleanup() {
-  local case_dir home rc
-  case_dir=$(make_case missing-own-adapter-sibling)
-  fm_write_meta "$case_dir/state/task-x1.meta" \
-    "window=zs:3" \
-    "endpoint_task_id=task-x1" \
-    "worktree=$case_dir/wt" \
-    "project=$case_dir/project" \
-    "kind=secondmate" \
-    "mode=local-only" \
-    "backend=zellij" \
-    "zellij_session=zs" \
-    "zellij_tab_id=1" \
-    "zellij_pane_id=3" \
-    "spawn_gen=teardown-test-task-x1"
-  home="$case_dir/secondmate-home"
-  mkdir -p "$home/state" "$home/data" "$home/config" "$home/projects"
-  printf '%s\n' task-x1 > "$home/.fm-secondmate-home"
-  printf '%s\n' "home=$home" >> "$case_dir/state/task-x1.meta"
-  fm_write_meta "$home/state/child-tmux.meta" \
-    "window=childsession:fm-child-tmux" \
-    "endpoint_task_id=child-tmux" \
-    "worktree=$case_dir/wt" \
-    "project=$case_dir/project" \
-    "kind=ship" \
-    "mode=local-only"
-  : > "$home/state/child-tmux.status"
-  prepare_teardown_source_copy "$case_dir"
-  cat > "$case_dir/fakebin/tmux" <<SH
-#!/usr/bin/env bash
-printf '%s\n' "\$*" >> "$case_dir/tmux.log"
-exit 0
-SH
-  chmod +x "$case_dir/fakebin/tmux"
-  : > "$case_dir/tmux.log"
-  rm -f "$case_dir/test-root/bin/fm-backend-hometag-lib.sh"
-  rc=0
-  run_copied_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
-  assert_source_refusal_preserved_state "$case_dir" "missing-own-source" "required zellij source"
-  [ -e "$home/state/child-tmux.meta" ] || fail "missing-own-source: the refusal erased the child record"
-  [ -e "$home/state/child-tmux.status" ] || fail "missing-own-source: the refusal erased the child status"
-  [ -d "$home" ] || fail "missing-own-source: the refusal removed the secondmate home"
-  if grep -q "kill" "$case_dir/tmux.log"; then
-    fail "missing-own-source: the refusal killed the child endpoint: $(cat "$case_dir/tmux.log")"
-  fi
-  pass "a forced secondmate with a missing own adapter sibling refuses before child cleanup"
-}
-
 test_retained_sources_still_reach_the_ordinary_refusal() {
   local case_dir rc
   case_dir=$(make_case retained-sources)
@@ -5930,7 +5628,6 @@ test_retained_sources_still_reach_the_ordinary_refusal() {
   pass "present required sources still reach the ordinary teardown refusal"
 }
 
-test_teardown_preserves_opencode_busy_plugin_on_pool_return
 
 # Archive coverage uses the real teardown entry point over isolated homes.
 test_status_archive_opt_in() {
@@ -6065,7 +5762,7 @@ test_record_export_captures_forced_secondmate_sub_state() {
   printf 'task-x1\n' > "$home/.fm-secondmate-home"
   printf 'home=%s\n' "$home" >> "$case_dir/state/task-x1.meta"
   fm_write_meta "$home/state/child.meta" \
-    "window=firstmate:fm-child" \
+    "window=teardown-fixture:w1:child" "backend=herdr" "herdr_session=teardown-fixture" "herdr_workspace_id=w1" "herdr_tab_id=w1:t-child" "herdr_pane_id=w1:child" \
     "kind=scout" \
     "mode=local-only" \
     "project=$case_dir/project" \
@@ -6096,19 +5793,11 @@ test_record_export_waits_for_endpoint_quiescence_before_archiving() {
   mkdir -p "$case_dir/state/task-x1.inbox/handled"
   printf 'done: before refusal\n' > "$case_dir/state/task-x1.status"
   printf 'before refusal\n' > "$case_dir/state/task-x1.inbox/001.msg"
-  cat > "$case_dir/fakebin/tmux" <<'SH'
-#!/usr/bin/env bash
-case "${1:-}" in
-  kill-window) exit 1 ;;
-  list-windows) printf '%s\n' fm-task-x1 ;;
-esac
-exit 0
-SH
-  chmod +x "$case_dir/fakebin/tmux"
+  touch "$case_dir/fakebin/pending-close"
 
   run_teardown "$case_dir" > "$case_dir/first.stdout" 2> "$case_dir/first.stderr" || rc=$?
   expect_code 1 "$rc" "record-export-close-retry: endpoint close should refuse"
-  assert_grep "could not be closed" "$case_dir/first.stderr" \
+  assert_grep "not confirmed gone" "$case_dir/first.stderr" \
     "record-export-close-retry: first attempt did not reach endpoint refusal"
   assert_absent "$export_root/archive/task-x1/teardown-test-task-x1" \
     "record-export-close-retry: archive published while the endpoint remained live"
@@ -6117,11 +5806,7 @@ SH
 
   printf 'done: after refusal\n' > "$case_dir/state/task-x1.status"
   printf 'after refusal\n' > "$case_dir/state/task-x1.inbox/001.msg"
-  cat > "$case_dir/fakebin/tmux" <<'SH'
-#!/usr/bin/env bash
-exit 0
-SH
-  chmod +x "$case_dir/fakebin/tmux"
+  rm -f "$case_dir/fakebin/pending-close"
   rc=0
   run_teardown "$case_dir" > "$case_dir/retry.stdout" 2> "$case_dir/retry.stderr" || rc=$?
   expect_code 0 "$rc" "record-export-close-retry: retry should complete"
@@ -6383,9 +6068,9 @@ test_status_archive_nested_secondmate_children() {
     printf 'task-x1\n' > "$home/.fm-secondmate-home"
     printf 'nested-sm\n' > "$nested_home/.fm-secondmate-home"
     printf 'home=%s\n' "$home" >> "$case_dir/state/task-x1.meta"
-    fm_write_meta "$home/state/nested-sm.meta" "window=firstmate:fm-nested-sm" \
+    fm_write_meta "$home/state/nested-sm.meta" "window=teardown-fixture:w1:nested-sm" "backend=herdr" "herdr_session=teardown-fixture" "herdr_workspace_id=w1" "herdr_tab_id=w1:t-nested-sm" "herdr_pane_id=w1:nested-sm" \
       "kind=secondmate" "mode=local-only" "home=$nested_home" "project=$case_dir/project" "worktree=$case_dir/wt"
-    fm_write_meta "$nested_home/state/grandchild.meta" "window=firstmate:fm-grandchild" \
+    fm_write_meta "$nested_home/state/grandchild.meta" "window=teardown-fixture:w1:grandchild" "backend=herdr" "herdr_session=teardown-fixture" "herdr_workspace_id=w1" "herdr_tab_id=w1:t-grandchild" "herdr_pane_id=w1:grandchild" \
       "kind=scout" "mode=local-only" "project=$case_dir/project" "worktree=$case_dir/wt"
     touch "$case_dir/config/status-archive"
     printf 'done: parent history\n' > "$case_dir/state/task-x1.status"
@@ -6415,11 +6100,10 @@ test_status_archive_nested_secondmate_children() {
 # A fake lsof marks the first reaper scan and writes the worker's last change
 # after the initial landed-work proof. No real endpoint or pool is touched.
 test_work_written_at_reap_boundary_is_preserved() {
-  local backend change case_dir rc before kind replay_rc failed=0
-  for backend in orca tmux; do
+  local change case_dir rc before kind replay_rc failed=0
     for change in reap-refusal tracked untracked commit clean force scout; do
       (
-      case_dir=$(make_case "post-reap-$backend-$change")
+      case_dir=$(make_case "post-reap-$change")
       kind=ship
       [ "$change" != scout ] || kind=scout
       write_meta "$case_dir" no-mistakes "$kind"
@@ -6432,11 +6116,6 @@ test_work_written_at_reap_boundary_is_preserved() {
       printf 'working: retained history\n' > "$case_dir/state/task-x1.status"
       printf 'retained steer\n' > "$case_dir/state/task-x1.inbox/001.msg"
       printf 'decisions_reviewed=1\ndecision_keys=\n' >> "$case_dir/state/task-x1.meta"
-      if [ "$backend" = orca ]; then
-        sed 's/^window=.*/window=fm-task-x1/' "$case_dir/state/task-x1.meta" > "$case_dir/meta-new"
-        mv "$case_dir/meta-new" "$case_dir/state/task-x1.meta"
-        printf 'backend=orca\nterminal=term-test\norca_worktree_id=wt-test::/orca/wt-test\n' >> "$case_dir/state/task-x1.meta"
-      fi
       cat > "$case_dir/fakebin/lsof" <<'SH'
 #!/usr/bin/env bash
 if [ ! -e "$FM_REAP_CASE/reap-boundary" ]; then
@@ -6459,19 +6138,7 @@ SH
 printf 'return\n' >> "$FM_REAP_CASE/removal.log"
 exit 0
 SH
-      cat > "$case_dir/fakebin/orca" <<'SH'
-#!/usr/bin/env bash
-case "${1:-} ${2:-}" in
-  'worktree show')
-    printf '{"ok":true,"result":{"worktree":{"id":"wt-test::/orca/wt-test","path":"%s"}}}\n' "$FM_REAP_CASE/wt" ;;
-  'worktree rm')
-    printf 'remove\n' >> "$FM_REAP_CASE/removal.log"
-    printf '{"ok":true,"result":{}}\n' ;;
-  'terminal close') printf '{"ok":true,"result":{}}\n' ;;
-  *) printf '{"ok":true,"result":{}}\n' ;;
-esac
-SH
-      chmod +x "$case_dir/fakebin/lsof" "$case_dir/fakebin/treehouse" "$case_dir/fakebin/orca"
+      chmod +x "$case_dir/fakebin/lsof" "$case_dir/fakebin/treehouse"
       rc=0
       if [ "$change" = force ]; then
         FM_HOME="$case_dir" FM_REAP_CASE="$case_dir" FM_REAP_CHANGE="$change" \
@@ -6480,25 +6147,25 @@ SH
         FM_HOME="$case_dir" FM_REAP_CASE="$case_dir" FM_REAP_CHANGE="$change" \
           run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
       fi
-      assert_present "$case_dir/reap-boundary" "$backend/$change: did not reach the reaper: $(cat "$case_dir/stderr")"
+      assert_present "$case_dir/reap-boundary" "$change: did not reach the reaper: $(cat "$case_dir/stderr")"
       case "$change" in
         reap-refusal|tracked|untracked|commit)
-          expect_code 1 "$rc" "$backend/$change: late work must refuse teardown"
-          assert_grep REFUSED "$case_dir/stderr" "$backend/$change: refusal missing"
+          expect_code 1 "$rc" "$change: late work must refuse teardown"
+          assert_grep REFUSED "$case_dir/stderr" "$change: refusal missing"
           if [ "$change" = reap-refusal ]; then
-            assert_grep 'lsof failed' "$case_dir/stderr" "$backend/$change: reaper refusal missing"
+            assert_grep 'lsof failed' "$case_dir/stderr" "$change: reaper refusal missing"
           fi
-          assert_absent "$case_dir/removal.log" "$backend/$change: returned or removed late work"
+          assert_absent "$case_dir/removal.log" "$change: returned or removed late work"
           [ "$(git -C "$case_dir/wt" symbolic-ref --short HEAD)" = fm/task-x1 ] \
-            || fail "$backend/$change: task branch was detached or deleted"
+            || fail "$change: task branch was detached or deleted"
           if [ "$change" = commit ]; then
             [ "$(git -C "$case_dir/wt" rev-parse HEAD)" != "$before" ] \
-              || fail "$backend/$change: late commit missing"
-            assert_grep 'late commit' "$case_dir/wt/worker.txt" "$backend/$change: late bytes missing"
+              || fail "$change: late commit missing"
+            assert_grep 'late commit' "$case_dir/wt/worker.txt" "$change: late bytes missing"
           elif [ "$change" = tracked ] || [ "$change" = reap-refusal ]; then
-            assert_grep 'late edit' "$case_dir/wt/worker.txt" "$backend/$change: late edit missing"
+            assert_grep 'late edit' "$case_dir/wt/worker.txt" "$change: late edit missing"
           else
-            assert_grep 'late file' "$case_dir/wt/late.txt" "$backend/$change: late file missing"
+            assert_grep 'late file' "$case_dir/wt/late.txt" "$change: late file missing"
           fi
           # Startup replay must not consume the retained task through a close
           # marker prepared before the second proof refused.
@@ -6513,28 +6180,27 @@ SH
           ' _ "$ROOT" "$case_dir" || replay_rc=$?
           if [ "$change" = reap-refusal ]; then
             printf '%s: teardown_exit=%s replay_exit=%s metadata_after_replay=%s backlog_after_replay=%s\n' \
-              "$backend/$change" "$rc" "$replay_rc" \
+              "$change" "$rc" "$replay_rc" \
               "$(if [ -f "$case_dir/state/task-x1.meta" ]; then printf retained; else printf missing; fi)" \
               "$(backlog_row_state "$case_dir")"
           fi
-          expect_code 0 "$replay_rc" "$backend/$change: replay failed"
-          assert_present "$case_dir/state/task-x1.meta" "$backend/$change: metadata lost"
-          assert_present "$case_dir/state/task-x1.status" "$backend/$change: status lost"
-          assert_present "$case_dir/state/task-x1.inbox/001.msg" "$backend/$change: inbox lost"
+          expect_code 0 "$replay_rc" "$change: replay failed"
+          assert_present "$case_dir/state/task-x1.meta" "$change: metadata lost"
+          assert_present "$case_dir/state/task-x1.status" "$change: status lost"
+          assert_present "$case_dir/state/task-x1.inbox/001.msg" "$change: inbox lost"
           [ "$(backlog_row_state "$case_dir")" = in_flight ] \
-            || fail "$backend/$change: backlog closed despite retained work"
+            || fail "$change: backlog closed despite retained work"
           ;;
         *)
-          expect_code 0 "$rc" "$backend/$change: authorized teardown should complete: $(cat "$case_dir/stderr")"
-          assert_present "$case_dir/removal.log" "$backend/$change: removal missing"
-          assert_absent "$case_dir/state/task-x1.meta" "$backend/$change: cleanup incomplete"
+          expect_code 0 "$rc" "$change: authorized teardown should complete: $(cat "$case_dir/stderr")"
+          assert_present "$case_dir/removal.log" "$change: removal missing"
+          assert_absent "$case_dir/state/task-x1.meta" "$change: cleanup incomplete"
           ;;
       esac
       ) || failed=$((failed + 1))
     done
-  done
   [ "$failed" -eq 0 ] || fail "$failed post-reap boundary cases failed"
-  pass "post-reap proof retains late work and retry records on ordinary and Orca paths, preserving clean/force/scout behavior"
+  pass "post-reap proof retains late work and retry records, preserving clean/force/scout behavior"
 }
 
 test_hidden_untracked_work_refuses_before_return
@@ -6559,7 +6225,6 @@ test_missing_startup_source_refuses_before_cleanup
 test_unreadable_startup_source_refuses_before_cleanup
 test_missing_adapter_sibling_refuses_before_cleanup
 test_forced_child_missing_adapter_sibling_refuses_before_cleanup
-test_forced_secondmate_own_missing_adapter_sibling_refuses_before_child_cleanup
 test_retained_sources_still_reach_the_ordinary_refusal
 test_local_only_fork_remote_allows
 test_teardown_reports_home_writes_since_spawn
@@ -6633,7 +6298,6 @@ test_mixed_refusal_diagnostic
 test_scout_nested_clone_returns_with_no_untracked_entries
 test_ship_nested_clone_is_refused_and_bytes_stay
 test_dirty_return_warns_which_slot_was_lost
-test_dirty_return_warns_even_when_a_later_step_refuses
 test_forced_secondmate_child_scout_nested_clone_returns_clean
 test_forced_secondmate_dirty_child_return_warns_and_completes
 test_host_secondmate_retirement_with_busy_state_completes
@@ -6641,11 +6305,6 @@ test_return_that_removes_copy_warns_cannot_verify
 test_scout_ignored_files_survive_scratch_clean
 test_gh_error_and_content_absent_refuses
 test_legacy_record_without_the_flag_refuses
-test_windowless_legacy_record_with_gone_worktree_tears_down
-test_windowless_legacy_record_tears_down_with_the_legacy_flag
-test_windowless_legacy_record_still_refuses_unlanded_work
-test_windowless_record_outside_the_leftover_class_still_refuses
-test_windowless_leftover_retries_its_retained_legacy_stamp_without_the_flag
 test_legacy_record_teardown_completes_when_landed_and_endpoint_dead
 test_legacy_record_teardown_refuses_unlanded_work
 test_legacy_record_teardown_refuses_an_ambiguous_endpoint
@@ -6690,7 +6349,6 @@ test_another_branchs_parked_run_is_never_touched
 test_own_autonomous_run_is_left_alone
 test_leaked_worktree_process_is_reaped
 test_leaked_tasktmp_process_is_reaped
-test_lsof_absent_reaps_tmux_process_group
 test_lsof_error_refuses_before_removal
 test_reused_pid_identity_is_not_force_killed
 test_exec_changed_process_is_still_reaped
@@ -6771,7 +6429,7 @@ make_scout_board_case() {  # <name>
   local name=$1 case_dir artifact
   case_dir=$(make_case "$name")
   fm_write_meta "$case_dir/state/task-x1.meta" \
-    "window=firstmate:fm-task-x1" \
+    "window=teardown-fixture:w1:task-x1" "backend=herdr" "herdr_session=teardown-fixture" "herdr_workspace_id=w1" "herdr_tab_id=w1:t-task-x1" "herdr_pane_id=w1:task-x1" \
     "endpoint_task_id=task-x1" \
     "worktree=$case_dir/wt" \
     "project=$case_dir/project" \
