@@ -341,6 +341,76 @@ test_wrapper_does_not_reuse_numbers_from_the_configured_markdown_archive() {
   pass "the markdown wrapper counts in-flight work and honors the configured archive"
 }
 
+test_message_log_preserves_both_appends_without_the_flock_command() {
+  local home="$TMP_ROOT/message-lock" out
+  mkdir -p "$home/data" "$home/config" "$home/shims"
+  empty_backlog "$home/data/backlog.md"
+  fm_test_tasks_toml "$home/.tasks.toml"
+  printf '#!/bin/sh\nexit 127\n' > "$home/shims/flock"
+  chmod +x "$home/shims/flock"
+  (
+    export FM_HOME="$home" PATH="$home/shims:$PATH"
+    . "$ROOT/bin/fm-tasks-axi-lib.sh"
+    . "$ROOT/bin/fm-backlog-transition-lib.sh"
+    bash "$WRAPPER" add demo-1 "Log the steer" --repo demo >/dev/null || exit 1
+    exec 8>>"$home/data/.fm-backlog-messages.lock"
+    python3 -c 'import fcntl; fcntl.flock(8, fcntl.LOCK_EX)' || exit 1
+    if FM_BACKLOG_MESSAGE_LOCK_SECS=0 fm_backlog_append_message "$home/data" demo-1 firstmate "Must not be appended"; then
+      exit 1
+    fi
+    assert_contains "$FM_BACKLOG_TRANSITION_ERROR" "stayed busy" "a held lock was not reported as contention"
+    exec 8>&-
+    if PATH="$home/shims" fm_backlog_append_message "$home/data" demo-1 firstmate "Must not be appended"; then
+      exit 1
+    fi
+    assert_contains "$FM_BACKLOG_TRANSITION_ERROR" "python3 is required" "missing Python was reported as contention"
+    fm_backlog_append_message "$home/data" demo-1 firstmate "First steer" &
+    first=$!
+    fm_backlog_append_message "$home/data" demo-1 firstmate "Second steer" &
+    second=$!
+    wait "$first" || exit 1
+    wait "$second" || exit 1
+    out=$(bash "$WRAPPER" show demo-1 --full) || exit 1
+    assert_contains "$out" "First steer" "first concurrent append was lost"
+    assert_contains "$out" "Second steer" "second concurrent append was lost"
+    assert_not_contains "$out" "Must not be appended" "a refused append changed the body"
+  ) || fail "portable message log lock did not serialize writes"
+  pass "the backlog keeps both concurrent steers without the flock command"
+}
+
+test_backlog_md_keeps_drafts_visible_without_making_them_dispatchable() {
+  local home="$TMP_ROOT/backlog-md-ready" out
+  make_backlog_md_home "$home"
+  mkdir -p "$home/data/backlog/drafts"
+  write_backlog_md_ticket "$home/data/backlog/drafts/demo-4.md" demo-4 Draft
+  write_backlog_md_ticket "$home/data/backlog/drafts/demo-5.md" demo-5 Draft
+  (
+    export FM_HOME="$home"
+    printf 'other P0\ndemo P3\n' > "$home/config/project-tiers"
+    bash "$WRAPPER" add other-1 "Lower priority" --repo other --priority 2 >/dev/null || exit 1
+    bash "$WRAPPER" add demo-6 "First urgent" --repo demo --priority 0 >/dev/null || exit 1
+    bash "$WRAPPER" add demo-7 "Second urgent" --repo demo --priority 0 >/dev/null || exit 1
+    mv "$home/data/backlog/tasks/task-demo-7 - ticket.md" "$home/data/backlog/tasks/task-a.md"
+    out=$(bash "$WRAPPER" list) || exit 1
+    assert_contains "$out" "demo-4,draft," "list hid a draft"
+    out=$(bash "$WRAPPER" list --state draft) || exit 1
+    assert_contains "$out" "demo-4,draft," "the draft filter hid a draft"
+    assert_not_contains "$out" "other-1,queued," "the draft filter listed a queued task"
+    out=$(bash "$WRAPPER" ready) || exit 1
+    assert_contains "$out" "drafts[2]{id,state,kind,repo,title}:" "ready hid both drafts"
+    assert_equals "demo-6 demo-7 other-1" "$(printf '%s\n' "$out" | ready_ids)" \
+      "ready used filename, project tier, or ordinal ahead of task priority, or included a draft"
+    if bash "$WRAPPER" start demo-4 >/dev/null; then exit 1; fi
+    out=$(FM_SESSION_START_QUEUED_LIMIT=1 bash "$ROOT/bin/fm-session-start.sh" --reemit) || exit 1
+    assert_equals "demo-6" "$(printf '%s\n' "$out" | ready_ids)" "the digest bounded ready before sorting it"
+    assert_contains "$out" "demo-4,draft," "the digest hid every draft"
+    assert_contains "$out" "(shown 1 of 2 draft item(s); 1 more - bin/fm-tasks-axi.sh list --state draft)" \
+      "the digest did not disclose omitted drafts"
+    assert_not_contains "$out" "demo-5,draft," "the digest did not bound drafts separately"
+  ) || fail "Backlog.md list, ready, and session-start disagree about drafts or priority"
+  pass "list, ready, and startup show drafts separately from dispatchable work"
+}
+
 test_backlog_md_lifecycle_preserves_a_running_slug_id() {
   local home="$TMP_ROOT/backlog-md-lifecycle" out
   make_backlog_md_home "$home"
@@ -447,14 +517,22 @@ NODE
   pass "decision memory rejects duplicate active topics, hides superseded entries, and rejects oversized summaries"
 }
 
+if [ "${FM_TEST_BACKLOG_MESSAGE_LOCK_ONLY:-0}" = 1 ]; then
+  [ "$HAVE_TASKS_AXI" = 1 ] || fail "the message lock test requires tasks-axi"
+  test_message_log_preserves_both_appends_without_the_flock_command
+  exit 0
+fi
+
 test_decisions_reject_duplicate_active_topics_and_hide_superseded_entries
 test_backlog_md_mint_counts_drafts_and_archive_without_reusing_ids
+test_backlog_md_keeps_drafts_visible_without_making_them_dispatchable
 test_backlog_md_lifecycle_preserves_a_running_slug_id
 test_numbered_followup_replay_does_not_allocate_another_id_after_archiving backlog-md
 test_guard_reports_regular_code_root_backlog
 test_guard_reports_foreign_link_and_archive
 test_guard_silent_for_single_home
 if [ "$HAVE_TASKS_AXI" = 1 ]; then
+  test_message_log_preserves_both_appends_without_the_flock_command
   test_bare_tasks_axi_fork_is_detected
   test_wrapper_writes_through_to_home
   test_wrapper_does_not_reuse_numbers_from_the_configured_markdown_archive

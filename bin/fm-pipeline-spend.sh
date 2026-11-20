@@ -114,7 +114,7 @@ META="$STATE/$ID.meta"
 meta_value() {  # <key>
   grep "^$1=" "$META" 2>/dev/null | tail -1 | cut -d= -f2- || true
 }
-command -v python3 >/dev/null 2>&1 || fail "python3 is required to read no-mistakes' state database"
+command -v python3 >/dev/null 2>&1 || fail "python3 is required to read no-mistakes' state database and lock the spend ledger"
 
 WT=$(meta_value worktree)
 SPAWN_GEN=$(meta_value spawn_gen)

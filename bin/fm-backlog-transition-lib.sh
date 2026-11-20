@@ -756,13 +756,13 @@ fm_backlog_row_body() {  # <resolved-data-dir> <id>
   }
 }
 
-# Appends one entry to the "## Messages" section of <id>'s body, creating the
-# section at the end of the body when it is missing. Neither backend offers an
-# atomic append, so the read and the rewrite run under one flock on the data
-# directory, which every caller of this function shares.
 fm_backlog_append_message() {  # <data-dir> <id> <sender> <text>
-  local data authorized_data=$1 id=$2 sender=$3 text=$4 lock_fd tmp stamp entry status=0
+  local data sender=$3 text=$4 stamp entry
   FM_BACKLOG_TRANSITION_ERROR=
+  if ! command -v python3 >/dev/null 2>&1; then
+    FM_BACKLOG_TRANSITION_ERROR="python3 is required to lock the backlog message log"
+    return 1
+  fi
   if ! data=$(fm_backlog_data_absolute "$1"); then
     FM_BACKLOG_TRANSITION_ERROR="data directory cannot be resolved: $1"
     return 1
@@ -779,15 +779,46 @@ fm_backlog_append_message() {  # <data-dir> <id> <sender> <text>
     print "- $stamp $sender: $first";
     print "\n", ($_ eq "" ? "" : "  $_") for @lines;
   ' "$stamp" "$sender")
-  if ! exec {lock_fd}>>"$data/.fm-backlog-messages.lock"; then
-    FM_BACKLOG_TRANSITION_ERROR="cannot open the message lock in $data"
+  FM_BACKLOG_TRANSITION_ERROR="cannot open the message lock in $data"
+  # Neither backend offers an atomic append, so both the read and the rewrite need the lock.
+  fm_backlog_append_message_locked "$data" "$1" "$2" "$entry" 9>>"$data/.fm-backlog-messages.lock"
+}
+
+fm_backlog_append_message_locked() {
+  local data=$1 authorized_data=$2 id=$3 entry=$4 tmp lock_error status=0
+  # The shell keeps fd 9 open through the rewrite, so Python's exit does not release the lock.
+  lock_error=$(python3 - "${FM_BACKLOG_MESSAGE_LOCK_SECS:-10}" 2>&1 <<'PY'
+import fcntl
+import math
+import sys
+import time
+
+try:
+    seconds = float(sys.argv[1])
+except ValueError:
+    seconds = -1
+if not math.isfinite(seconds) or seconds < 0:
+    sys.exit("FM_BACKLOG_MESSAGE_LOCK_SECS must be a finite non-negative number")
+deadline = time.monotonic() + seconds
+while True:
+    try:
+        fcntl.flock(9, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        break
+    except BlockingIOError:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            sys.exit(75)
+        time.sleep(min(remaining, 0.05))
+PY
+) || {
+    if [ "$?" -eq 75 ]; then
+      FM_BACKLOG_TRANSITION_ERROR="the message lock in $data stayed busy"
+    else
+      FM_BACKLOG_TRANSITION_ERROR="cannot acquire the message lock in $data: ${lock_error##*$'\n'}"
+    fi
     return 1
-  fi
-  if ! flock -w "${FM_BACKLOG_MESSAGE_LOCK_SECS:-10}" "$lock_fd"; then
-    exec {lock_fd}>&-
-    FM_BACKLOG_TRANSITION_ERROR="the message lock in $data stayed busy"
-    return 1
-  fi
+  }
+  FM_BACKLOG_TRANSITION_ERROR=
   fm_backlog_row_body "$data" "$id" || status=$?
   if [ "$status" -eq 0 ]; then
     tmp=$(umask 077; mktemp "${TMPDIR:-/tmp}/fm-backlog-message.XXXXXX") || {
@@ -823,7 +854,6 @@ fm_backlog_append_message() {  # <data-dir> <id> <sender> <text>
     [ "$status" -ne 0 ] || fm_backlog_mutate "$authorized_data" update "$id" --body-file "$tmp" || status=$?
     rm -f -- "$tmp"
   fi
-  exec {lock_fd}>&-
   return "$status"
 }
 
