@@ -183,6 +183,39 @@ Exercise the spawn behavior under test.
 EOF
 }
 
+fm_test_fake_herdr_teardown() {
+  local fakebin=$1
+  cat > "$fakebin/herdr" <<'SH'
+#!/usr/bin/env bash
+set -u
+fixture=$(dirname "$0")
+session=${@: -1}
+case "${1:-} ${2:-}" in
+  'status --json')
+    printf '%s\n' '{"client":{"version":"0.9.5","protocol":22},"server":{"running":true}}'
+    ;;
+  'session list')
+    jq -cn --arg name "$session" --arg path "$fixture/herdr.sock" '{sessions:[{name:$name,running:true,socket_path:$path}]}'
+    ;;
+  'pane get')
+    [ ! -e "$fixture/unknown" ] || exit 1
+    if [ -e "$fixture/pending-close" ]; then
+      jq -cn --arg pane "$3" '{result:{pane:{pane_id:$pane}}}'
+    else
+      printf '%s\n' '{"error":{"code":"pane_not_found"}}'
+      exit 1
+    fi
+    ;;
+  'pane close')
+    [ -z "${FM_FAKE_HERDR_CLOSE_LOG:-}" ] || printf '%s\n' "$*" >> "$FM_FAKE_HERDR_CLOSE_LOG"
+    [ ! -e "$fixture/pending-close" ]
+    ;;
+  *) exit 1 ;;
+esac
+SH
+  chmod +x "$fakebin/herdr"
+}
+
 fm_test_make_spawn_fakebin() {
   local fakebin
   fakebin=$(fm_fakebin "$1")

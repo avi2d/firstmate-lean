@@ -77,8 +77,8 @@
 #   (aj) file saved during the refresh, work landed                -> REFUSE, file intact
 set -u
 
-# shellcheck source=tests/lib.sh disable=SC1091
-. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=tests/fixtures.sh disable=SC1091
+. "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 fm_git_identity fmtest fmtest@example.invalid
 
 TEARDOWN="$ROOT/bin/fm-teardown.sh"
@@ -111,34 +111,7 @@ make_case() {
 # `treehouse return --force <wt>`: succeed silently.
 exit 0
 SH
-  cat > "$fakebin/herdr" <<'SH'
-#!/usr/bin/env bash
-set -u
-fixture=$(dirname "$0")
-session=${@: -1}
-case "${1:-} ${2:-}" in
-  'status --json')
-    printf '%s\n' '{"client":{"version":"0.9.5","protocol":22},"server":{"running":true}}'
-    ;;
-  'session list')
-    jq -cn --arg name "$session" --arg path "$fixture/herdr.sock" '{sessions:[{name:$name,running:true,socket_path:$path}]}'
-    ;;
-  'pane get')
-    [ ! -e "$fixture/unknown" ] || exit 1
-    if [ -e "$fixture/pending-close" ]; then
-      jq -cn --arg pane "$3" '{result:{pane:{pane_id:$pane}}}'
-    else
-      printf '%s\n' '{"error":{"code":"pane_not_found"}}'
-      exit 1
-    fi
-    ;;
-  'pane close')
-    [ -z "${FM_FAKE_HERDR_CLOSE_LOG:-}" ] || printf '%s\n' "$*" >> "$FM_FAKE_HERDR_CLOSE_LOG"
-    [ ! -e "$fixture/pending-close" ]
-    ;;
-  *) exit 1 ;;
-esac
-SH
+  fm_test_fake_herdr_teardown "$fakebin"
   # Default gh-axi mock: no PR is associated with the branch, and viewing any PR
   # number fails. This keeps the landed-work check hermetic (never reaching the real
   # gh-axi) and represents the common "no GitHub PR" baseline. Tests that need a
