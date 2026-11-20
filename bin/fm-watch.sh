@@ -3021,6 +3021,7 @@ event_wait_or_sleep() {
   local w b session first_backend="" first_session="" rec rc
   local windows=()
   while IFS= read -r w; do
+    [ "$(window_kind "$w")" != secondmate ] || continue
     b=$(window_backend "$w")
     fm_backend_has_push "$b" || continue
     session=${w%%:*}
