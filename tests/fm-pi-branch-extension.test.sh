@@ -4664,139 +4664,48 @@ EOF
   pass "scopeForUnreadWake excludes every main-only class without vetoing eligible task-local rows, and writes the eligible snapshot"
 }
 
-# An Orca task's stale rows are keyed by its terminal handle, not a window
-# (bin/fm-watch.sh keys Orca endpoints by terminal=). The dispatcher must
-# resolve that terminal key to its task, so a terminal-keyed stale row queued
-# alongside another eligible row stays branch-owned instead of sending the
-# whole wake to main.
-test_branch_dispatch_resolves_terminal_keyed_orca_stale_row() {
-  local repo home out status
-  repo="$TMP_ROOT/dispatch-terminal-root"
-  home="$TMP_ROOT/dispatch-terminal-home"
-  mkdir -p "$repo/.pi/extensions/lib" "$home/state" "$home/projects/approved"
-  cp "$ROOT/.pi/extensions/lib/fm-branch-dispatch.ts" "$repo/.pi/extensions/lib/fm-branch-dispatch.ts"
-  cp "$ROOT/.pi/extensions/lib/fm-native-contract.ts" "$repo/.pi/extensions/lib/fm-native-contract.ts"
-  cp "$ROOT/.pi/extensions/lib/fm-async-exec.ts" "$repo/.pi/extensions/lib/fm-async-exec.ts"
-  cp "$ROOT/.pi/extensions/lib/fm-branch-model-picker.ts" "$repo/.pi/extensions/lib/fm-branch-model-picker.ts"
-  printf 'project=%s/projects/approved\nterminal=orca-term-1\n' "$home" > "$home/state/orca-task.meta"
-  LIB="$repo/.pi/extensions/lib/fm-branch-dispatch.ts" FM_HOME="$home" \
-    node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
-import { pathToFileURL } from "node:url";
-import { writeFileSync } from "node:fs";
-
-const { scopeForUnreadWake } = await import(pathToFileURL(process.env.LIB).href);
-const state = `${process.env.FM_HOME}/state`;
-const project = `${process.env.FM_HOME}/projects/approved`;
-
-for (const heartbeat of [false, true]) {
-  const queue = heartbeat
-    ? ["1\t1\theartbeat\theartbeat\theartbeat", "1\t2\tstale\torca-term-1\tstale: orca-term-1"]
-    : ["1\t1\tsignal\torca-task.status\tsignal: orca-task.status", "1\t2\tstale\torca-term-1\tstale: orca-term-1"];
-  writeFileSync(`${state}/.wake-queue`, queue.join("\n"));
-  const scope = scopeForUnreadWake(state, heartbeat);
-  if (!scope.eligible || scope.corrupted || scope.eligibleSeqs.slice().sort().join(",") !== "1,2") {
-    throw new Error(`a terminal-keyed stale row was not branch-owned (heartbeat=${heartbeat}): ${JSON.stringify(scope)}`);
-  }
-  if (scope.taskByWakeKey["orca-term-1"] !== "orca-task") {
-    throw new Error(`the terminal key did not resolve to its task: ${JSON.stringify(scope)}`);
-  }
-  if (!scope.projects.includes(project)) {
-    throw new Error(`the terminal-keyed task lost its project context: ${JSON.stringify(scope.projects)}`);
-  }
-}
-// A terminal must never silently change owners, including collisions with
-// another task's window or canonical task key. Exercise both record orders.
-for (const owner of ["a-owner", "z-owner"]) {
-  for (const field of ["terminal", "window", "task"]) {
-    for (const ownerProject of [`project=${project}\n`, "", "project=\n"]) {
-      const terminal = field === "task" ? owner : "orca-term-1";
-      writeFileSync(`${state}/orca-task.meta`, `project=${project}\nterminal=${terminal}\n`);
-      writeFileSync(`${state}/${owner}.meta`, `${ownerProject}${field === "task" ? "" : `${field}=${terminal}\n`}`);
-      writeFileSync(`${state}/${owner}.status`, "needs-decision: choose owner\n");
-      writeFileSync(`${state}/.wake-queue`, `1\t1\tsignal\torca-task.status\tsignal: orca-task.status\n1\t2\tstale\t${terminal}\tstale: ${terminal}`);
-      const scope = scopeForUnreadWake(state, false);
-      if (scope.eligible || !scope.corrupted || scope.eligibleSeqs.length !== 0) {
-        throw new Error(`conflicting ${field} ownership must leave the whole wake to MAIN (${owner}, project=${JSON.stringify(ownerProject)}): ${JSON.stringify(scope)}`);
-      }
-      // The empty record retains its task key but no endpoint claim.
-      writeFileSync(`${state}/${owner}.meta`, "");
-    }
-  }
-}
-for (const projectField of ["", "project=\n"]) {
-  writeFileSync(`${state}/orca-task.meta`, `${projectField}terminal=orca-term-1\n`);
-  writeFileSync(`${state}/orca-task.status`, "needs-decision: choose owner\n");
-  writeFileSync(`${state}/.wake-queue`, "1\t1\tstale\torca-term-1\tstale: orca-term-1");
-  const scope = scopeForUnreadWake(state, false);
-  if (scope.eligible || !scope.corrupted) {
-    throw new Error(`a unique projectless owner must remain unmappable: ${JSON.stringify(scope)}`);
-  }
-}
-process.exit(0);
-EOF
-  status=$?
-  out=$(cat "$TMP_ROOT/node-output")
-  expect_code 0 "$status" "a terminal-keyed Orca stale row must resolve to its task: $out"
-  pass "scopeForUnreadWake resolves unique Orca terminal owners and refuses conflicting aliases alongside another eligible row"
-}
-
-
-test_branch_dispatch_keeps_project_with_canonical_owner() {
+test_branch_dispatch_refuses_ambiguous_herdr_endpoint_owners() {
   local out status
   ROOT="$ROOT" CASE_ROOT="$TMP_ROOT/canonical-owner" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
-import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
 const { scopeForUnreadWake, branchOfferForWake } = await import(pathToFileURL(`${process.env.ROOT}/.pi/extensions/lib/fm-branch-dispatch.ts`).href);
 const originalReaddir = fs.readdirSync;
 let fixture = 0;
 for (const reverse of [false, true]) {
-  const preload = `import fs from "node:fs"; import { syncBuiltinESMExports } from "node:module";
-    const original = fs.readdirSync;
-    fs.readdirSync = (...args) => { const names = original(...args).sort(); return ${reverse} ? names.reverse() : names; };
-    syncBuiltinESMExports();`;
   fs.readdirSync = (...args) => {
     const names = originalReaddir(...args).sort();
     return reverse ? names.reverse() : names;
   };
   syncBuiltinESMExports();
-  for (const field of ["window", "terminal"]) {
-    for (const project of ["", "project=\n", "project=/owner\n"]) {
-      for (const key of ["fm-window", "fm-fm-window"]) {
-        const state = `${process.env.CASE_ROOT}/${fixture++}`;
-        fs.mkdirSync(state, { recursive: true });
-        fs.writeFileSync(`${state}/a.meta`, `${project}${field}=fm-window\n`);
-        fs.writeFileSync(`${state}/window.meta`, "project=/approved\n");
-        fs.writeFileSync(`${state}/window.status`, "needs-decision: choose owner\n");
-        fs.writeFileSync(`${state}/.wake-queue`, `1\t1\tstale\t${key}\tstale: ${key}\n`);
-        const check = (eligible, corrupted) => {
-          for (const afk of [false, true]) {
-            const scope = scopeForUnreadWake(state, false, afk);
-            assert.equal(scope.eligible, eligible, JSON.stringify({ reverse, field, project, key, scope }));
-            assert.equal(scope.corrupted, corrupted);
-            if (eligible) {
-              assert.deepEqual(scope.eligibleTasks, ["a"]);
-              assert.deepEqual(scope.projects, ["/owner"]);
-            }
-            assert.equal(branchOfferForWake(state, `stale: ${key}`, afk).eligible, eligible);
-            const cli = spawnSync(process.execPath, ["--import", `data:text/javascript,${encodeURIComponent(preload)}`,
-              `${process.env.ROOT}/bin/fm-branch-dispatch.mjs`, "offer", ...(afk ? ["--afk"] : [])], {
-              env: { ...process.env, FM_STATE_OVERRIDE: state }, input: `stale: ${key}\n`, encoding: "utf8",
-            });
-            assert.equal(cli.status, 0, cli.stderr);
-            const result = Object.fromEntries(cli.stdout.trim().split("\n").map((line) => line.split("=")));
-            assert.equal(result.eligible, eligible ? "1" : "0", cli.stdout);
-            assert.equal(result.corrupted, corrupted ? "1" : "0", cli.stdout);
-          }
-        };
-        check(Boolean(project.includes("/owner")), !project.includes("/owner"));
-        fs.writeFileSync(`${state}/window.meta`, `project=/approved\n${field}=fm-window\n`);
-        check(false, true);
+  const key = "test:w1:p2";
+  for (const project of ["", "project=\n", "project=/owner\n"]) {
+    const state = `${process.env.CASE_ROOT}/${fixture++}`;
+    fs.mkdirSync(state, { recursive: true });
+    fs.writeFileSync(`${state}/a.meta`, `${project}window=${key}\n`);
+    fs.writeFileSync(`${state}/other.meta`, "project=/approved\n");
+    fs.writeFileSync(`${state}/other.status`, "needs-decision: choose owner\n");
+    fs.writeFileSync(`${state}/.wake-queue`, `1\t1\tstale\t${key}\tstale: ${key}\n`);
+    const check = (eligible, corrupted) => {
+      for (const attendedHost of [false, true]) {
+        const scope = scopeForUnreadWake(state, false, attendedHost);
+        assert.equal(scope.eligible, eligible, JSON.stringify({ reverse, project, key, scope }));
+        assert.equal(scope.corrupted, corrupted);
+        if (eligible) {
+          assert.deepEqual(scope.eligibleTasks, ["a"]);
+          assert.deepEqual(scope.projects, ["/owner"]);
+        }
+        const offer = branchOfferForWake(state, `stale: ${key}`, attendedHost);
+        assert.equal(offer.eligible, eligible);
+        assert.equal(offer.corrupted, corrupted);
       }
-    }
+    };
+    check(project.includes("/owner"), !project.includes("/owner"));
+    fs.writeFileSync(`${state}/other.meta`, `project=/approved\nwindow=${key}\n`);
+    check(false, true);
   }
 }
 fs.readdirSync = originalReaddir;
@@ -4804,15 +4713,10 @@ syncBuiltinESMExports();
 EOF
   status=$?
   out=$(cat "$TMP_ROOT/node-output")
-  expect_code 0 "$status" "canonical ownership must govern scope and CLI offers: $out"
-  pass "scope and CLI keep projects with canonical owners in both discovery orders"
+  expect_code 0 "$status" "canonical ownership must govern scope and branch offers: $out"
+  pass "scope and branch offers keep projects with canonical owners in both discovery orders"
 }
 
-# A second mate's status log is one shared channel for many independently keyed
-# decisions, so its signal rows are judged by the span presented since the last
-# drain (bounded by bin/fm-classify-lib.sh's own presentation-cursor writer),
-# not by every decision still open anywhere in that log. Single-task crewmate
-# logs keep their previous rule on both the Pi and the attended-host path.
 
 # The model picker's bounded scrolling and its search ranking are Pi's own
 # SelectList and fuzzyFilter, so the guarantee only holds while the installed
@@ -5810,8 +5714,7 @@ test_abbreviated_processing_request_points_to_full_outcome
 test_large_unprocessed_backlog_replays_in_batches
 test_undated_unprocessed_outcome_surfaces_and_stays_unprocessed
 test_branch_dispatch_classifies_main_only_rows_and_writes_the_eligible_snapshot
-test_branch_dispatch_resolves_terminal_keyed_orca_stale_row
-test_branch_dispatch_keeps_project_with_canonical_owner
+test_branch_dispatch_refuses_ambiguous_herdr_endpoint_owners
 test_branch_cache_key_is_per_home_stable
 test_branch_default_on_heartbeat_afk_and_fallback
 test_branch_predrain_recheck_keeps_a_heartbeat_a_co_present_check_arrives_under

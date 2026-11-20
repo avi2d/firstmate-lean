@@ -263,10 +263,7 @@ export function scopeForUnreadWake(state: string, heartbeat: boolean, attendedHo
       const fields = readFileSync(`${state}/${name}`, "utf8").split(/\r?\n/);
       const project = fields.find((line) => line.startsWith("project="))?.slice(8) ?? "";
       const window = fields.find((line) => line.startsWith("window="))?.slice(7) ?? "";
-      // An Orca task's stale rows name its terminal handle, not its window
-      // (bin/fm-watch.sh keys Orca endpoints by terminal=), so index both.
-      const terminal = fields.find((line) => line.startsWith("terminal="))?.slice(9) ?? "";
-      const aliases = [task, `${task}.status`, `${task}.turn-ended`, window, terminal];
+      const aliases = [task, `${task}.status`, `${task}.turn-ended`, window];
       for (const key of aliases) {
         if (!key) continue;
         const owner = taskByKey.get(key);
