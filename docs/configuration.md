@@ -9,9 +9,9 @@ Start with the directory layout, then use the setting reference for the behavior
 | --- | --- |
 | Firstmate's code, private files, or project location | [FM_HOME](#fm_home) and [operational home layout](#operational-home-layout-and-state) |
 | Task windows and worker tools | [Runtime backend](#runtime-backend-configbackend--fm_backend) and [harness support](#harness-support) |
-| Worker permissions, accounts, or environment | [Codex approval review](#codex-automatic-approval-review), [Claude permission mode](#claude-permission-mode-configclaude-permission-mode), [Codex permission mode](#codex-permission-mode-configcodex-permission-mode), [persistent managed-policy failover](#persistent-managed-policy-failover), [worker account pin](#worker-account-pin-configclaude-account-configpi-account), [cloud Claude worker](#cloud-claude-worker), [worker tool exclusions](#worker-tool-exclusions-configcrew-exclude-tools), [worker launch environment](#worker-launch-environment-configlaunch-env-allowlist) |
+| Worker accounts, excluded tools, or launch environment | [Pi account pin](#worker-account-pin-configpi-account), [worker tool exclusions](#worker-tool-exclusions-configcrew-exclude-tools), and [worker launch environment](#worker-launch-environment-configlaunch-env-allowlist) |
 | Backlog, preferences, and memory | [Backlog backend](#backlog-backend-taskstoml--configbacklog-backend), [external memory tiers](#external-memory-tiers-memory-layering-section), [record export](#record-export-configrecord-export-root), and [startup memory budget](#startup-memory-budget-configstartup-memory-budget) |
-| Supervision and presentation | [Pi supervision branch](#pi-supervision-branch), [supervision host](#supervision-host-configsupervision-host), [Codex native Stop park](#codex-native-stop-park-configcodex-stop-park), [warm-cache compaction](#warm-cache-compaction-configwarm-compact), and [Calm preference](#calm-preference-configcalm) |
+| Supervision and presentation | [Pi supervision branch](#pi-supervision-branch) and [Calm preference](#calm-preference-configcalm) |
 | Merging green yolo pull requests without a turn | [Merge on green](#merge-on-green) |
 | Per-run overrides and tuning | [Environment variables](#environment-variables) |
 
@@ -50,7 +50,7 @@ These variables override individual operational directories for tests and specia
 
 ### Relative paths and lifecycle safety
 
-Before `fm-brief.sh`, `fm-spawn.sh`, or `fm-afk-launch.sh` saves a path or passes it to another process, it handles each applicable `FM_HOME`, `FM_STATE_OVERRIDE`, or `FM_DATA_OVERRIDE` directory as follows:
+Before `fm-brief.sh` or `fm-spawn.sh` saves a path or passes it to another process, it handles each applicable `FM_HOME`, `FM_STATE_OVERRIDE`, or `FM_DATA_OVERRIDE` directory as follows:
 
 - Resolve relative directories against the caller's working directory.
 - Preserve accepted absolute spellings unchanged.
@@ -63,9 +63,8 @@ Other transient consumers retain their existing shell-relative behavior.
 
 ### Backend labels and containers
 
-| Backend | Effect of the operational home |
-| --- | --- |
-| herdr | `FM_HOME` determines the adapter's workspace label. |
+Herdr uses the exact launcher workspace when it can prove that identity.
+Otherwise it uses the [default workspace label](herdr-backend.md#watching-and-task-containers).
 
 ## Operational home layout and state
 
@@ -127,9 +126,8 @@ While tasks are in flight, dispatch shared-repo edits to a crewmate.
 
 ## Calm preference (config/calm)
 
-The Pi Calm extension and the Claude Code Calm mod share the local, gitignored `config/calm` preference under the effective Firstmate home.
-One `/calm` choice therefore applies on either harness.
-Both resolve the home in this order: `FM_HOME`, `FM_ROOT_OVERRIDE`, then the tracked code root derived from their own path under it.
+The Pi Calm extension saves its preference in the local, gitignored `config/calm` file.
+It resolves the home in this order: `FM_HOME`, `FM_ROOT_OVERRIDE`, then the tracked code root derived from their own path under it.
 When `FM_CONFIG_OVERRIDE` is present for tests or specialized setup, it selects the config directory directly.
 
 ### Values and default
@@ -149,12 +147,9 @@ A home upgraded from `max` keeps Calm on rather than dropping to off.
 
 Each `/calm` command saves the new choice before changing live presentation.
 A failed write leaves the current choice unchanged and is not reported as a saved preference.
-Pi replaces the file atomically; the Claude Code mod uses the plugin API's plain file write.
+Pi replaces the file atomically.
 The Pi extension reloads this preference on every Pi `session_start`, including startup, new, resume, fork, and reload reasons.
 
-The Claude Code mod reloads it on every `session.start`, including same-process session replacement.
-It also loads the preference lazily before any row that can draw ahead of that event, including during `claude --continue` restoration.
-This preference is local to each Firstmate home and is not part of secondmate inherited configuration.
 
 ## Pi repeated-read containment
 
@@ -334,99 +329,6 @@ Cancelling only the effort picker keeps the standing effort choice and still app
 The command's closing message reports both choices as they will take effect.
 
 
-## Supervision host (config/supervision-host)
-
-Two optional local, gitignored files control the supervision host for this home: `config/supervision-host-off` opts the home out, and `config/supervision-host` opts a home in and selects its engine.
-The host runs the supervision branch's contract on a headless engine session beside a non-Pi primary.
-[docs/supervision-host.md](supervision-host.md) defines its design, current scope, and verified engines.
-A Claude, Cursor, OpenCode, omp, Grok, or Codex primary can run the host.
-
-A present `config/supervision-host-off`, whatever it holds, opts the home out on every primary.
-Otherwise a Claude primary runs the host by default: with no `config/supervision-host` it runs exactly as with an empty one, at the Claude engine's default model.
-A Cursor, OpenCode, omp, Grok, or Codex primary runs the host only while `config/supervision-host` exists and the home is not opted out.
-A home that does not run the host behaves exactly as it does without it, and a Pi primary keeps its in-process supervision branch whatever either file says.
-`fm_supervision_host_enabled` in `bin/fm-supervision-engine-lib.sh` implements this gate for every reader.
-
-While the home runs the host, the primary's arm owner runs it in place of the watcher arm.
-The host handles wakes on the engine under the [posture rules](supervision-host.md#postures), including an away record and attended operation on a Claude or Cursor primary with a verified dialog mirror.
-The same gate governs the primary's dialog-mirror hooks (`bin/fm-host-mirror.sh`), which record on a Claude or Cursor primary ([supervision-host.md](supervision-host.md#the-dialog-mirror)).
-Grok's arm command is rendered at session start, so a change to its host mode takes effect at its next session start; the other arm owners check the gate at every arm.
-
-### Engine selection
-
-`config/supervision-host` may be empty or hold one line `<engine> [<model>]`:
-
-- empty or `default` selects the primary harness's own engine at that engine's default model (`sonnet` for the Claude engine);
-- `<engine> [<model>]` names a verified engine, currently only `claude`, and optionally the engine's own model name or alias; `default <model>` selects the primary harness's engine with that model.
-
-Only Claude has a verified engine of its own, so a Cursor, OpenCode, omp, Grok, or Codex home names `claude` in the file.
-
-### Failures, when changes apply, and inheritance
-
-An unverified engine, a primary without a verified engine, or a malformed line leaves the host without an engine.
-It takes no wake, so every wake reaches main as it would without the host.
-Each away-posture wake includes a line naming the problem.
-The running host reads both files at every wake, so an engine change or an opt-out takes effect at the next wake without a restart.
-
-`config/supervision-host` is local to each home and not inherited, because each home's engine and model are its own choice.
-While the home runs the host, main's lease-checked commands also take the per-task lease lock, so a claim by the host's engine cannot race a mutation main already started (`bin/fm-lease-lib.sh`).
-
-### Acknowledged hand-back (config/supervision-handoff-ack)
-
-Create the empty, home-local `config/supervision-handoff-ack` file to enable acknowledged hand-backs on a Claude primary that runs the supervision host.
-The flag is off when absent, is not inherited, and has no effect on other primaries or the host-off Stop path.
-The host reads its presence at each hand-back, so enabling it needs no session restart.
-Removing it stops further retries and leaves the current watcher for the ordinary next park.
-[Supervision host](supervision-host.md#acknowledged-hand-back) owns the acknowledgement, retry transport, and limits.
-
-## Codex native Stop park (config/codex-stop-park)
-
-Create the empty, home-local `config/codex-stop-park` file to let a Codex primary wait for watcher wakes outside the model between turns.
-The feature is off when the file is absent, and every Codex session then keeps the bounded foreground checkpoint protocol.
-With the file present, only an interactive native Codex session on the verified CLI version that holds this home's session lock parks; every other session keeps the foreground checkpoint.
-The supervision protocol is chosen when the session starts, so create or remove the file before starting the Codex session.
-The file is local to each home.
-[The Codex protocol](supervision-protocols/codex.md) owns the parked operating protocol, and `bin/fm-codex-stop-park.sh` owns version selection, registration, and failure fallback.
-
-## Warm-cache compaction (config/warm-compact)
-
-Create the home-local `config/warm-compact` file to compact an idle Claude primary and the supervision host's engine conversation before their prompt cache expires.
-A session that sits idle past the cache lifetime re-writes its whole context at the cache-write price on its next turn.
-Compacting while the cache is still warm reads the old context at the read price, so the next turn writes only the summary.
-
-The feature is off when the file is absent.
-The file is local to each home and is not inherited.
-The host reads it at every check, so creating or removing it needs no restart.
-It acts only on a home that runs the [supervision host](#supervision-host-configsupervision-host) beside a Claude primary, because the host's park is the primary's idle episode.
-
-The file may be empty or hold these lines, each optional:
-
-- `idle-seconds=<n>` is the idle time before a session is due (default 2700).
-- `min-context-tokens=<n>` is the context size below which a session is never due (default 80000).
-
-Blank lines and lines that start with `#` are ignored, and an unusable value keeps its default.
-Context size is the last request's `input + cache_read + cache_creation` usage in the session's transcript.
-
-A session is compacted when all of these hold:
-
-- The home opted in.
-- The session has been idle for `idle-seconds`: the primary since its turn ended, the engine conversation since its last handled turn.
-- Its context is at least `min-context-tokens`.
-- It was not already compacted in this idle episode.
-  The host remembers a primary compaction for one park.
-  It records an engine compaction in the engine record, so a later host does not repeat it.
-- For the engine conversation, the next turn would resume it: the same engine, model, and prompt key, and below the rotation limit.
-  An abandoned compaction is not recorded, so a later check retries it.
-- For the primary, the agent reads idle and the composer reads provably empty.
-  A busy agent, a non-empty composer, or an unproven state defers the compaction; nothing is typed.
-
-The engine conversation receives `/compact` as one resumed, bounded headless turn.
-A compaction is housekeeping: it adds no wake, outcome, or close line, and it is recorded only in the host's log.
-A compacted primary still picks up pending wakes and decisions from disk, because a wake is a record the next drain reads, not conversation state.
-
-This feature does not set `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` or any other autocompact setting.
-`bin/fm-warm-compact-lib.sh` owns the guards, with coverage in [`tests/fm-warm-compact.test.sh`](../tests/fm-warm-compact.test.sh) and the opt-in live guard [`tests/fm-warm-compact-herdr-live-e2e.test.sh`](../tests/fm-warm-compact-herdr-live-e2e.test.sh).
-
 ## Backlog backend (.tasks.toml / config/backlog-backend)
 
 The tracked `.tasks.toml` pins the default `tasks-axi` markdown backend to `data/backlog.md`, with `done_keep = 10` and an archive at `data/done-archive.md`.
@@ -545,7 +447,7 @@ Bootstrap reports a code-root `data/backlog.md` or `data/done-archive.md` that i
 
 ## Runtime backend (config/backend / FM_BACKEND)
 
-The runtime session-provider backend controls where task endpoints are created, captured, sent to, watched, and killed.
+The runtime backend creates task panes, reads their output, sends input, and closes them.
 Herdr is the only runtime backend, and Treehouse provides each task's worktree.
 [`docs/herdr-backend.md`](herdr-backend.md) owns its behavior.
 
@@ -1092,131 +994,18 @@ Add `host=<route>` to a project record to run its workers there.
 
 ## Harness support
 
-claude, codex, opencode, pi, pi-signed, grok, kimi, cursor, and omp are empirically verified for crewmate and secondmate launches; gemini is verified for crewmate and scout launches only, and [README requirements](../README.md#requirements) own the set supported for the primary session.
-
-### Harness restrictions and credentials
-
-`fm-spawn.sh` refuses kimi on cmux and Orca at preflight, because answering Kimi's folder-trust dialog needs a verified viewport-only capture those backends lack; [its adapter reference](../.agents/skills/harness-adapters/references/harness/kimi.md#readiness-gated-start) owns the trust-dialog handling.
-It also never answers a Kimi folder prompt that announces project MCP servers, pages what trusting would activate, or is collapsed for a short terminal, so no project MCP server starts without a consent decision that covers it; the launch fails with that reason, and the same adapter reference owns the exact rules.
-A cursor secondmate or primary runs the tracked project-scope `.cursor/hooks.json` in its own home and must be launched with `--trust`, or no project hook loads; [`docs/supervision-protocols/cursor.md`](supervision-protocols/cursor.md) owns its supervision protocol.
-
-Cursor typed-submit confirmation is verified on tmux and Herdr only.
-On Zellij, cmux, Orca, Paseo, and tern a typed-plane Cursor send (a harness-native invocation or an explicit backend target; ordinary text steers ride the durable inbox and exit 0 at enqueue) lands, but `fm-send` reports delivery unconfirmed and exits non-zero because their shared submit core does not consult the busy footer; [runtime backend verification](verification/runtime-backends.md#cursor-agent-cli) owns the evidence and transcript-state boundary.
-
-muse is verified for crewmate and scout launches ONLY, and `fm-spawn.sh` refuses it for a secondmate, because muse ships no usable hook surface for a primary session's turn-end supervision; [`docs/verification/muse.md`](verification/muse.md) owns that evidence.
-muse also needs a worker-reachable credential before spawning, and the portable fleet path is the `<config>/muse/auth.json` credential stored by `muse login`, because a caller-only `META_API_KEY` does not cross a long-lived backend daemon.
-
-gemini is likewise refused for secondmates because it has no primary supervision protocol; [its adapter reference](../.agents/skills/harness-adapters/references/harness/gemini.md) owns the credential precondition, canonical-launch wiring, and raw-launch limitations.
-rovo is likewise verified for crewmate and scout launches ONLY, refused for a secondmate for the same reason - no turn-end hook and no primary supervision protocol; [`docs/verification/rovo.md`](verification/rovo.md) owns that evidence, including the OAuth token's silent background refresh from a stored refresh token and both tmux and herdr pane liveness (herdr placement is verified live, with a Herdr-side agent-detection gap left open for recovery classification).
-
-kiro (Kiro CLI, V2 engine only) is likewise verified for crewmate and scout launches ONLY, refused for a secondmate because it has no primary supervision protocol; it is claude-shaped, so its per-task turn-end and busy hooks live in a firstmate-owned agent config the spawn writes under `state/<id>.kiro-home` and reaches by relocating `KIRO_HOME` (never the worktree's own `.kiro/`), with the `--trust-all-tools` modal suppressed by a seeded `chat.disableTrustAllConfirmation` setting; [`docs/verification/kiro.md`](verification/kiro.md) owns that evidence, and the v3/KAS engine is out of scope and unsupported on Amazon Linux 2.
-A kiro hook command must be one unquoted token, so a kiro spawn refuses before launch when that per-task home path contains whitespace or a shell-special character (such as a quote or `$`) and asks for an `FM_HOME` or `FM_STATE_OVERRIDE` free of them.
-
-devin is verified for crewmate and scout launches only; a secondmate is refused because Devin has no verified primary supervision protocol.
-
-Its private worker config disables Claude Code imports (including the captain's hooks) and, unless the home sets `config/keep-ai-trailers` (see "Commit attribution"), Devin commit attribution without editing user or project config; [`fm-devin-config.sh`](../bin/fm-devin-config.sh) owns these enforced settings and [Devin verification](verification/devin.md) owns the live evidence and observed model availability.
-
-cortex (Snowflake's Cortex Code) is likewise verified for crewmate and scout launches only; a secondmate is refused because Cortex has no verified primary supervision protocol.
-It runs only on the tmux and Herdr backends; a zellij, cmux, orca, paseo, rex, or t3code launch is refused because those backends supply no Cortex pane identity to prove its titled composer empty.
-Its busy-state and turn-end hooks reach the worker through a private per-task plugin directory passed with `--plugin-dir`, so no user or project Cortex or Claude config is edited; [`fm-cortex-plugin.sh`](../bin/fm-cortex-plugin.sh) owns it and teardown removes it.
-The launch clears `CLAUDECODE` so Herdr's Claude integration hook cannot claim the pane, and it uses `--dangerously-allow-all-tool-calls`, which also skips the project trust dialog without recording the project in Cortex's trust file.
-Cortex loads Claude-compatible hook files with no switch to disable the import, so a worker in a project with Claude hooks runs them.
-[Cortex verification](verification/cortex.md) owns the live evidence, the Herdr pane-claim behavior, and the unverified items.
-commandcode (Command Code) is verified for crewmate and scout launches only; a secondmate is refused because Command Code has no verified primary supervision protocol.
-It runs only on the tmux and Herdr backends; a zellij, cmux, orca, paseo, or tern launch is refused because those backends supply no Command Code pane identity, without which its idle composer placeholder never reads empty and steering stalls, and a rex launch is refused until Command Code is live-verified there.
-Its busy-state wiring is a tracked mod loaded per process with `--mod`, so no user or project Command Code settings are edited; [its adapter reference](../.agents/skills/harness-adapters/references/harness/commandcode.md) owns the launch facts and [Command Code verification](verification/commandcode.md) owns the live evidence.
-
-Hermes Agent is verified for crewmate and scout TUI launches on tmux only; primary and secondmate use and other backends are refused.
-Its native profile selects the model and reasoning, and the profile's own gateway may run only if it is idle at dispatch.
-The [Hermes adapter reference](../.agents/skills/harness-adapters/references/harness/hermes.md) owns operating limits, [`fm-spawn.sh`](../bin/fm-spawn.sh)'s header owns the per-spawn profile flag, and [Hermes verification](verification/hermes.md) owns live evidence.
-
-Polytoken is verified for crewmate and scout launches only; [its adapter reference](../.agents/skills/harness-adapters/references/harness/polytoken.md) owns the operating contract and [verification record](verification/polytoken.md) owns the live evidence.
-It has no primary or secondmate supervision protocol.
-The launch generates a private per-task config directory that mirrors the operator's provider/model configuration and enforces unattended permissions without modifying global configuration.
-The first-start license dialog requires an operator decision and is never accepted automatically.
-
-cloud-claude runs a direct-PR ship task on a GitHub-hosted project in a Claude Code cloud session, and is refused for every other task kind and delivery mode.
-[Cloud Claude worker](#cloud-claude-worker) owns its settings, and [its adapter reference](../.agents/skills/harness-adapters/references/harness/cloud-claude.md) owns the operating contract.
-
-### Verification and primary supervision
-
-New harnesses get verified through a supervised trial task before joining the set.
-The verified adapter evidence - each harness's busy-state source, interrupt and exit behavior, skill-invocation syntax, and per-harness quirks - lives in the skill tree rooted at [`.agents/skills/harness-adapters/SKILL.md`](../.agents/skills/harness-adapters/SKILL.md).
-
-The executable interrupt and exit mechanics live in [`bin/fm-control-lib.sh`](../bin/fm-control-lib.sh), and [`docs/agent-control.md`](agent-control.md) owns their lifecycle-control architecture.
-Launch mechanics, including the verified command templates, live in [`bin/fm-spawn.sh`](../bin/fm-spawn.sh).
-A Claude worker's launch brief is published as an operational record in the receiving home's state and delivered as a printable doorbell; if publication fails, the spawn reports the failure and launches nothing rather than sending a marker that Claude Code would strip.
-Other harnesses retain the typed operational-marker launch path.
-
-Pi-family launches run Pi's default fullscreen TUI and add optional flags only where the installed CLI advertises them.
-[`fm-spawn.sh --help`](../bin/fm-spawn.sh) owns the exact version-safe launch mechanics.
-Enabled primary-session turn-end guard integrations are tracked as repo-level hook files and documented in [`docs/turnend-guard.md`](turnend-guard.md).
-
-Kimi remains outside the primary turn-end guard integrations; [`docs/turnend-guard.md`](turnend-guard.md#compatibility-limits) owns its separate captain-approved crew wake hook.
-Primary-session watcher wake protocols are rendered at session start by [`bin/fm-supervision-instructions.sh`](../bin/fm-supervision-instructions.sh) from [`docs/supervision-protocols/`](supervision-protocols/).
-
-Claude uses [hook-owned tokenless re-arm cycles](watcher-continuity.md#claude-stop-hook), Cursor's stop hook parks on the watcher, Grok uses background-notify cycles, Codex uses bounded foreground checkpoints unless the home opts in to its [native Stop park](#codex-native-stop-park-configcodex-stop-park), Pi and pi-signed use the same two tracked primary extensions, omp uses its own two tracked `.omp/extensions/` files with a blocking `session_stop` turn-end hook, and OpenCode uses its TUI plugin.
+Run Firstmate and its workers in Pi or Pi-signed on Herdr.
+The [harness-adapters skill](../.agents/skills/harness-adapters/SKILL.md) owns launch, control, and recovery.
 
 ### Choose the worker harness
 
-`config/crew-harness` is a local, gitignored file containing one adapter name for crewmate and scout launches.
-When pi-signed is selected, Firstmate preserves `FM_PI_HARNESS=pi-signed` and refuses the launch if the selected executable is unavailable rather than falling back to pi; [`fm-spawn.sh --help`](../bin/fm-spawn.sh) owns executable resolution and launch mechanics.
+Set `config/crew-harness` to `pi`, `pi-signed`, or `default`.
+When the file is absent or set to `default`, workers use the supervisor's Pi variant.
+An explicit `--harness` wins for that launch.
+If the selected executable is missing, the launch refuses rather than switching variants.
 
-Plain Pi launches set `FM_PI_HARNESS=pi`, so a signed primary's environment cannot relabel a plain Pi worker.
-When it is absent or contains `default`, crewmates mirror the firstmate's own harness.
-
-### Per-launch overrides and inherited defaults
-
-An explicit harness argument to `fm-spawn.sh` still overrides either config file for that spawn only.
-An explicit harness also bypasses reading the pin file during spawn or control-plane relaunch, so malformed unused pin configuration cannot block that override. A relaunch supplying explicit `--harness`, `--model`, and `--effort` therefore does not read this configuration.
-
-Remote secondmate routes accept verified harness adapters only and reject raw launch commands.
-When `config/crew-dispatch.json` exists, crewmate and scout spawns require an explicit resolved harness instead of automatically falling back to `config/crew-harness`.
-Such a spawn also refuses until `bin/fm-dispatch-resolve.sh data/<id>/brief.md` has written that task's record, `data/<id>/dispatch-resolution.json`.
-Both paths are under `FM_DATA_OVERRIDE` instead of `data/` when it is set.
-When the record is `clear`, the spawn must match its harness, and its model and effort where the record sets them, with no raw launch command, unless `--dispatch-override <reason>` records a task override in `state/<id>.meta` as `dispatch_override=<reason>`.
-A model or effort the record leaves empty is not bound, so the documented effort fallback still applies.
-When the record is `ambiguous`, `escalate`, `error`, or `off`, the explicit flags from the manual intake are enough.
-An `fm-spawn.sh --relaunch` skips this check.
-
-Those inherited values are defaults and rules only; `fm-spawn` still permits a consciously chosen explicit runtime outside the config.
-
-
-### Installed hooks and launch details
-
-For grok, `fm-spawn.sh` installs one firstmate-owned global turn-end hook under `$GROK_HOME/hooks/`, or `~/.grok/hooks/` when `GROK_HOME` is unset, and drops a per-task `.fm-grok-turnend` pointer in the worktree, with teardown removing the task token and pointer.
-For Kimi crews, `fm-spawn.sh` runs `fm-kimi-turnend-hook.sh install`, drops a per-task `.fm-kimi-turnend` pointer in the worktree, and records the matching private registry token for teardown.
-
-Kimi continues to use the captain's normal Kimi home, including the existing config, skills, and memory; Firstmate does not create an isolated Kimi home.
-The Kimi installer requires an existing regular non-symlink `~/.kimi-code/config.toml`, `python3` with `tomllib`, and `jq`; it validates but never serializes the captain's TOML and refuses before writing when the config is missing, malformed, or surprising or when either tool requirement is unavailable.
-
-Its `remove` action excises only the marker-delimited Firstmate region and removes Firstmate's hook files.
-Pi-family secondmates can start unattended in Firstmate-seeded homes without accepting project trust manually.
-[`fm-spawn.sh --help`](../bin/fm-spawn.sh) owns the capability requirement, session-only approval scope, and older-version fallback, with [regression evidence](verification/runtime-backends.md#pi-project-trust).
-
-For omp secondmate launches, `fm-spawn.sh` names only the parent home's `state/<id>.omp-ext.ts` busy extension with `-e`: omp auto-discovers the home's tracked `.omp/extensions/` with no trust gate, and naming a discovered file with `-e` as well loads it twice; every omp launch also carries the tracked `.omp/fm-worker-overlay.yml` posture overlay through `--config`, which [`fm-spawn.sh --help`](../bin/fm-spawn.sh) owns.
-
-For a Claude secondmate, `fm-spawn.sh` writes the busy hooks into the parent home's `state/<id>.claude-settings.json` and passes that file as Claude Code's one `--settings` value.
-The same file carries `feedbackDrafts` and, unless `config/keep-ai-trailers` is present, the attribution policy every other Claude launch puts in its inline `--settings` JSON.
-Claude Code applies `--settings` for that session and does not write the file into the mate home.
-A key the file sets overrides the same key in user, project, and local settings.
-A key it omits keeps the file-based value, so a `.claude/settings.local.json` already in the home is left untouched.
-Hook entries merge across settings files rather than replacing each other, so the home's tracked Stop guard still runs beside these hooks.
-The CLI reference documents the one file-or-JSON flag, the settings page documents session precedence, and the hooks page documents the hooks merge: <https://code.claude.com/docs/en/cli-reference>, <https://code.claude.com/docs/en/settings>, <https://code.claude.com/docs/en/hooks>.
-[`fm-spawn.sh`](../bin/fm-spawn.sh) owns the file and the flag.
-
-### Codex automatic approval review
-
-Codex crewmate, scout, and secondmate launches default to `--dangerously-bypass-approvals-and-sandbox`.
-The local, gitignored `config/codex-approval-mode` accepts one whitespace-trimmed token.
-Absent or `bypass` retains that default.
-`approve-for-me` selects `--approve-for-me`.
-The fallback uses a model reviewer in the workspace-write sandbox, which starts with network access disabled and reviews writes outside the working directory.
-It remedies a managed policy that leaves bypass launches with user-reviewed approvals even when its sandbox bypass applies.
-Firstmate targets current CLIs rather than detecting versions or emulating older approval flags.
-Crew and scout launches still request hook disablement and retain their notification wiring, while secondmates retain their primary-session hooks.
-A managed policy can override the requested hook disablement, so it may still require an operator's hook review.
-See the [current verification and limits](verification/runtime-backends.md#codex-automatic-approval-review) for observed task-channel and network access.
+Both variants use the same [Pi supervision protocol](supervision-protocols/pi.md).
+Use the [Pi project trust reference](../.agents/skills/harness-adapters/references/harness/pi.md) when a worker stops at its workspace prompt.
 
 ## Worker sandbox
 
@@ -1232,75 +1021,9 @@ The opencode-go and claude-bridge providers are routed through the sandbox today
 A claude-bridge worker without a passing setup token, and a worker on any other provider, launches unsandboxed with a warning.
 The setup token for sandboxed Claude workers lives at `config/agent-sandbox-claude-token` with owner-only permissions once the captain creates it with `claude setup-token`.
 Secondmates, direct-PR workers, and local-only workers stay unsandboxed.
-After a sandboxed launch lands, `fm-spawn.sh` stops nono per-session debug system-log stream through `bin/fm-sandbox-quiet.sh` on tmux and herdr panes.
+After a sandboxed launch, `fm-spawn.sh` stops the nono debug log stream with `bin/fm-sandbox-quiet.sh`.
 Enforcement stays in the kernel profile, but the post-run denial footer can no longer attribute denials and falls back to its no-denials text.
 Mechanics live in `bin/fm-agent-sandbox.sh` and its `--help` output.
-
-## Claude permission mode (config/claude-permission-mode)
-
-The optional local, gitignored `config/claude-permission-mode` selects the permission flag for Firstmate-built Claude command lines: crewmates, scouts, Claude secondmates, and control-plane relaunches.
-
-### Accepted values and refusals
-
-The token is the file's whitespace-trimmed content.
-
-| Token | Launch permission flag |
-| --- | --- |
-| `auto` | `--permission-mode auto` |
-| `bypass` | `claude --dangerously-skip-permissions` |
-
-An absent file defaults to bypass, preserving `--dangerously-skip-permissions` for unconfigured homes.
-Auto uses a model reviewer and avoids managed policies that block bypass-permission sessions.
-It is selected by an explicit setting or the firstmate-invoked failover below.
-Only the permission flag changes between the two modes.
-The environment prefix, session settings, model, effort flags, and the task-channel `--add-dir` grant below stay the same in both.
-
-Every Firstmate-built Claude command line, in both modes, also passes `--add-dir` for exactly this task's Firstmate channel directories, resolved to real paths: a secondmate gets the parent home's `state/<id>.inbox` it reads its steers from; a ship or scout worker gets this home's `state/operational-inbox` (its launch record), `state/<id>.inbox` (its steers), `data/<id>` (its brief and report), and the code root's `.agents/skills`.
-The grant exists because Claude Code path-checks the Read/Glob/Grep file tools against cwd plus `--add-dir`, and since 2.1.257 the first outside read in `auto` mode parks the pane on a one-time interactive question, while a "Block" answer there writes `permissions.blockReadsOutsideWorkingDirectories` into user settings and then refuses the same reads under bypass too.
-It never covers the whole `state/` or anything wider.
-
-Any other value or an unreadable file refuses every spawn from that home, whichever harness it would launch.
-This happens before any endpoint, worktree, or task record exists.
-The diagnostic names the accepted values; Firstmate never falls back to a permission posture the captain did not choose.
-
-### When changes apply and inheritance
-
-`bin/fm-spawn.sh` reads the file on every spawn and relaunch, so a change takes effect at the next launch without a restart.
-
-The [Claude adapter reference](../.agents/skills/harness-adapters/references/harness/claude.md) records the permission-mode observations and the distinct startup dialogs.
-
-## Codex permission mode (config/codex-permission-mode)
-
-The optional local, gitignored `config/codex-permission-mode` selects the permission flags for Codex crewmates, scouts, secondmates, and relaunches started by this home.
-
-| File content | Launch permission flags |
-| --- | --- |
-| Absent or `bypass` | The [Codex approval mode](#codex-automatic-approval-review) flag, `--dangerously-bypass-approvals-and-sandbox` by default |
-| `restricted` | `--sandbox workspace-write --ask-for-approval on-request` |
-
-Create the file containing exactly one of the two tokens, optionally followed by a newline.
-An absent file preserves the existing launch command.
-Restricted mode changes only the permission flags; model, effort, and hook wiring stay the same.
-It replaces whichever flag `config/codex-approval-mode` selects, and the task record reports `restricted`, so managed approval failover never treats the launch as bypass.
-It grants no additional writable directories, including the shared Firstmate state directory.
-Writes outside the worker's worktree, including status reports and steering-inbox acknowledgements, remain subject to operator approval.
-Codex `--sandbox workspace-write` also disables network access and does not permit writes to shared Git metadata by default, so `git commit`, `git push`, `gh`, and no-mistakes pipeline steps from a restricted worker likewise stop at an approval prompt.
-Choose restricted mode only when that approval workflow is available.
-
-`bin/fm-spawn.sh` reads and validates the setting before any spawn or relaunch mutation, regardless of the selected harness.
-Any other content, an unreadable or non-regular file, or a dangling symlink refuses the launch instead of falling back to bypass.
-Changes take effect at the next launch without a restart.
-
-## Persistent managed-policy failover
-
-After firstmate observes a Codex command-approval prompt under its bypass flag or a Claude managed-policy refusal of a bypass session, it asks the captain for explicit approval to save a lasting worker permission setting and relaunch the worker.
-Only after that approval does firstmate invoke `bin/fm-approval-failover.sh`; the script's header and help own the command and recovery mechanics.
-There is no automatic detection, polling, startup window, or approval-prompt answering.
-The command saves Codex's `approve-for-me` or Claude's `auto` in the owning home's absent mode file, so later launches use the model-reviewed remedy without retrying bypass.
-Existing explicit settings are never overwritten, including invalid or empty files, directories and dangling symlinks; a concurrent setting wins too.
-Recovery uses the existing [lifecycle control plane](agent-control.md), respecting its leases and supported-runtime limits; incomplete recovery is reported with the saved setting and work preserved.
-Generic login failures do not establish a defeated bypass, and managed hook review remains a separate operator decision.
-Neither fallback is unrestricted execution, and Firstmate does not change vendor or security-agent settings.
 
 ## Worker tool exclusions (config/crew-exclude-tools)
 
@@ -1337,52 +1060,20 @@ Each relaunch installs a fresh worker extension with the home's current list, so
 
 [`bin/fm-exclude-tools-lib.sh`](../bin/fm-exclude-tools-lib.sh) implements parsing and pre-launch validation for this contract; [`bin/fm-spawn.sh`](../bin/fm-spawn.sh)'s header owns the launch-flag mechanics.
 
-## Worker account pin (config/claude-account, config/pi-account)
+## Worker account pin (config/pi-account)
 
-A home that mixes accounts for one runner, such as a work login and a personal one, can pin the account its own Claude and Pi workers launch on.
-The pin is opt-in: without a home-wide or per-secondmate pin, pane-backed Claude launches keep receiving firstmate's own `CLAUDE_CONFIG_DIR` when it is set.
-Unpinned Pi launches use the destination pane's ambient account.
+Use `config/pi-account` to pin the worker's Pi login.
+Line 1 is `ordinary` for `~/.pi/agent`, or the absolute path of a readable Pi agent directory.
+Line 2 names the allowed providers, separated by spaces.
+Without this file, workers use the destination pane's ambient Pi account.
 
-Both files are local and gitignored.
+A pinned launch needs an explicit `--model <provider>/<id>` with an allowed provider.
+Firstmate gives Pi the root in `PI_CODING_AGENT_DIR` and passes `--provider` so Pi cannot select another provider's login for the model.
+Firstmate confirms sign-in before creating an endpoint or stopping an existing worker.
+If the pin or sign-in is invalid, it names the file and does not fall back.
+The task record shows `account=` and `account_provider=`.
 
-| Runner | File | Variable the launch receives | `ordinary` means |
-| --- | --- | --- | --- |
-| `claude` | `config/claude-account` | `CLAUDE_CONFIG_DIR` | the variable unset, so Claude uses its default login |
-| `pi`, `pi-signed` | `config/pi-account` | `PI_CODING_AGENT_DIR` | `~/.pi/agent` |
-
-### File format and provider selection
-
-`config/claude-account` holds one line: `ordinary`, or the absolute path of an existing Claude config directory.
-`config/pi-account` holds that same root on line 1 and, on line 2, the providers this home may spend, separated by spaces, for example `openai-codex anthropic`.
-
-A final newline is optional; any other line, a relative path, or a control character such as a CR refuses.
-For Claude, `ordinary` unsets `CLAUDE_CONFIG_DIR` rather than pointing it at `~/.claude`, because Claude reads `$CLAUDE_CONFIG_DIR/.claude.json` and keys its macOS Keychain entry to any directory that is set ([authentication, "Credential management"](https://code.claude.com/docs/en/authentication#credential-management)).
-
-A Pi root can hold several provider logins at once, so the root alone does not say which account a launch spends.
-A pinned Pi launch therefore needs `--model <provider>/<id>` naming a declared provider, and Firstmate also passes `--provider <that provider>` so Pi cannot resolve the model under another signed-in provider.
-
-An unqualified model, an undeclared provider, or a raw Pi launch command, which cannot receive that flag, refuses; Firstmate never guesses a provider.
-
-### Launch scope and sign-in checks
-
-A raw Claude launch command refuses if its leading assignments set `CLAUDE_CONFIG_DIR` or a credential that a pinned launch unsets, such as `ANTHROPIC_API_KEY`.
-The assignment would override the pin.
-The refusal names the variable; remove that assignment from the raw command, or change or remove `config/claude-account`.
-
-Before any worker endpoint, local copy, or task record exists, and before a relaunch stops the running worker, Firstmate asks the runner itself whether the pinned account is signed in: `claude auth status` for Claude, and `pi auth check --provider <provider> --json --no-refresh` for Pi, falling back to `pi --list-models <provider>` for a provider an extension registers.
-The check runs with only `HOME`, `PATH`, `TMPDIR`, `USER`, `LOGNAME`, and the pinned root in its environment, so a credential variable in firstmate's own environment cannot answer for an empty root.
-
-A pinned Claude launch also unsets the environment credentials Claude ranks above a stored login, such as `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, and the Bedrock and Vertex switches ([authentication precedence](https://code.claude.com/docs/en/authentication#authentication-precedence)).
-Pi ranks a root's stored logins above environment variables, so a pinned Pi launch unsets nothing.
-
-A home that authenticates Claude through environment credentials on purpose should leave the pin absent.
-
-### Failures, reporting, and inheritance
-
-A malformed file, a root that is not a readable directory, or a signed-out account refuses the launch and names the file to fix; Firstmate never falls back to the ambient account and never changes a global login or copies a credential.
-The spawn prints the pin as `account=` (plus `account_provider=` for Pi) and records the same fields in the task record, so the session-start digest shows which account each worker launched on.
-
-[`bin/fm-worker-account-lib.sh`](../bin/fm-worker-account-lib.sh) owns parsing, the sign-in check, and the full list of credentials a Claude launch unsets; [runtime backend verification](verification/runtime-backends.md#worker-account-pin-sign-in-check) records the check against the real runners.
+[`bin/fm-worker-account-lib.sh`](../bin/fm-worker-account-lib.sh) owns pin parsing and sign-in checks.
 
 ## Claude accounts (config/claude-accounts)
 
@@ -1411,16 +1102,13 @@ A mapped directory holds its own login rather than clauth's stored token.
 Claude Code refreshes and rotates its token, and on macOS keys its Keychain entry to the config directory, so a worker sharing clauth's token would sign clauth and its sessions out.
 Firstmate only reads clauth and never runs `clauth switch`, which would move the machine's login under every running session.
 
-### Runners an account reaches
+### Launch scope
 
-| Runner | What the launch receives |
-| --- | --- |
-| `claude` | `CLAUDE_CONFIG_DIR` set to the mapped directory, or unset for `ordinary`, replacing `config/claude-account` for that launch |
-| `pi`, `pi-signed` with a `claude-bridge/<id>` model | The same `CLAUDE_CONFIG_DIR`, which the bridge passes to the Claude SDK; Pi's own root and any `config/pi-account` pin are unchanged |
-
-Both shed the environment credentials Claude ranks above a stored login, as a [worker account pin](#worker-account-pin-configclaude-account-configpi-account) does.
-Any other harness, a Pi model on another provider, or a raw launch command refuses `claude_account`.
-A Claude worker on a mapped directory reads that directory's settings, memory, and skills instead of `~/.claude`.
+A mapped account sets `CLAUDE_CONFIG_DIR` for the Claude SDK used by Pi's `claude-bridge/<id>` provider.
+For `ordinary`, the variable is unset.
+The bridge drops environment credentials that could override the stored login.
+Pi's own root and any [Pi account pin](#worker-account-pin-configpi-account) stay unchanged.
+Models on other providers refuse `claude_account`.
 
 ### How resolution reads an account
 
@@ -1491,27 +1179,6 @@ With the flag present, a brief that names `bin/fm-herdr-lab.sh`, or a `herdr ses
 The refusal names the first matching command, so the author can tell a brief that truly drives Herdr lifecycle from one that only quotes a verb incidentally, and points at `bin/fm-brief.sh --herdr-lab` as the remedy.
 A refused spawn writes no task record, so the brief can be regenerated and the spawn repeated.
 [`herdr-backend.md`](herdr-backend.md) owns the lab isolation contract itself; `bin/fm-spawn.sh`'s header owns the exact matching rule.
-
-## Cloud Claude worker
-
-`--harness cloud-claude` runs a ship task in a Claude Code cloud session billed to a chosen Claude account, while this machine keeps only a relay pane and the task's local copy.
-The spawn refuses it unless the task is a ship with `--mode direct-PR`, the project's origin is on github.com, and no `--model` or `--effort` is passed.
-It also needs `claude`, `gh`, and `script` on PATH, and the Claude GitHub App must reach the repository.
-
-| File | Contents | When absent |
-| --- | --- | --- |
-| `config/cloud-claude-account` | One [Claude accounts](#claude-accounts-configclaude-accounts) profile name, the login whose cloud credit pays for the sessions | The spawn refuses unless it passes `--claude-account <profile>` |
-| `config/cloud-claude-deadline` | Whole minutes a session may run before it is reported stuck | 90 minutes |
-
-The account is never inferred, so a home that leaves the file absent cannot spend its default login's cloud usage by accident.
-A spawn's `--claude-account` overrides the file for that task only.
-A cloud-claude spawn skips the Mac and Linux load gates, the heavy-worker cap, the core budget, and the [browser-suite](#browser-suites) stagger, because its session runs on Anthropic's hosts, and it holds no heavy worker place, so local starts do not count it.
-[Project capacity](#project-capacity-configproject-capacity) still applies to it.
-The relay reports a ready pull request on the task branch as the task's result, and a missing one past the deadline as a blocker that links the session.
-Each forwarded steer restarts the deadline.
-Firstmate reads no Anthropic session API and no stored login token, so a session that waits on a question or fails is seen only at the deadline.
-Interrupt, exit, and relaunch through `bin/fm-control.sh` are refused, and cleanup leaves the cloud session in the account's session list.
-[The adapter reference](../.agents/skills/harness-adapters/references/harness/cloud-claude.md) owns the operating details and [the design record](adr/0011-cloud-claude-relay.md) owns the rationale.
 
 ## Worker launch environment (config/launch-env-allowlist)
 
@@ -1623,7 +1290,6 @@ A project name may begin with `#` when that `#` is written immediately against t
 A name that is `#`, or that begins with `#` and a space, cannot be declared, because that line is a comment.
 A line whose name starts with `@` is a machine-wide setting rather than a project: `@heavy-limit` caps heavy workers across every project with a standing 3 from 06:00 up to but not including 21:00 UTC and 4 at other hours, and `@load-limit` caps the five-minute load average a heavy start tolerates with a standing 10.
 A worker that is only waiting on the captain or on a set time holds no heavy worker place, and counts again once its status shows it resumed.
-A cloud-claude worker holds no heavy worker place, and it is exempt from these machine-wide settings, as the [Cloud Claude worker](#cloud-claude-worker) section describes.
 On Linux the standing caps are 4 from 06:00 up to but not including 21:00 UTC and 6 at other hours with a load cap of 16.
 `@core-budget` caps trailing-hour core hours on the Mac with a standing 6, so a heavy start waits while the hour already burned that budget and resumes on its own once use drops back under, while a light start never waits.
 On a Linux host that two Firstmate homes share without a common local root, each home lists the other in `config/linux-load-siblings`, and the same two lines cap heavy starts across both homes with a standing 4 from 06:00 up to but not including 21:00 UTC and 6 at other hours, while the load average cap stays 16.
@@ -1652,7 +1318,7 @@ A brief also marks its own task as a browser-suite worker with a line that is ex
 A browser-suite worker always starts heavy: a `--weight light` spawn is raised to heavy with a note, so it waits on the core budget like any heavy start, and it holds a heavy worker place under the machine-wide settings of [project capacity](#project-capacity-configproject-capacity) as every ship or scout does.
 A fresh browser-suite ship or scout that starts inside the gap after the previous browser-suite start launches nothing, prints one `deferred:` line naming how many minutes remain, leaves its backlog item queued, and exits 75, so Firstmate dispatches it again once the gap passes.
 The start time is recorded only once a browser-suite start passes every other admission gate and brief check, and a start that fails after that point still holds the gap until it passes.
-Every other worker, a relaunch, a secondmate, and a cloud-claude worker are never delayed by the stagger.
+The stagger does not delay other workers or relaunches.
 A malformed or unreadable file refuses every fresh ship or scout spawn until it is fixed, rather than guessing which projects or gap were meant.
 [`bin/fm-browser-suite-lib.sh`](../bin/fm-browser-suite-lib.sh) owns the file format, the brief marker, and the machine-shared start record.
 
@@ -1789,14 +1455,8 @@ Set it high when a wrong pick is costly and low when the rule is a safe runner-u
 A profile `provider` optionally names the quota-axi provider family whose rows apply to that profile; when present, profile and rule-floor provider IDs must match the strict whole-string pattern `^[a-z0-9]+(-[a-z0-9]+)*\z`.
 Bootstrap's resolver-only validation gate is described under "Validation and diagnostics" below.
 
-Typed resolution additively recognizes `gemini` because AGENTS.md section 4 verifies it for crewmate and scout dispatch.
-
-| Harness | Provider declaration on the opted-in resolver path |
-| --- | --- |
-| `claude`, `codex`, `grok`, `kimi`, `cursor`, `agy`, `muse` | The resolver has an authoritative single-provider mapping. |
-| Every other verified harness | Must declare `provider` explicitly; this includes multi-provider `pi`, `pi-signed`, `omp`, and `opencode`, and unmapped `gemini`, `rovo`, `devin`, `commandcode`, `cortex`, and `kiro`; omission is an actionable configuration error before any request. |
-
-This single-provider table is separate from the frozen legacy mapping used by `fm-quota-choose.sh`, so additions cannot alter no-key routing.
+Pi can use multiple providers, so each profile needs an explicit `provider` when typed resolution is enabled.
+A model name alone does not select the quota source.
 
 **Profile quota scope**
 
@@ -1818,9 +1478,7 @@ This single-provider table is separate from the frozen legacy mapping used by `f
 **Model, effort, and fallback behavior**
 
 - `ultra` is native-only: the model-aware validation contract and launch mapping are owned by `bin/fm-harness.sh validate-native-effort` and `bin/fm-spawn.sh` respectively.
-- Codex `max` is valid when the profile selects `gpt-5.6-luna`, whose installed catalog entry supports that reasoning level.
 - An omitted model or effort means the selected harness uses its own default for that axis.
-- OpenCode receives the effort as its default `build` agent's `variant`, keyed to the resolved model, inside the `OPENCODE_CONFIG_CONTENT` JSON its launch already writes (the per-model reasoning-effort field of the config schema, verified on opencode 1.18.32); with no model resolved, the effort is recorded in task metadata but omitted from the launch.
 - Every profile array is an implicit quota-aware choice resolved through `quota-array-dispatch`, in the order "Array order" above selects.
 - If no dispatch rule fits, firstmate resolves `default` through the same object-or-array path before falling back to `config/crew-harness`.
 - Except for `ultra` under the native-effort contract above, an effort value the chosen harness does not accept is recorded as `effort=` in task meta for traceability but omitted from the launch flags.
@@ -3169,7 +2827,6 @@ FM_PF_RETRY_BACKOFF_SECS=900   # seconds before the next attempt after a retryab
 FM_LOCK_STALE_AFTER=2   # grace seconds for missing or nonnumeric lock-owner PIDs (minimum 2s); dead numeric PIDs, and live ones whose start time (or, for the watch lock, process identity) no longer matches the holder's recorded value, have no age grace
 FM_GUARD_GRACE=300      # beacon freshness threshold for guard verdicts, arm health checks, and the primary turn-end guard; see docs/turnend-guard.md for model-aware exceptions
 FM_CLAUDE_AUTOARM_ATTEMPTS=2   # bounded hook-owned arm attempts per Claude auto-arm cycle; accepted values are 1, 2, or 3
-FM_CLAUDE_STOPFAILURE_REWAKE_COOLDOWN=300   # minimum seconds between StopFailure-driven exit-2 continuations; nonnegative integers accepted, invalid or empty values use 300; pacing mechanics: bin/fm-claude-stop-autoarm.sh header
 FM_CLAUDE_AUTOARM_SYNC_WAIT_MS=800   # milliseconds the --claude turn-end guard waits for watcher health, an open Stop auto-arm generation claim, or a fresh epoch before deciding recovery ownership or failure progression
 FM_CLAUDE_AUTOARM_EPOCH_FRESH=15   # seconds a recorded auto-arm outcome remains eligible for the current event epoch's recovery or failure decision
 FM_CLAUDE_TURNEND_BLOCK_BUDGET=3   # consecutive --claude guard re-blocks before the verified one-time attended fail-open; safely below Claude Code's 8-block override
@@ -3221,16 +2878,12 @@ FM_STALE_WORKTREE_LOCK_RETRY_WAIT_SECS=   # legacy alias for FM_TREEHOUSE_RETURN
 FM_FLEET_SYNC_PACKED_REFS_LOCK_RETRIES=3        # fetch retries after fm-fleet-sync.sh hits the orphaned .git/packed-refs.lock signature
 FM_FLEET_SYNC_PACKED_REFS_LOCK_RETRY_WAIT_SECS=1 # seconds fm-fleet-sync.sh waits before each of those retries
 FM_FLEET_SYNC_PACKED_REFS_LOCK_AGE_SECS=30       # min mtime age before fm-fleet-sync.sh treats a leftover packed-refs.lock as provably stale
-FM_BUSY_REGEX=          # optional override for rendered delivery guards and Grok's isolated task-state fallback; converted worker state ignores it
+FM_BUSY_REGEX=          # optional override for rendered delivery checks
 FM_COMPOSER_IDLE_RE=    # optional fleet-wide idle-placeholder regex override (bin/fm-composer-lib.sh); a match alone does not prove emptiness because shape-specific position and ANSI de-emphasis safety gates still apply
-FM_COMPOSER_LEFTBAR_FOOTER_RE=   # optional fleet-wide override of the opencode left-bar mode/model footer's regex (bin/fm-composer-lib.sh's FM_COMPOSER_LEFTBAR_FOOTER_RE_DEFAULT, matched against both the ghost-stripped and the ANSI-stripped form of a run's LAST row); an override that cannot match the de-emphasised 1.19.0 footer puts the false `pending` back on an idle pane, so keep the default's required space after the separator and its exact `Build`/`Plan` mode words rather than widening it - widening it is the one path that turns typed text into the `empty` verdict which authorizes typing into a live session; see [runtime backend verification](verification/runtime-backends.md#2026-10-14-opencode-1190-de-emphasised-modefooter-row-in-the-left-bar-composer)
 FM_COMPOSER_CAPTURE_LINES=20   # fleet-wide bound for tail-capture composer reads; it no longer bounds the herdr adapter composer state/content reads, which supply the visible pane instead; it still bounds the shared inbox composer read (bin/fm-task-inbox-lib.sh) on pane backends, and on herdr it also floors how many Ctrl+U presses a refused leftover may take
 FM_COMPOSER_PI_MAX_LINES=8     # fleet-wide: maximum rows admitted between Pi's identity-corroborated separator pair; taller or ambiguous candidates stay unknown
-FM_COMPOSER_GHOST_LUMA_MAX=128   # fleet-wide: max perceived luminance (0.299R+0.587G+0.114B, 0-255) for a TRUECOLOR foreground to count as de-emphasised ghost/placeholder text and be stripped; dim/faint (SGR 2) is stripped regardless, and a screen whose backend identity is Command Code is read at a fixed 160 instead. Assumes a dark terminal theme (bin/fm-composer-lib.sh's fm_composer_strip_ghost, used by styled adapter reads). The default sits between the two populations it separates: harnesses draw their own de-emphasised composer furniture below it (opencode 1.19.0's mode footer at luminance 119.8 and its cwd row) and typed text above it. While it sits above the furniture the mode cells are stripped as ghost, so the footer's own identifying cells are gone from the ghost-stripped row and only the row's ANSI-stripped form still proves the footer - which is why the left-bar footer rule reads both forms and an idle opencode pane reads `empty` instead of the false `pending` that position produced - while dropping it under the furniture's luminance leaves those cells in the row and the footer then matches the left-bar footer rule in its stripped form too (still `empty`), and raising it over real typed text deletes typed text and reads as the false `empty` that authorizes typing into a live session; the measured luminances and the left-bar footer proof this threshold decides are in [runtime backend verification](verification/runtime-backends.md#2026-10-14-opencode-1190-de-emphasised-modefooter-row-in-the-left-bar-composer), so move it only against a fresh live capture
-FM_COMPOSER_GHOST_GRAY_LUMA_MAX=180   # kiro panes only (a composer read whose caller names the recorded harness kiro; every other harness and a harness-less read ignore it): the higher luminance ceiling a NEAR-ACHROMATIC foreground gets instead of FM_COMPOSER_GHOST_LUMA_MAX, because kiro draws its idle placeholder in grey at 158 while chromatic real glyphs stay out of reach. Applies to a near-achromatic truecolor run and to a 256-colour index in the standard xterm 232-255 greyscale ramp, which is how kiro draws the same grey on a pane with no truecolor; the 6x6x6 cube's r==g==b diagonal is grey arithmetically but is deliberately NOT tested, so this ceiling never reaches it. It only ever RAISES the applicable ceiling - a near-gray run takes the higher of the two, so raising FM_COMPOSER_GHOST_LUMA_MAX past this still widens the strip on gray text
-FM_COMPOSER_GHOST_GRAY_SPREAD_MAX=12   # kiro panes only: max channel spread (max channel minus min channel, 0-255) for a TRUECOLOR foreground to count as near-achromatic and take the gray ceiling above; anything more saturated keeps FM_COMPOSER_GHOST_LUMA_MAX. A gray palette index has zero spread by definition, so this knob does not gate it
-GROK_HOME=              # optional Grok config home for firstmate's global grok turn-end hook; defaults to ~/.grok
-FM_SEND_RETRIES=3       # fm-send typed-plane Enter-retry attempts after typing the line once; agy typed targets use a longer per-harness default owned by bin/fm-send.sh
+FM_COMPOSER_GHOST_LUMA_MAX=128   # truecolor suggestion-text luminance ceiling
+FM_SEND_RETRIES=3       # fm-send typed-plane Enter-retry attempts after typing the line once
 FM_SEND_SLEEP=0.4       # seconds between fm-send typed-plane submit checks
 FM_SEND_SETTLE=1        # seconds fm-send waits after a successful typed-plane submit; 0 disables
 FM_PENDING_REPLY_GRACE_SECS=120   # seconds after the request turn completes without a correlated parent report before its one recovery repost is eligible, and after the recovery turn completes before the missed-report escalation is eligible; never counted from delivery
@@ -3251,12 +2904,6 @@ FM_CRASH_BACKOFF=60                # seconds to wait after crossing the crash th
 FM_CRASH_NORMAL_SLEEP=5            # seconds to wait after an isolated watcher crash
 FM_LOG_MAX_BYTES=1048576           # daemon log size that triggers trimming
 FM_LOG_KEEP_LINES=2000             # daemon log lines kept when trimming
-# supervision host (bin/fm-supervision-host.sh); read only in a home that runs it
-FM_SUPERVISION_HOST_PARK_SECONDS=27000   # the host ends its park with a cycle-boundary wake after this long, under the Stop hook's 28800 s timeout
-FM_SUPERVISION_HOST_TURN_TIMEOUT=1200    # bound on one engine turn; a turn that hits it hands its wake to main
-FM_SUPERVISION_HOST_ROTATE_TURNS=20      # the engine conversation starts fresh after this many turns (and at every main session start)
-FM_SUPERVISION_ENGINE_GRACE=30           # seconds between TERM and KILL when an engine turn is stopped
-FM_SUPERVISION_HANDOFF_RETRY_SECONDS=300 # with config/supervision-handoff-ack, seconds between the detached owner's delivery retries of an unacknowledged hand-back
 # inbox; see "Inbox configuration" above
 FM_INBOX_REGION=        # overrides config/inbox-region for fm-inbox.sh ask
 FM_INBOX_ASK_MODEL=     # overrides config/inbox-ask-model for fm-inbox.sh ask

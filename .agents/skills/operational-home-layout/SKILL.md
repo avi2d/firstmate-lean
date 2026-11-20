@@ -9,21 +9,17 @@ metadata:
 # Operational home layout
 
 ```
-AGENTS.md            this file (CLAUDE.md is a real @AGENTS.md pointer to it)
+AGENTS.md            the supervisor contract
 CONTRIBUTING.md      contributor workflow and repo conventions
 README.md            public overview and development notes
 .github/workflows/   shared CI and PR enforcement, committed
 .tasks.toml          tracked tasks-axi markdown backend config for the default backlog backend (section 10)
 .agents/skills/      firstmate-loaded internal skills, committed; each carries metadata.internal=true for installers
-.claude/skills       symlink to .agents/skills for claude compatibility
-.claude/mods/        Claude Code mods (function-hooks plugins), committed; Calm's module may load through CLAUDE_CODE_ENABLE_FUNCTION_HOOKS or tengu_plugin_hooks_modules, but activates only when CLAUDE_CODE_ENABLE_FUNCTION_HOOKS is exactly "1" and is otherwise a complete no-op (docs/calm.md)
 skills/              standalone public installer-facing skills, committed; not loaded by firstmate
 bin/                 helper scripts, committed; read each script's header before first use
 .env                 optional typed dispatch provider, model, and key settings (docs/configuration.md "Typed dispatch resolution"); LOCAL, gitignored
 config/crew-harness  crewmate harness override; LOCAL, gitignored; absent or "default" = same as firstmate. Inherited as the literal file: a concrete primary adapter value also controls a secondmate home's own crewmates (section 4)
-config/claude-permission-mode  optional worker permission posture; LOCAL, gitignored; schema and failover: docs/configuration.md "Claude permission mode" and "Persistent managed-policy failover"
-config/codex-approval-mode    optional worker approval posture; LOCAL, gitignored; schema and failover: docs/configuration.md "Codex automatic approval review" and "Persistent managed-policy failover"
-config/claude-account config/pi-account  optional per-home worker account pin for Claude and Pi launches; LOCAL, gitignored, not inherited; absent keeps today's ambient account; present refuses a launch unless the pinned account resolves and is signed in (section 4 owns the refusal rule); see docs/configuration.md "Worker account pin"
+config/pi-account  optional per-home worker account pin for Pi launches; LOCAL, gitignored, not inherited; absent keeps today's ambient account; present refuses a launch unless the pinned account resolves and is signed in (section 4 owns the refusal rule); see docs/configuration.md "Worker account pin"
 config/claude-accounts  optional map from clauth profile to the Claude login a profile's claude_account launches on; LOCAL, gitignored, not inherited; see docs/configuration.md "Claude accounts"
 config/crew-dispatch.json  optional crewmate dispatch profiles; LOCAL, gitignored; firstmate-maintained but human-editable natural-language rules that choose a per-task harness/model/effort profile (section 4). Inherited by secondmate homes
 config/project-capacity  optional per-machine count of workers each named project admits at once, read from the root home by every local home; LOCAL, gitignored; see docs/configuration.md "Project capacity"
@@ -31,14 +27,10 @@ config/project-tiers  optional P0 to P3 tier for each named project, which order
 config/lane-capacity  optional lane cap and limits for this home, read by bin/fm-capacity.sh and the opt-in that makes its watcher publish state/lane-capacity.json; LOCAL, gitignored, not inherited by secondmate homes; see docs/configuration.md "Lane capacity"
 config/backlog-backend  backlog backend override; LOCAL, gitignored; absent or "tasks-axi" = the configured tasks-axi backend, "manual" = force routine backlog updates to hand-editing; inherited by secondmate homes (section 10)
 config/backend  runtime session-provider backend override for new tasks; LOCAL, gitignored; docs/configuration.md "Runtime backend" owns supported values, selection, and limits; inherited by secondmate homes under the primary-authoritative contract in secondmate-provisioning
-config/t3code-token  LOCAL, gitignored T3 Code mcp-client credential; docs/t3code-backend.md "Sign-in" owns minting, expiry, and secondmate linking
 config/t3code-instances  LOCAL, gitignored, inherited T3 provider-instance map; docs/t3code-backend.md "Provider instances and models" owns schema and catalog validation
-config/calm     Calm presentation preference shared by the Pi extension and the Claude Code mod; LOCAL, gitignored, and not inherited; see docs/configuration.md "Calm preference"
+config/calm     Calm presentation preference for the Pi extension; LOCAL, gitignored, and not inherited; see docs/configuration.md "Calm preference"
 config/keep-ai-trailers  optional presence flag to keep AI co-author trailers in this home's fleet commits; LOCAL, gitignored; inherited by secondmate homes; see docs/configuration.md "Commit attribution"
 config/supervision-branch-model config/supervision-branch-effort  Pi supervision-branch model and reasoning-effort pins written by /supervision-model; LOCAL, gitignored, independently settable, and not inherited; see docs/configuration.md "Pi supervision branch model and effort"
-config/supervision-host  optional supervision-host engine setting: the host runs the supervision branch's contract on a headless engine beside a non-Pi primary, away and, on a Claude or Cursor primary, attended; absent runs it on a Claude primary and nowhere else; LOCAL, gitignored, not inherited; see docs/configuration.md "Supervision host"
-config/supervision-host-off  optional presence flag opting this home out of the supervision host on every primary; LOCAL, gitignored; inherited by secondmate homes under the primary-authoritative contract; see docs/configuration.md "Supervision host"
-config/supervision-handoff-ack  optional presence flag opting a Claude home that runs the supervision host into default-off acknowledged hand-backs, where a detached owner keeps a watcher up and retries delivery until main acknowledges; LOCAL, gitignored, and not inherited; see docs/configuration.md "Acknowledged hand-back"
 config/startup-memory-budget     primary-authoritative per-home startup-memory budget; LOCAL, gitignored, materialized as 7,500 estimated tokens by locked primary bootstrap and inherited into secondmate homes; see docs/configuration.md "Startup memory budget"
 config/stow-pass-horizon  optional presence flag opting this home in to /stow's default-off pass-count decay horizon; LOCAL, gitignored, and not inherited; see docs/configuration.md "Stow pass horizon"
 config/herdr-presentation-spaces  optional "off" opt-out from, or "on" opt-in to, Herdr's default-on disposable single-task visual projection, which is unconfigured-default-on only at or above a Herdr version floor; LOCAL, gitignored; inherited by secondmate homes; see docs/herdr-backend.md "Presentation spaces"
@@ -138,7 +130,6 @@ state/               runtime records and signals; gitignored
   .watch.lock .wake-queue.lock watcher singleton and queue serialization locks
   .paseo-workspace.lock  Paseo backend lock serializing a spawn's workspace choice and tab creation against retiring an emptied workspace; bin/backends/paseo.sh owns it; never touch
   .rex-session.lock  Rex backend lock serializing a spawn's or reclaim's session choice and tab creation against killing an emptied per-home session; bin/backends/rex.sh owns it; never touch
-  .claude-autoarm.lock .claude-autoarm-epoch .claude-autoarm-failure-notified .claude-autoarm-failure-alarmed .turnend-claude-blocks .turnend-claude-blocks.lock   Claude Stop auto-arm single-flight, epoch, failure-episode, attended-alarm, guard-budget, and budget-lock records; never touch
   .cursor-park-owner .cursor-park-owner.lock .turnend-cursor-blocks   Cursor stop-hook owner record, publication and commit lock, and bounded repair-nag budget; never touch
   .watch-triage.log  watcher's absorbed-wake debug log (size-capped); never relied on, safe to delete
   lane-capacity.json  this home's published lane facts, refreshed only while config/lane-capacity exists; written only by bin/fm-capacity.sh --publish, whose header owns the document

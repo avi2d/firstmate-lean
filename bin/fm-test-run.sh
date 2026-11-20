@@ -306,7 +306,6 @@ family_for_basename() {
     fm-herdr-lab.test.sh|fm-lint.test.sh|\
     fm-lint-workflows.test.sh|\
     fm-operational-input.test.sh|fm-pi-primary-types.test.sh|fm-read-repetition.test.sh|\
-    fm-calm-claude-mod.test.sh|\
     fm-harness-adapter-references.test.sh|fm-project-mode.test.sh|\
     fm-send-popup-settle.test.sh|fm-send-settle.test.sh|\
     fm-supervision-instructions.test.sh|fm-task-delivery.test.sh|\
@@ -374,7 +373,6 @@ family_for_basename() {
     fm-pr-state-live-e2e.test.sh|\
     fm-sessionstart-hook-live-e2e.test.sh|fm-sessionstart-instruction-refresh-live-e2e.test.sh|\
     fm-quota-array-dispatch-live-e2e.test.sh|\
-    fm-calm-claude-mod-plugin.test.sh|fm-calm-claude-mod-live-e2e.test.sh|\
     fm-calm-pi-queue-retention-live-e2e.test.sh|\
     fm-herdr-submit-confirm-live-e2e.test.sh|\
     fm-agent-sandbox-live-e2e.test.sh|\
@@ -665,9 +663,6 @@ tests/fm-branch-supervision.test.sh 22979
 tests/fm-browser-suite.test.sh 26730
 tests/fm-busy-adapter-wiring.test.sh 31642
 tests/fm-busy-state.test.sh 3185
-tests/fm-calm-claude-mod-live-e2e.test.sh 47
-tests/fm-calm-claude-mod-plugin.test.sh 77
-tests/fm-calm-claude-mod.test.sh 4380
 tests/fm-calm-pi-extension.test.sh 87768
 tests/fm-calm-pi-queue-retention-live-e2e.test.sh 1345
 tests/fm-capacity.test.sh 6773
@@ -1597,12 +1592,8 @@ families_for_changed_path() {
       printf '%s\n' __script__:fm-pi-operational-row-collapse.test.sh
       printf '%s\n' live-harness-optin
       ;;
-    .claude/mods/firstmate-calm/*|.pi/extensions/lib/fm-calm-working-ship.ts|\
+    .pi/extensions/lib/fm-calm-working-ship.ts|\
     .pi/extensions/lib/fm-calm-working-ship-sprite.ts)
-      # The Claude Code Calm mod and the sprite core it shares with the Pi Calm
-      # extension: the portable Node checks, the Pi suites that draw the shared
-      # sprite, the Pi typecheck, and the Claude-dependent guards.
-      printf '%s\n' __script__:fm-calm-claude-mod.test.sh
       printf '%s\n' __script__:fm-calm-pi-extension.test.sh
       printf '%s\n' __script__:fm-pi-primary-types.test.sh
       printf '%s\n' live-harness-optin
@@ -1733,7 +1724,7 @@ families_for_changed_path() {
       # classified surface and links.
       printf '%s\n' "__script__:fm-documentation-audiences.test.sh"
       ;;
-    .github/*|.gitattributes|.tasks.toml|AGENTS.md|CLAUDE.md|\
+    .github/*|.gitattributes|.tasks.toml|AGENTS.md|\
     docs/configuration.md|docs/supervision-protocols/*)
       printf '%s\n' pure-contract-unit
       ;;

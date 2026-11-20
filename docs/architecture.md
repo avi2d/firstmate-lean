@@ -169,7 +169,6 @@ On a Pi primary, supervision is default-on: the watcher extension can hand eligi
 The branch handles those rows, stores the outcome durably, and merges it back into main.
 A captain-facing outcome persists as one exact, sequence-keyed visible transcript entry and then opens one sequence-keyed processing turn on main, which only main's sequence-bound acknowledgement closes.
 [docs/pi-supervision-branch.md](pi-supervision-branch.md) owns row eligibility, dispatch architecture, deterministic outcome delivery, and processing re-presentation, while the generated [Pi supervision protocol](supervision-protocols/pi.md) owns MAIN's merged-event handling and acknowledgement duty.
-For the supervision host that runs the same branch contract beside a non-Pi primary (by default on Claude), away and on Claude and Cursor also attended, see [supervision-host.md](supervision-host.md).
 
 ### Task status archives
 
@@ -189,9 +188,8 @@ The export root remains cold output; no operational reader consumes it.
 `bin/fm-busy-lib.sh` is the single owner of what "this worker is busy" means, and `bin/fm-busy-event.sh` is the only writer of the per-task records it reads.
 Every classification returns a verdict of busy, idle, unknown, or dead together with the source that produced it, so a consumer or a diagnostic can never confuse semantic state with a fallback.
 
-Each converted adapter reports its own turn lifecycle through a machine-readable contract the vendor already exposes, rather than through rendered footer text: Pi and pi-signed through the Firstmate-owned extension's `agent_start` and `agent_settled` confirmed by `ctx.isIdle()`, omp through its extension's `agent_start` and `agent_end` without `willContinue`, OpenCode through its plugin's semantic `session.execution.*`, Claude through owned `UserPromptSubmit`, `Stop`, `StopFailure`, and `SessionEnd` hooks, Muse through its session log, and Cursor through its conversation transcript.
-Kimi behind Pi inherits Pi's lifecycle.
-Without native backend evidence, Codex and standalone Kimi classify unknown behind explicit probes until a semantic source is live-verified for them, and Grok, Rovo, and AGY each keep one clearly isolated rendered-tail busy fallback that can only ever classify their own task.
+Pi and Pi-signed report their turn lifecycle through `agent_start` and `agent_settled`.
+The worker extension checks `ctx.isIdle()` before recording that a turn settled.
 The one case where the contract reads rendered text for a converted adapter is the launch-prompt backstop (`fm_busy_launch_prompt_parked` in `bin/fm-busy-lib.sh`): when a record is still the untouched `fm-spawn` seed and the caller supplied a captured pane matching that harness's own recognized interactive launch prompt - a workspace-trust dialog, sign-in screen, or first-run menu - `fm_busy_classify` reports `unknown launch-prompt` instead of `busy fm-spawn`.
 That keeps a launch that never began its brief from holding the busy-age exemption for the whole `FM_BUSY_TURN_MAX_SECS` bound and surfaces it through the ordinary not-provably-working path instead.
 A record any real hook event has advanced is never reclassified this way however its pane looks, no captured tail means the record's own state stands, and the general busy bound is unchanged.
@@ -203,7 +201,7 @@ Endpoint death is the only process-level override and yields dead; child process
 `state/<id>.turn-ended` files remain wake notifications, not current state.
 
 Each record is bound to an incarnation token minted when the task's wiring is armed, so an event from a superseded incarnation is rejected rather than applied, and a record left behind by one classifies unknown.
-Delivery checks deliberately remain outside this contract: pane-backed submit acknowledgement and the away-mode supervisor busy guard consume the shared delivery-footer matcher owned by `bin/fm-composer-lib.sh`, and `bin/fm-pending-reply-lib.sh` owns the secondmate delivery-confirmation observation.
+Rendered pane text can confirm delivery, but does not set a worker's busy state.
 Rendered delivery guards are harness-scoped rather than a global pattern union, and none is a recorded worker state source.
 
 ## Runtime session backends
@@ -262,7 +260,6 @@ The session-start bootstrap step keeps valid dispatch configuration silent unles
 When the file exists, `fm-spawn.sh` refuses crewmate and scout launches without an explicit harness, so `config/crew-harness` is only automatic when no dispatch profile file is active.
 Secondmate launches are exempt because they resolve the secondmate harness and any optional secondmate model or effort tokens instead.
 [`configuration.md`](configuration.md#crew-dispatch-profiles-configcrew-dispatchjson) owns model and effort defaults and backend-specific refusal or omission behavior.
-Polytoken composes a concrete model and supported reasoning level through its [adapter contract](../.agents/skills/harness-adapters/references/harness/polytoken.md).
 
 ## Delivery modes are explicit per task
 

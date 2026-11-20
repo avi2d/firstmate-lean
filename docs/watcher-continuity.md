@@ -406,3 +406,4 @@ It checks that a newly appended keyed decision is classified without rereading e
 
 Pi does not need a model turn to re-arm.
 No zero-latency guarantee is claimed, because lock verification, watcher startup, and bounded retry delays remain deliberate safety work.
+See [supervision verification](verification/supervision.md) for dated evidence.

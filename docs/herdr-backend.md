@@ -54,9 +54,6 @@ Select Herdr in any of these ways:
 - `FM_BACKEND=herdr` for one launch.
 - An explicit request to Firstmate.
 
-Herdr is also auto-detected when the primary runs natively under `HERDR_ENV=1` and is not inside tmux.
-A tmux pane nested inside Herdr resolves to tmux because the innermost multiplexer wins.
-An auto-detected Herdr spawn stays silent, matching the verified tmux default path.
 
 ### Spawn preflight and CI
 
@@ -688,33 +685,8 @@ Ordinary local text steers instead use the durable steering inbox and send only 
 Spawn-time fixed commands may use Herdr's atomic run primitive.
 Enter, Escape, and Ctrl-C are supported.
 
-Typed-plane slash input, and dollar-prefixed skill input for Codex, uses the shared harness-aware settle before the first Enter, so a completion popup cannot consume it.
+Typed-plane slash input uses the shared harness-aware settle before the first Enter, so a completion popup cannot consume it.
 Typed-plane text is typed once; only Enter is retried.
-
-### Claude composer proof
-
-When native `agent get` identity is Claude, the adapter types only into an empty composer.
-A Claude composer that already holds text, or cannot be read, before the send is refused with nothing typed.
-Before that Enter, the adapter continues only when the selected composer shows the typed payload, or only Claude paste placeholders with no literal remainder.
-Every herdr adapter composer read (`fm_backend_herdr_composer_state`, `fm_backend_herdr_composer_content`) captures the full visible viewport, never a bounded tail.
-An overlay Claude renders between the composer and the pane bottom - the slash-command popup is the verified shape - pushes the composer outside a tail window, and the composer is by definition inside the viewport.
-[`bin/fm-task-inbox-lib.sh`](../bin/fm-task-inbox-lib.sh) owns the separate shared inbox pending-line confirmation read.
-Dated measurement: docs/verification/runtime-backends.md "Claude exit behind the slash-command popup".
-
-That comparison ignores whitespace and U+2063, the invisible mark that starts operational inputs and ends the from-firstmate label.
-It ignores U+2063 because Claude's Herdr read-back never shows it.
-
-A composer that holds a shorter suffix, or a placeholder plus a literal remainder, does not receive Enter.
-Instead:
-
-1. The adapter presses Ctrl+U until the shared classifier reads the composer as empty.
-2. It then reports `send-failed`, so a resend starts from a clean composer.
-
-Ctrl+C is not used for this, because Claude documents it as interrupting a running operation.
-If the composer cannot be verified empty again, the submit reports `unknown` instead, because text may still be in the composer.
-
-Other harnesses, and panes with no native identity, skip this proof and keep the type-then-Enter path.
-They skip it because their paste placeholders and composer shapes are not live-verified.
 
 ### Submit confirmation
 
@@ -745,7 +717,6 @@ Cursor is one such harness:
 That fallback alone reported every delivered steer as unconfirmed.
 So it is paired with a rendered-footer transition.
 The pane's verified busy footer is read once before the first Enter, and an idle-to-busy transition across that Enter confirms the submit.
-It is the same semantic signal the native path uses and the same one the tmux submit core reads.
 
 A pane already mid-turn cannot borrow a rendered-footer transition as proof of this delivery.
 After retries, only proven pending text plus native `working` can establish that its Enter was accepted and queued.
@@ -777,10 +748,7 @@ The adapter is a thin capture.
 It hands the visible pane's ANSI viewport plus Herdr's capability facts to the fleet-wide classifier in `bin/fm-composer-lib.sh`, which owns every shape:
 
 - Bordered boxes.
-- Bare agent-glyph rows, including muse's `⟩`, which the adapter's retired local pattern silently omitted.
-- opencode's left bar.
 - The Pi separator region this adapter pioneered, admitted only when native `agent get` identity is exactly Pi and state is idle or done.
-- Cortex Code's titled rounded top rule, admitted only when native `agent get` identity is exactly `cortex`, which the adapter reads lazily and only when the classifier answers `need-identity` for a titled rounded box holding an agent prompt glyph; the same box on any other pane stays ambiguous, and Cortex is [verified](verification/cortex.md) on Herdr for crewmates and scouts only.
 
 ### Pi composer states
 
@@ -809,8 +777,7 @@ This prevents a dead agent pane from receiving and possibly executing an escalat
 The current operational envelope starts with U+2063 and `FIRSTMATE_OP: `.
 The separate routed-request carrier uses `[fm-from-firstmate]` plus U+2063.
 U+2063 survives Herdr terminal input as text, unlike the legacy ASCII control separator that could erase the visible routing label.
-Claude Code itself then removes it from the submitted prompt, so a Claude Code primary receives away-mode escalations as the owner's record-backed doorbell instead.
-`bin/fm-operational-input.sh` owns current operational construction and parsing, and the AFK skill owns legacy away-input compatibility.
+`bin/fm-operational-input.sh` owns current operational construction and parsing, .
 No Herdr-specific copy of that protocol exists.
 
 ## Restart and liveness behavior
@@ -871,7 +838,7 @@ In that case `agent get` still reports `agent=pi` with its last status.
 That nested shell is the shape the interactive `treehouse get` leaves behind; fresh Herdr spawns lease durably instead (see [Restart recovery](#restart-recovery)), but older or hand-driven panes can still have it (measured on Herdr 0.9.0 - [verification](verification/runtime-backends.md) "Stale agent registration"; upstream issue #4115).
 
 So before a registered agent counts as live, the pane classifier reads `pane process-info` and the real process table.
-It uses the shared harness-process classifier in `bin/fm-agent-process-lib.sh`, the same rule the tmux adapter proves liveness with:
+It uses the shared process classifier in `bin/fm-agent-process-lib.sh`:
 
 | What the process view shows | Verdict |
 | --- | --- |
@@ -902,7 +869,7 @@ So an absent registration, or a placeholder status, is judged by the same proces
 | Nothing but shells, with no harness below them | `no-agent`, which recovery reads as `dead`. |
 | Anything else, or an unreadable view | `unknown`: neither a live agent nor its absence is claimed. |
 
-With no registration to name the harness, the composer probe takes Pi's identity from that process and its idle or working state from Pi's rendered busy indicator, the same pair the tmux adapter uses.
+With no registration to name the harness, the composer probe takes Pi's identity from that process and its idle or working state from Pi's rendered busy indicator.
 The native busy verdict stays `unknown`, because only a registration carries it.
 
 ### Process-view version support
@@ -928,7 +895,6 @@ Neither the stopped-server exception nor the stale-registration verdict widens h
 Those paths still refuse an unreadable pane.
 A `stale-agent` pane is reused by recovery, never closed as a husk, because the shell it holds may be a nested worktree shell.
 
-Native registration still identifies Pi by name where tmux would see a generic interpreter.
 The process-level proof only decides whether that registration is backed by a running process.
 `tests/fm-backend-herdr-agent-exit-shell-e2e.test.sh` pins the live-Pi versus leftover-shell distinction.
 [`verification/runtime-backends.md`](verification/runtime-backends.md#agent-lifecycle-control) owns the versioned evidence.

@@ -159,16 +159,8 @@
       "audience": "agent-runtime"
     },
     {
-      "path": "CLAUDE.md",
-      "audience": "agent-runtime"
-    },
-    {
       "path": "CONTRIBUTING.md",
       "audience": "maintainer-architecture"
-    },
-    {
-      "path": "GROK_BOT.md",
-      "audience": "public-product"
     },
     {
       "path": "README.md",
@@ -391,24 +383,12 @@
       "audience": "operator-current"
     },
     {
-      "path": "docs/subagent-guard.md",
-      "audience": "maintainer-architecture"
-    },
-    {
       "path": "docs/supervision-protocols/pi.md",
-      "audience": "agent-runtime"
-    },
-    {
-      "path": "docs/supervision-protocols/supervision-host.md",
       "audience": "agent-runtime"
     },
     {
       "path": "docs/supervision-protocols/unknown.md",
       "audience": "agent-runtime"
-    },
-    {
-      "path": "docs/supervision-host.md",
-      "audience": "maintainer-architecture"
     },
     {
       "path": "docs/trace-context.md",
@@ -508,6 +488,10 @@
     },
     {
       "path": "docs/adr/0019-remote-worker-cleanup-and-reclaim.md",
+      "audience": "maintainer-architecture"
+    },
+    {
+      "path": "docs/adr/0020-session-start-digest.md",
       "audience": "maintainer-architecture"
     }
   ]

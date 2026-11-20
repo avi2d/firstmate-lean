@@ -72,8 +72,6 @@ This in-process supervision branch is Pi-only by construction:
   A home on any harness that already has an outcome store still receives the shared drain compatibility recovery described in [Lost-wake outcome backstop](#lost-wake-outcome-backstop).
 - It does not change which harness is primary and never moves a home to Pi.
 
-On a non-Pi home that runs the supervision host, the host runs the branch beside the primary, away and on Claude and Cursor also attended.
-[supervision-host.md](supervision-host.md) owns its scope and mechanism.
 
 ## Components and their owners
 

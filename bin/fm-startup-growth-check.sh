@@ -284,7 +284,6 @@ run_check() {
   printf '%s\t%s\n' last_eval "$now" >> "$NEW_RECORD" || exit 1
 
   stat_surface tracked AGENTS.md "$FM_ROOT/AGENTS.md" no
-  stat_surface tracked CLAUDE.md "$FM_ROOT/CLAUDE.md" yes
   stat_surface tracked bin/fm-session-start.sh "$FM_ROOT/bin/fm-session-start.sh" no
   stat_surface tracked bin/fm-bootstrap.sh "$FM_ROOT/bin/fm-bootstrap.sh" no
   stat_surface tracked bin/fm-supervision-instructions.sh "$FM_ROOT/bin/fm-supervision-instructions.sh" no

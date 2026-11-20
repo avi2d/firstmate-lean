@@ -1,7 +1,7 @@
 ---
 name: harness-adapters
 description: >-
-  Load before spawning or recovering a crewmate or secondmate, handling a trust dialog, sending a harness-specific skill invocation, interrupting or exiting an agent, resuming an exited agent, or verifying a new harness adapter.
+  Load before spawning or recovering a worker, handling a trust dialog, sending a harness-specific skill invocation, interrupting or exiting an agent, resuming an exited agent.
 user-invocable: false
 metadata:
   internal: true
@@ -18,90 +18,104 @@ Files under `references/` are resources of this skill, not additional catalogued
 
 The skill directory is the directory containing this `SKILL.md`.
 Resolve on-demand reference links and relative links to their executable, documentation, or sibling-skill owners against the skill directory, including links named by a nested reference.
-Operational paths keep the context named by their owner: `config/` and active-home settings belong to the active Firstmate home, `state/` belongs to that home, and project settings such as `.claude/settings.json` belong to the target project.
+Operational paths keep the context named by their owner: `config/` and active-home settings belong to the active Firstmate home, `state/` belongs to that home, and project settings belong to the target project.
 
 ## Non-negotiable safety
 
-Never dispatch a crewmate or secondmate on an unverified adapter.
-If `config/crew-harness` or `config/secondmate-harness` names one, tell the captain under `../../../AGENTS.md` section 9 that the requested worker runtime is not verified, use firstmate's own verified runtime for current work, and ask only whether to verify the requested runtime for future work.
-Do not pause current work for that choice.
-
-On `unknown`, ask the captain instead of guessing.
-A current captain override beats detection, while a per-task override governs only that dispatch.
+Dispatch only Pi or Pi-signed.
+If the selected tool is unavailable or unverified, report the blocker to the user instead of switching tools.
 For recovery and control, use the exact `harness=` in `state/<id>.meta`; never infer it from a model or provider.
 
 Deliver lifecycle actions only through `../../../bin/fm-control.sh <task-id> interrupt|exit|relaunch`.
 Never type an interrupt key or exit command through `fm-send`, where routing-marked lifecycle text becomes chat.
 Trust handling is complete only when inspection proves the target started processing its instructions; delivery success alone is not proof.
 For a remote worker, inspect its pane with `bin/fm-on.sh <route> fm-remote-worker-control.sh capture <task-id>`.
-Muse, Gemini, Devin, Command Code, Polytoken, Cortex, Kiro, and Hermes are verified only for crewmate and scout work, never a secondmate or primary.
-cloud-claude is verified only for direct-PR ship work on a GitHub-hosted project, and its lifecycle actions are refused because its pane holds a relay rather than the agent.
 
 ## Detection
 
-`../../../bin/fm-harness.sh` prints firstmate's own harness from verified environment markers and process ancestry, and owns how they combine.
-A marker names its harness, but a structural ancestor of a different harness outranks it, because a marker is ordinary environment state a child or a multiplexer can retain while ancestry is what proves who owns the process tree.
-Only `FM_PI_HARNESS=pi-signed` at the launch boundary together with `PI_CODING_AGENT=true` selects Pi-signed; shared unmarked launcher ancestry remains Pi.
-omp publishes no marker of its own; `FM_OMP_HARNESS=omp` is Firstmate's launch marker and the anchored process name `omp` is its ancestry evidence, as `references/harness/omp.md` records.
-`../../../bin/fm-spawn.sh` owns worker marker establishment, while the README launch command owns the signed-primary boundary.
-`../../../bin/fm-harness.sh crew` resolves `config/crew-harness`, where absent or `default` means firstmate's own harness.
-`../../../bin/fm-spawn.sh` re-resolves on every spawn, and an explicit per-spawn argument wins for that spawn.
-A new adapter's verified marker and command name must land in `../../../bin/fm-harness.sh`.
+`../../../bin/fm-harness.sh` owns detection and prints `pi`, `pi-signed`, or `unknown`.
+Pi-signed requires the explicit launch marker.
+`../../../bin/fm-harness.sh crew` reads `config/crew-harness`; an absent file or `default` means use the supervisor's tool.
+An explicit per-launch argument wins for that dispatch.
 
 ## Operation-to-reference matrix
 
 Every emitted plan appends the selected or recorded harness reference after the named common references.
 The `harness-adapter-routing-v1` object is the machine-readable and human-visible selection contract: choose the operation, choose the scenario within it, then append the selected harness reference.
 `default` is the normal scenario when no narrower scenario applies.
-Kimi establishes its unsupported primary boundary in its selected harness reference; Muse and Gemini follow Non-negotiable safety above.
-A new tool remains undispatchable until the `verify` plan, its harness entry, every named owner, and the live checks land.
-
 ```json harness-adapter-routing-v1
 {
   "operations": {
     "start": {
-      "default": ["references/common/dispatch.md", "references/common/model-and-effort.md"],
-      "trust-dialog": ["references/common/control-and-recovery.md"]
+      "default": [
+        "references/common/dispatch.md",
+        "references/common/model-and-effort.md"
+      ],
+      "trust-dialog": [
+        "references/common/control-and-recovery.md"
+      ]
     },
-    "trust": {"default": ["references/common/control-and-recovery.md"]},
-    "skill": {"default": ["references/common/control-and-recovery.md"]},
-    "interrupt": {"default": ["references/common/control-and-recovery.md"]},
-    "exit": {"default": ["references/common/control-and-recovery.md"]},
-    "resume": {"default": ["references/common/control-and-recovery.md"]},
+    "trust": {
+      "default": [
+        "references/common/control-and-recovery.md"
+      ]
+    },
+    "skill": {
+      "default": [
+        "references/common/control-and-recovery.md"
+      ]
+    },
+    "interrupt": {
+      "default": [
+        "references/common/control-and-recovery.md"
+      ]
+    },
+    "exit": {
+      "default": [
+        "references/common/control-and-recovery.md"
+      ]
+    },
+    "resume": {
+      "default": [
+        "references/common/control-and-recovery.md"
+      ]
+    },
     "recovery": {
-      "default": ["references/common/control-and-recovery.md"],
-      "replacement-profile": ["references/common/control-and-recovery.md", "references/common/dispatch.md", "references/common/model-and-effort.md"],
-      "secondmate": ["references/common/control-and-recovery.md", "references/common/primary-hooks.md"],
-      "replacement-secondmate": ["references/common/control-and-recovery.md", "references/common/dispatch.md", "references/common/model-and-effort.md", "references/common/primary-hooks.md"]
+      "default": [
+        "references/common/control-and-recovery.md"
+      ],
+      "replacement-profile": [
+        "references/common/control-and-recovery.md",
+        "references/common/dispatch.md",
+        "references/common/model-and-effort.md"
+      ]
     },
-    "primary": {"default": ["references/common/primary-hooks.md"]},
+    "primary": {
+      "default": [
+        "references/common/primary-hooks.md"
+      ]
+    },
     "model-effort": {
-      "default": ["references/common/model-and-effort.md"],
-      "configured-profile": ["references/common/model-and-effort.md", "references/common/dispatch.md"]
+      "default": [
+        "references/common/model-and-effort.md"
+      ],
+      "configured-profile": [
+        "references/common/model-and-effort.md",
+        "references/common/dispatch.md"
+      ]
     },
-    "verify": {"default": ["references/common/dispatch.md", "references/common/control-and-recovery.md", "references/common/primary-hooks.md", "references/common/model-and-effort.md"]}
+    "verify": {
+      "default": [
+        "references/common/dispatch.md",
+        "references/common/control-and-recovery.md",
+        "references/common/primary-hooks.md",
+        "references/common/model-and-effort.md"
+      ]
+    }
   },
   "harnesses": {
-    "claude": "references/harness/claude.md",
-    "codex": "references/harness/codex.md",
-    "opencode": "references/harness/opencode.md",
     "pi": "references/harness/pi.md",
-    "pi-signed": "references/harness/pi.md",
-    "grok": "references/harness/grok.md",
-    "kimi": "references/harness/kimi.md",
-    "cursor": "references/harness/cursor.md",
-    "gemini": "references/harness/gemini.md",
-    "muse": "references/harness/muse.md",
-    "rovo": "references/harness/rovo.md",
-    "omp": "references/harness/omp.md",
-    "agy": "references/harness/agy.md",
-    "devin": "references/harness/devin.md",
-    "commandcode": "references/harness/commandcode.md",
-    "polytoken": "references/harness/polytoken.md",
-    "cortex": "references/harness/cortex.md",
-    "cloud-claude": "references/harness/cloud-claude.md",
-    "kiro": "references/harness/kiro.md",
-    "hermes": "references/harness/hermes.md"
+    "pi-signed": "references/harness/pi.md"
   }
 }
 ```
