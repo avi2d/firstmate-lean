@@ -17,14 +17,13 @@
 #               start, covering the millisecond crash window inside those two
 #               scripts and any drift a home was already carrying.
 #
-# The invariant is single-host: a home's backlog and its records live together,
-# so a persistent secondmate keeps its own books through its own copies of these
-# scripts. A parent's view of a mate lagging is a freshness question and is
-# deliberately not asserted here.
+# The invariant is single-host: a home's backlog and its records live together.
 set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=tests/fixtures.sh
+. "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 # shellcheck source=bin/fm-timeout-lib.sh
 . "$ROOT/bin/fm-timeout-lib.sh"
 
@@ -60,14 +59,14 @@ pin_markdown_backend() {  # <addressing-root>
 # A home with a real backlog, a real project clone with an origin, a pooled
 # worktree, and stubs for every tool the spawn path shells out to.
 make_home() {  # <name> [task-id...]
-  local name=$1 case_dir home fakebin id
+  local name=$1 case_dir home id
   shift
   case_dir="$TMP_ROOT/$name"
   home="$case_dir/home"
-  fakebin=$(fm_fakebin "$case_dir")
   mkdir -p "$home/state" "$home/config" "$home/data" "$home/projects"
   touch "$home/state/.last-watcher-beat"
-  printf '%s\n' claude > "$home/config/crew-harness"
+  printf '%s\n' pi > "$home/config/crew-harness"
+  printf 'off\n' > "$home/config/herdr-presentation-spaces"
   printf '%s\n' '# Backlog' '' '## In flight' '' '## Queued' '' '## Done' \
     > "$home/data/backlog.md"
   # Pin the adapter per case: without it fm_tasks_axi_backend would fall through
@@ -94,39 +93,7 @@ Delivery contract: mode=no-mistakes
 EOF
   done
 
-  cat > "$fakebin/tmux" <<'SH'
-#!/usr/bin/env bash
-window_file="$(dirname "$0")/.spawn-window"
-case "$*" in *"#{pane_current_path}"*) printf '%s\n' "${FM_FAKE_PANE_PATH:-}"; exit 0 ;; esac
-case "${1:-}" in
-  display-message) printf 'firstmate\n'; exit 0 ;;
-  list-windows) [ ! -s "$window_file" ] || cat "$window_file"; exit 0 ;;
-  new-window)
-    name=
-    previous=
-    for arg in "$@"; do
-      [ "$previous" = -n ] && name=$arg
-      previous=$arg
-    done
-    grep -Fqx -- "$name" "$window_file" 2>/dev/null || printf '%s\n' "$name" >> "$window_file"
-    exit 0 ;;
-  kill-window)
-    target=
-    previous=
-    for arg in "$@"; do
-      [ "$previous" = -t ] && target=$arg
-      previous=$arg
-    done
-    target=${target##*:}
-    target=${target#=}
-    grep -Fvx -- "$target" "$window_file" 2>/dev/null > "$window_file.tmp" || true
-    mv "$window_file.tmp" "$window_file"
-    exit 0 ;;
-esac
-exit 0
-SH
-  chmod +x "$fakebin/tmux"
-  fm_fake_exit0 "$fakebin" treehouse gh gh-axi no-mistakes claude codex opencode grok gemini
+  fm_test_make_spawn_fakebin "$case_dir" gh gh-axi no-mistakes >/dev/null
 
   fm_git_init_commit "$case_dir/project"
   fm_git_add_origin "$case_dir/project" "$case_dir/project.origin.git"
@@ -467,23 +434,27 @@ SH
   chmod +x "$case_dir/fakebin/tasks-axi"
 }
 
+# wrap_fake <case-dir> <tool> <shell-line>: run <shell-line> before the fake.
+wrap_fake() {
+  local fakebin="$1/fakebin" tool=$2 line=$3
+  mv "$fakebin/$tool" "$fakebin/$tool-base"
+  printf '#!/usr/bin/env bash\n%s\nexec "%s" "$@"\n' "$line" "$fakebin/$tool-base" > "$fakebin/$tool"
+  chmod +x "$fakebin/$tool"
+}
+
 break_launch_delivery() {  # <case-dir>
+  wrap_fake "$1" herdr "[ \"\${1:-} \${2:-}\" != 'pane send-text' ] || exit 1"
+}
+
+mark_endpoint_and_copy_requests() {  # <case-dir>
   local case_dir=$1
-  cat > "$case_dir/fakebin/tmux" <<'SH'
-#!/usr/bin/env bash
-case "$*" in *"#{pane_current_path}"*) printf '%s\n' "${FM_FAKE_PANE_PATH:-}"; exit 0 ;; esac
-case "${1:-}" in
-  display-message) printf 'firstmate\n'; exit 0 ;;
-  send-keys) exit 1 ;;
-esac
-exit 0
-SH
-  chmod +x "$case_dir/fakebin/tmux"
+  wrap_fake "$case_dir" herdr "[ \"\${1:-} \${2:-}\" != 'tab create' ] || : > '$case_dir/task-endpoint-created'"
+  wrap_fake "$case_dir" treehouse "[ \"\${1:-}\" != get ] || : > '$case_dir/local-copy-requested'"
 }
 
 track_teardown_resource_actions() {  # <case-dir>
   local case_dir=$1
-  cat > "$case_dir/fakebin/tmux" <<SH
+  cat > "$case_dir/fakebin/herdr" <<SH
 #!/usr/bin/env bash
 : > "$case_dir/backend-resource-action"
 exit 0
@@ -493,7 +464,7 @@ SH
 : > "$case_dir/local-copy-resource-action"
 exit 0
 SH
-  chmod +x "$case_dir/fakebin/tmux" "$case_dir/fakebin/treehouse"
+  chmod +x "$case_dir/fakebin/herdr" "$case_dir/fakebin/treehouse"
 }
 
 interrupt_teardown_during_treehouse_return() {  # <case-dir>
@@ -510,36 +481,6 @@ fi
 exit 0
 SH
   chmod +x "$case_dir/fakebin/treehouse"
-}
-
-interrupt_kimi_readiness() {  # <case-dir>
-  local case_dir=$1 home
-  home=$(home_of "$case_dir")
-  mkdir -p "$home/.kimi-code"
-  printf '# test config\n' > "$home/.kimi-code/config.toml"
-  fm_fake_exit0 "$case_dir/fakebin" kimi
-  cat > "$case_dir/fakebin/tmux" <<SH
-#!/usr/bin/env bash
-case "\$*" in
-  *"#{pane_current_path}"*) printf '%s\\n' "\${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
-  *"#{cursor_y}"*) printf '1\\n'; exit 0 ;;
-esac
-case "\${1:-}" in
-  display-message) printf 'firstmate\\n'; exit 0 ;;
-  capture-pane)
-    if [ ! -f "$case_dir/kimi-interrupted" ]; then
-      : > "$case_dir/kimi-interrupted"
-      spawn_pid=\$(ps -o ppid= -p "\$PPID" | tr -d ' ')
-      case "\$spawn_pid" in ''|*[!0-9]*) exit 1 ;; esac
-      kill -TERM "\$spawn_pid"
-    fi
-    printf 'shell starting\\n$ \\n'
-    exit 0
-    ;;
-esac
-exit 0
-SH
-  chmod +x "$case_dir/fakebin/tmux"
 }
 
 break_meta_removal() {  # <case-dir> <meta-path>
@@ -607,12 +548,10 @@ SH
 write_task_meta() {  # <case-dir> <id> <kind> <mode> [extra-line...]
   local case_dir=$1 id=$2 kind=$3 mode=$4
   shift 4
-  fm_write_meta "$(home_of "$case_dir")/state/$id.meta" \
-    "window=firstmate:fm-$id" \
-    "endpoint_task_id=$id" \
+  fm_write_herdr_meta "$(home_of "$case_dir")/state/$id.meta" "spawn-fixture:w1:p-$id" \
     "worktree=$case_dir/absent-worktree" \
     "project=$case_dir/absent-project" \
-    "harness=claude" \
+    "harness=pi" \
     "kind=$kind" \
     "mode=$mode" \
     "yolo=off" \
@@ -625,8 +564,7 @@ run_spawn() {  # <case-dir> <args...>
   # A throwaway HOME keeps a spawn from writing the developer's real home.
   mkdir -p "$case_dir/user-home"
   FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$(home_of "$case_dir")" HOME="$case_dir/user-home" \
-    FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$case_dir/wt" TMUX="fake,1,0" \
-    CLAUDE_CONFIG_DIR='' \
+    FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$case_dir/wt" FM_BACKEND=herdr HERDR_SESSION=spawn-fixture \
     PATH="$case_dir/fakebin:$PATH" \
     "$SPAWN" "$@" 2>&1
 }
@@ -933,17 +871,7 @@ test_dispatch_refuses_a_pending_authoritative_close() {
   marker="$(home_of "$case_dir")/state/$id.backlog-close"
   printf 'id=%s\ndata=%s\nspawn_gen=spawn-closing\narg=--pr\narg=https://github.com/example/repo/pull/12\n' \
     "$id" "$(home_of "$case_dir")/data" > "$marker"
-  cat > "$case_dir/fakebin/tmux" <<SH
-#!/usr/bin/env bash
-case "\$*" in
-  *new-window*) : > "$case_dir/task-endpoint-created" ;;
-  *treehouse\\ get*) : > "$case_dir/local-copy-requested" ;;
-  *"#{pane_current_path}"*) printf '%s\n' "\${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
-esac
-case "\${1:-}" in display-message) printf 'firstmate\n'; exit 0 ;; esac
-exit 0
-SH
-  chmod +x "$case_dir/fakebin/tmux"
+  mark_endpoint_and_copy_requests "$case_dir"
 
   out=$(run_ship_spawn "$case_dir" "$id") || rc=$?
   [ "$rc" -ne 0 ] || fail "spawn accepted work with an authoritative close still pending"
@@ -968,17 +896,7 @@ test_dispatch_refuses_a_held_row_before_creating_resources() {
   add_item "$case_dir" "$id"
   tasks-axi hold "$id" --reason "captain decision pending" --kind captain \
     --file "$(backlog_of "$case_dir")" >/dev/null
-  cat > "$case_dir/fakebin/tmux" <<SH
-#!/usr/bin/env bash
-case "\$*" in
-  *new-window*) : > "$case_dir/task-endpoint-created" ;;
-  *treehouse\\ get*) : > "$case_dir/local-copy-requested" ;;
-  *"#{pane_current_path}"*) printf '%s\n' "\${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
-esac
-case "\${1:-}" in display-message) printf 'firstmate\n'; exit 0 ;; esac
-exit 0
-SH
-  chmod +x "$case_dir/fakebin/tmux"
+  mark_endpoint_and_copy_requests "$case_dir"
 
   out=$(run_ship_spawn "$case_dir" "$id") || rc=$?
   [ "$rc" -ne 0 ] || fail "spawn accepted a held backlog row"
@@ -1003,17 +921,7 @@ test_dispatch_refuses_a_blocked_row_before_creating_resources() {
   add_item "$case_dir" "$blocker"
   tasks-axi add "$id" "item for $id" --kind ship --blocked-by "$blocker" \
     --file "$(backlog_of "$case_dir")" >/dev/null
-  cat > "$case_dir/fakebin/tmux" <<SH
-#!/usr/bin/env bash
-case "\$*" in
-  *new-window*) : > "$case_dir/task-endpoint-created" ;;
-  *treehouse\\ get*) : > "$case_dir/local-copy-requested" ;;
-  *"#{pane_current_path}"*) printf '%s\n' "\${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
-esac
-case "\${1:-}" in display-message) printf 'firstmate\n'; exit 0 ;; esac
-exit 0
-SH
-  chmod +x "$case_dir/fakebin/tmux"
+  mark_endpoint_and_copy_requests "$case_dir"
 
   out=$(run_ship_spawn "$case_dir" "$id") || rc=$?
   [ "$rc" -ne 0 ] || fail "spawn accepted a dependency-blocked backlog row"
@@ -1038,17 +946,7 @@ test_dispatch_refuses_a_held_in_flight_row_before_relaunch() {
   start_item "$case_dir" "$id"
   tasks-axi hold "$id" --reason "captain decision pending" --kind captain \
     --file "$(backlog_of "$case_dir")" >/dev/null
-  cat > "$case_dir/fakebin/tmux" <<SH
-#!/usr/bin/env bash
-case "\$*" in
-  *new-window*) : > "$case_dir/task-endpoint-created" ;;
-  *treehouse\\ get*) : > "$case_dir/local-copy-requested" ;;
-  *"#{pane_current_path}"*) printf '%s\n' "\${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
-esac
-case "\${1:-}" in display-message) printf 'firstmate\n'; exit 0 ;; esac
-exit 0
-SH
-  chmod +x "$case_dir/fakebin/tmux"
+  mark_endpoint_and_copy_requests "$case_dir"
 
   out=$(run_ship_spawn "$case_dir" "$id") || rc=$?
   [ "$rc" -ne 0 ] || fail "spawn accepted a held In-flight backlog row"
@@ -1508,7 +1406,7 @@ test_deferred_signal_verification_outlives_an_unresponsive_tasks_axi() {
   mkdir -p "$case_dir/user-home"
   out=$(fm_run_timed 30 env FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$(home_of "$case_dir")" \
     HOME="$case_dir/user-home" FM_SPAWN_NO_GUARD=1 \
-    FM_FAKE_PANE_PATH="$case_dir/wt" TMUX="fake,1,0" CLAUDE_CONFIG_DIR='' \
+    FM_FAKE_PANE_PATH="$case_dir/wt" FM_BACKEND=herdr HERDR_SESSION=spawn-fixture \
     FM_TASKS_AXI_TIMEOUT=3 PATH="$case_dir/fakebin:$PATH" \
     "$SPAWN" "$id" "$case_dir/project" \
     --mode no-mistakes --yolo off 2>&1) || rc=$?
@@ -1525,25 +1423,6 @@ test_deferred_signal_verification_outlives_an_unresponsive_tasks_axi() {
   assert_present "$(home_of "$case_dir")/state/$id.meta" \
     "the timed-out repair removed the paired task record"
   pass "a signal-deferred spawn bounds its verification so an unresponsive tasks-axi cannot hold the meta lock forever"
-}
-
-test_dispatch_interruption_during_kimi_readiness_fails_before_commit() {
-  local case_dir home id out rc=0
-  id=atomic-dispatch-kimi-readiness-signal-b5
-  case_dir=$(make_home dispatch-kimi-readiness-signal "$id")
-  home=$(home_of "$case_dir")
-  add_item "$case_dir" "$id"
-  interrupt_kimi_readiness "$case_dir"
-
-  out=$(HOME="$home" FM_KIMI_READY_POLLS=2 FM_KIMI_POLL_INTERVAL=0 \
-    run_spawn "$case_dir" "$id" "$case_dir/project" --harness kimi \
-      --mode no-mistakes --yolo off) || rc=$?
-  [ "$rc" -ne 0 ] || fail "Kimi readiness interruption was reported as success"
-  assert_absent "$home/state/$id.meta" \
-    "Kimi readiness interruption retained an unconfirmed task record"
-  [ "$(row_state "$case_dir" "$id")" = queued ] \
-    || fail "Kimi readiness interruption committed unconfirmed work In flight: $out"
-  pass "Kimi readiness interruptions fail before backlog commit"
 }
 
 test_dispatch_does_not_resurrect_a_row_closed_after_preflight() {
@@ -2713,7 +2592,7 @@ test_bootstrap_stops_when_data_disappears_before_reconciliation() {
 }
 
 test_bootstrap_addressing_exemptions_remain_nonfatal() {
-  local manual_case no_backlog_case secondmate_case secondmate_id out
+  local manual_case no_backlog_case out
   manual_case=$(make_home bootstrap-manual-exempt)
   printf '%s\n' manual > "$(home_of "$manual_case")/config/backlog-backend"
   mv "$(home_of "$manual_case")/data" "$manual_case/manual-data"
@@ -2725,16 +2604,7 @@ test_bootstrap_addressing_exemptions_remain_nonfatal() {
   out=$(run_bootstrap "$no_backlog_case") \
     || fail "no-backlog bootstrap exemption became fatal: $out"
 
-  secondmate_id=atomic-bootstrap-secondmate-exempt-b11
-  secondmate_case=$(make_home bootstrap-secondmate-exempt)
-  write_task_meta "$secondmate_case" "$secondmate_id" secondmate '' \
-    "spawn_gen=spawn-secondmate-exempt"
-  mv "$(home_of "$secondmate_case")/data" "$secondmate_case/secondmate-data"
-  out=$(run_bootstrap "$secondmate_case") \
-    || fail "secondmate bootstrap exemption became fatal: $out"
-  assert_present "$(home_of "$secondmate_case")/state/$secondmate_id.meta" \
-    "secondmate bootstrap exemption removed the persistent agent record"
-  pass "bootstrap preserves secondmate, manual, and absent-backlog exemptions"
+  pass "bootstrap preserves manual and absent-backlog exemptions"
 }
 
 test_recovery_leaves_a_captain_held_item_alone() {
@@ -2752,7 +2622,7 @@ test_recovery_leaves_a_captain_held_item_alone() {
   pass "session start leaves a captain-held item where the captain put it"
 }
 
-# --- backend selection and secondmate scope ---------------------------------
+# --- backend selection ---------------------------------
 
 test_no_backlog_teardown_refuses_a_symlinked_task_record_at_entry() {
   local case_dir home id target target_dir foreign_worktree out rc=0
@@ -2765,10 +2635,9 @@ test_no_backlog_teardown_refuses_a_symlinked_task_record_at_entry() {
   target_dir="$home/state-foreign"
   target="$target_dir/$id.meta"
   mkdir -p "$target_dir"
-  fm_write_meta "$target" \
-    "window=firstmate:fm-$id" "endpoint_task_id=$id" \
+  fm_write_herdr_meta "$target" "spawn-fixture:w1:p-$id" \
     "worktree=$foreign_worktree" "project=$case_dir/foreign-project" \
-    "harness=claude" "kind=ship" "mode=local-only" "yolo=off"
+    "harness=pi" "kind=ship" "mode=local-only" "yolo=off"
   ln -s "$target" "$home/state/$id.meta"
   track_teardown_resource_actions "$case_dir"
 
@@ -2795,10 +2664,9 @@ test_teardown_rechecks_record_parent_after_lock_acquisition() {
   foreign_state="$case_dir/foreign-state"
   foreign_worktree="$case_dir/foreign-worktree"
   mkdir -p "$foreign_state" "$foreign_worktree"
-  fm_write_meta "$foreign_state/$id.meta" \
-    "window=firstmate:fm-$id" "endpoint_task_id=$id" \
+  fm_write_herdr_meta "$foreign_state/$id.meta" "spawn-fixture:w1:p-$id" \
     "worktree=$foreign_worktree" "project=$case_dir/foreign-project" \
-    "harness=claude" "kind=ship" "mode=local-only" "yolo=off"
+    "harness=pi" "kind=ship" "mode=local-only" "yolo=off"
   track_teardown_resource_actions "$case_dir"
   real_ln=$(command -v ln)
   cat > "$case_dir/fakebin/ln" <<SH
@@ -2836,10 +2704,9 @@ test_teardown_refuses_a_symlinked_state_directory_at_entry() {
   home=$(home_of "$case_dir")
   external_state="$case_dir/external-state"
   mv "$home/state" "$external_state"
-  fm_write_meta "$external_state/$id.meta" \
-    "window=firstmate:fm-$id" "endpoint_task_id=$id" \
+  fm_write_herdr_meta "$external_state/$id.meta" "spawn-fixture:w1:p-$id" \
     "worktree=$case_dir/foreign-worktree" "project=$case_dir/foreign-project" \
-    "harness=claude" "kind=ship" "mode=local-only" "yolo=off"
+    "harness=pi" "kind=ship" "mode=local-only" "yolo=off"
   ln -s "$external_state" "$home/state"
   track_teardown_resource_actions "$case_dir"
 
@@ -2890,8 +2757,7 @@ test_spawn_refuses_a_special_file_tasks_config() {
   mkfifo "$home/.tasks.toml"
 
   out=$(fm_run_timed 60 env FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" \
-    FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$case_dir/wt" TMUX="fake,1,0" \
-    CLAUDE_CONFIG_DIR='' \
+    FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$case_dir/wt" FM_BACKEND=herdr HERDR_SESSION=spawn-fixture \
     PATH="$case_dir/fakebin:$PATH" \
     "$SPAWN" "$id" "$case_dir/project" --mode no-mistakes --yolo off 2>&1) || rc=$?
   [ "$rc" -ne 124 ] || fail "spawn hung reading a special-file tasks-axi config"
@@ -3093,49 +2959,6 @@ test_manual_backend_home_dispatches_and_completes_without_touching_the_backlog()
   pass "a manual-backlog home refuses an id with no item, then dispatches and completes without moving the row"
 }
 
-test_a_secondmate_home_keeps_its_own_books() {
-  local case_dir id out
-  id=atomic-mate-b13
-  case_dir=$(make_home mate-own-books "$id")
-  # The mate's home is a firstmate home in its own right; the invariant is
-  # single-host, so its own dispatch and completion keep its own two records
-  # paired with no parent involved.
-  printf '%s\n' mate-h1 > "$(home_of "$case_dir")/.fm-secondmate-home"
-  add_item "$case_dir" "$id"
-
-  out=$(run_ship_spawn "$case_dir" "$id") || fail "mate-home spawn failed: $out"
-  [ "$(row_state "$case_dir" "$id")" = in_flight ] \
-    || fail "a mate's own dispatch left its item at $(row_state "$case_dir" "$id")"
-
-  rm -f "$(home_of "$case_dir")/state/$id.meta"
-  write_task_meta "$case_dir" "$id" ship local-only "spawn_gen=spawn-mate-close"
-  out=$(run_teardown "$case_dir" "$id") || fail "mate-home teardown failed: $out"
-  [ "$(row_state "$case_dir" "$id")" = "done" ] \
-    || fail "a mate's own completion left its item at $(row_state "$case_dir" "$id")"
-  pass "a secondmate home keeps its own books paired through dispatch and completion"
-}
-
-test_a_persistent_secondmate_is_never_a_backlog_item() {
-  local case_dir id out mate
-  id=atomic-mate-b14
-  case_dir=$(make_home mate-not-an-item)
-  mate="$case_dir/mate-home"
-  mkdir -p "$mate/bin" "$mate/data"
-  printf '# Firstmate\n' > "$mate/AGENTS.md"
-  printf '%s\n' "$id" > "$mate/.fm-secondmate-home"
-  printf 'charter for %s\n' "$id" > "$mate/data/charter.md"
-  printf '%s\n' 'projects/' 'state/' 'data/' 'config/' '.no-mistakes/' > "$mate/.gitignore"
-  git -C "$mate" init -q -b main
-
-  # No backlog item exists for the mate, and none should be required: agents are
-  # not work items. The dispatch must succeed anyway.
-  out=$(run_spawn "$case_dir" "$id" "$mate" --secondmate) \
-    || fail "secondmate spawn failed: $out"
-  assert_contains "$out" "spawned $id" "secondmate spawn did not report success"
-  assert_present "$(home_of "$case_dir")/state/$id.meta" "secondmate spawn published no record"
-  pass "dispatching a persistent secondmate needs no backlog item"
-}
-
 test_backend_resolution_preserves_config_errors
 test_backend_resolution_preserves_precedence_and_defaults
 test_backlog_callers_refuse_unreadable_backend_config
@@ -3173,7 +2996,6 @@ test_fm_tasks_axi_fallback_bounds_the_call_without_a_timeout_binary
 test_fm_tasks_axi_fallback_passes_the_child_status_and_output_through
 test_fm_tasks_axi_fails_closed_when_nothing_can_bound_the_call
 test_fm_tasks_axi_gnu_timeout_forces_termination_of_a_sigterm_ignoring_child
-test_dispatch_interruption_during_kimi_readiness_fails_before_commit
 test_dispatch_does_not_resurrect_a_row_closed_after_preflight
 test_dispatch_fails_when_its_row_vanishes_after_preflight
 test_completion_closes_a_local_only_ship_before_reporting_success
@@ -3236,5 +3058,3 @@ test_dispatch_and_completion_are_structural
 test_refused_teardown_leaves_the_item_live
 test_environment_selected_adapter_is_not_forced_to_markdown
 test_manual_backend_home_dispatches_and_completes_without_touching_the_backlog
-test_a_secondmate_home_keeps_its_own_books
-test_a_persistent_secondmate_is_never_a_backlog_item
