@@ -138,6 +138,30 @@ test_concurrent_append_and_drain() {
   pass "concurrent append plus drain preserves durable records through acknowledgement"
 }
 
+test_heartbeat_reports_a_wake_older_than_one_cycle_as_a_watcher_failure() {
+  local dir state fakebin out queue lib fresh old
+  dir=$(make_case heartbeat-overdue)
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  out="$dir/watch.out"
+  queue="$state/.wake-queue"
+  lib="$ROOT/bin/fm-wake-lib.sh"
+  append_wake "$state" signal task.status "signal: $state/task.status"
+  fresh=$(FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_wake_queue_overdue_line 300' _ "$lib")
+  [ -z "$fresh" ] || fail "a wake queued just now was reported overdue: $fresh"
+
+  old=$(( $(date +%s) - 1000 ))
+  awk -F '\t' -v OFS='\t' -v old="$old" '{ $1 = old; print }' "$queue" > "$queue.tmp" && mv "$queue.tmp" "$queue"
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 \
+    FM_HEARTBEAT=1 FM_WATCHER_STALE_GRACE=300 "$WATCH" > "$out" &
+  wait_for_exit "$!" 100 || fail "the heartbeat did not wake for a wake older than one watcher cycle: $(cat "$out")"
+  grep -F "check: wake-queue-overdue: watcher: FAILED - 1 queued wake(s) not handled within one watcher cycle (300s): oldest seq 1 waited" "$out" >/dev/null \
+    || fail "the heartbeat did not report the old wake as a watcher failure: $(cat "$out")"
+  grep -F "$(printf '\tcheck\twake-queue-overdue\t')" "$queue" >/dev/null \
+    || fail "the watcher-failure wake was not queued"
+  pass "the heartbeat reports a wake older than one watcher cycle as a watcher failure"
+}
+
 test_signal_catchup_without_running_watcher() {
   local dir state fakebin out drain_out drain_err status_file sequence generation watcher
   dir=$(make_case signal)
@@ -3809,6 +3833,7 @@ test_owned_growth_still_annotates_turn_ended
 test_historical_annotation_skips_announced_status
 test_concurrent_append_and_drain
 test_signal_catchup_without_running_watcher
+test_heartbeat_reports_a_wake_older_than_one_cycle_as_a_watcher_failure
 test_stale_enqueue_before_suppressor
 test_not_working_stale_enqueue_before_suppressor
 test_check_output_is_queued

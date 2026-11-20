@@ -4230,6 +4230,109 @@ EOF
   pass "Pi streaming-time wake delivery keeps the successor chain and replays only unconsumed wakes"
 }
 
+test_pi_wake_dropped_from_the_pi_queue_is_sent_again_rather_than_joined() {
+  local repo home plugin log trigger out status
+  repo="$TMP_ROOT/pi-dropped-wake-root"
+  home="$TMP_ROOT/pi-dropped-wake-home"
+  log="$TMP_ROOT/pi-dropped-wake.log"
+  trigger="$TMP_ROOT/pi-dropped-wake.trigger"
+  mkdir -p "$repo/bin" "$home/state" "$home/config"
+  install_pi_watch_extension_fixture "$repo"
+  plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
+  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = --handling-delivered ]; then
+  printf 'confirmed=%s\n' "$2" >> "${FM_ARM_LOG:?}"
+  exit 0
+fi
+printf 'arm=%s\n' "$$" >> "${FM_ARM_LOG:?}"
+count=$(grep -c '^arm=' "$FM_ARM_LOG")
+printf 'watcher: started pid=%s (beacon fresh) recovery-generation=dropped-%s\n' "$$" "$count"
+trap 'exit 0' TERM INT
+while [ ! -e "$FM_TRIGGER_FILE.$count" ] && [ -e "$0" ]; do sleep 0.02; done
+printf 'signal: dropped wake %s\n' "$count"
+exit 0
+SH
+  chmod +x "$repo/bin/fm-watch-arm.sh"
+  out=$(PLUGIN="$plugin" FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" FM_ARM_LOG="$log" FM_TRIGGER_FILE="$trigger" node --input-type=module 2>&1 <<'EOF'
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+
+const handlers = new Map();
+const prompts = [];
+let piQueue = [];
+let streaming = false;
+const pi = {
+  on(event, handler) {
+    handlers.set(event, handler);
+  },
+  registerCommand() {},
+  registerTool() {},
+  sendUserMessage: async (message) => {
+    prompts.push(message);
+    if (streaming) {
+      piQueue.push(message);
+      return;
+    }
+    handlers.get("before_agent_start")?.({ messageType: "user", prompt: message }, {});
+  },
+  events: { on() {}, emit() {} },
+};
+const ctx = { isIdle: () => !streaming, hasPendingMessages: () => piQueue.length > 0 };
+const interrupt = () => {
+  const editor = piQueue.join("\n\n");
+  piQueue = [];
+  streaming = false;
+  return editor;
+};
+const arms = () => existsSync(process.env.FM_ARM_LOG)
+  ? readFileSync(process.env.FM_ARM_LOG, "utf8").split("\n").filter((row) => row.startsWith("arm=")).length
+  : 0;
+async function waitFor(pred, label) {
+  for (let i = 0; i < 500; i += 1) {
+    if (pred()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`timeout waiting for ${label}: ${prompts.join(" | ")}`);
+}
+
+writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
+const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+mod.default(pi);
+await handlers.get("session_start")?.({ type: "session_start", reason: "startup" }, ctx);
+await waitFor(() => arms() === 1, "first arm");
+
+streaming = true;
+writeFileSync(`${process.env.FM_TRIGGER_FILE}.1`, "close\n");
+await waitFor(() => piQueue.length === 1, "first wake queued while main streams");
+await waitFor(() => arms() === 2, "successor after the first wake");
+interrupt();
+writeFileSync(`${process.env.FM_TRIGGER_FILE}.2`, "close\n");
+await waitFor(() => prompts.length === 2, "second wake sent to an idle main after the first was dropped");
+if (!prompts[1].includes("signal: dropped wake 2")) throw new Error(`wrong second wake: ${prompts.join(" | ")}`);
+await waitFor(() => arms() === 3, "successor after the second wake");
+
+streaming = true;
+writeFileSync(`${process.env.FM_TRIGGER_FILE}.3`, "close\n");
+await waitFor(() => piQueue.length === 1, "third wake queued while main streams");
+await waitFor(() => arms() === 4, "successor after the third wake");
+const editor = interrupt();
+handlers.get("before_agent_start")?.({ messageType: "user", prompt: `${editor}\n\nwhy is the mac hot?` }, ctx);
+await handlers.get("session_shutdown")?.({ type: "session_shutdown", reason: "new" }, {});
+const handoffPath = `${process.env.FM_HOME}/state/extensions/pi-primary-watch/session-replacement-actionable.json`;
+const handoff = existsSync(handoffPath) ? JSON.parse(readFileSync(handoffPath, "utf8")) : { pending: [] };
+if (handoff.pending.length !== 0) {
+  throw new Error(`a consumed wake rode the replacement handoff: ${JSON.stringify(handoff)}`);
+}
+process.exit(0);
+EOF
+)
+  status=$?
+  expect_code 0 "$status" "Pi must send a wake afresh once Pi dropped the accepted one, and count a captain prompt carrying it as consumed"
+  [ -z "$out" ] || fail "Pi dropped-wake test printed output: $out"
+  pass "Pi sends a wake afresh once Pi dropped the accepted one, and a captain prompt carrying it consumes it"
+}
+
 # A verified successor can die while the wake it was started for is still
 # being delivered (a branch turn can take minutes). Its failure close arrives
 # while the pipeline is busy, so the ordinary retry path must be deferred to
@@ -4853,6 +4956,7 @@ test_pi_session_transition_generation_owner
 test_pi_session_replacement_carries_inflight_actionable_close
 test_pi_streaming_followup_is_replayed_after_replacement
 test_pi_streaming_time_delivery_keeps_the_successor_chain
+test_pi_wake_dropped_from_the_pi_queue_is_sent_again_rather_than_joined
 test_pi_successor_failure_during_delivery_is_retried_after_delivery
 test_pi_late_retiring_actionable_reaches_replacement
 test_pi_replacement_tokens_are_process_unique
