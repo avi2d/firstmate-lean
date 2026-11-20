@@ -8,7 +8,9 @@ The Pi primary extension forwards command text without classifying it.
 
 ## Purpose and boundary
 
-A firstmate primary must arm `bin/fm-watch-arm.sh` or run `bin/fm-watch-checkpoint.sh` through an observable harness call.
+The Pi extension owns the watcher cycle.
+Use `fm_watch_arm_pi` to start the first required cycle or repair a missing one.
+Do not run `bin/fm-watch-arm.sh` from Bash as a substitute for the Pi tool.
 A shell background operator, pipeline, redirection, wrapper, or unrelated command list can hide failure or let the watcher child die with the tool call.
 The seatbelt rejects those command shapes before execution.
 
@@ -58,7 +60,6 @@ A command word in executed position is a protected execution when its normalized
 
 ```text
 bin/fm-watch-arm.sh          (arm; blessed entry point)
-bin/fm-watch-checkpoint.sh   (checkpoint; blessed entry point)
 bin/fm-watch.sh              (watch; protected but never blessed)
 ```
 
@@ -69,7 +70,7 @@ Static quote forms are cooked before the suffix match, so a command word split b
 This covers statically-visible literal words in command position; opaque dynamic dataflow such as `bash -lc "$WHOLE_COMMAND"` remains out of scope.
 
 `bin/fm-watch.sh` is protected but is not a blessed entry point.
-A direct `bin/fm-watch.sh` execution - relative, `<code-root>`-anchored, `$VAR`-prefixed, or `~`-prefixed - always denies with `watcher-direct`, whose reason points the caller at `bin/fm-watch-arm.sh` and `bin/fm-watch-checkpoint.sh`.
+A direct `bin/fm-watch.sh` execution - relative, `<code-root>`-anchored, `$VAR`-prefixed, or `~`-prefixed - always denies with `watcher-direct`, whose reason points the caller to the Pi tool `fm_watch_arm_pi`.
 
 The same bytes in an argument, comment, assertion, documentation query, Python string, `printf`, or `tmux send-keys` payload are data and do not make the outer command relevant.
 
@@ -89,17 +90,13 @@ An actual protected command with a heredoc still has a redirection and is denied
 ## Blessed syntax tree
 
 An allowed watcher program is one linear outer command list with zero or more approved setup nodes followed by exactly one direct protected node.
-`bin/fm-watch-arm.sh` and `bin/fm-watch-checkpoint.sh` are the only blessed final nodes, including their expanded-path forms; a `bin/fm-watch.sh` final node is never blessed and denies with `watcher-direct`.
+`bin/fm-watch-arm.sh` is the only protected final node the classifier accepts, including its expanded-path forms.
+A `bin/fm-watch.sh` final node denies with `watcher-direct`.
 
 Approved setup nodes are:
 
 - `cd <one path word>`.
 - `export NAME=<one shell word>` with no command substitution, process substitution, or redirection.
-- `source <x-mode path>` or `. <x-mode path>`.
-- `[ -f <x-mode path> ] && source <x-mode path>` and the equivalent dot form.
-
-The allowed x-mode paths are `config/x-mode.env`, `./config/x-mode.env`, and an absolute path that normalizes to `<active-firstmate-home>/config/x-mode.env`.
-An absolute x-mode path outside the active home is not an approved setup node.
 
 Approved nodes may be separated by `;`, a real newline, or `&&`.
 `&&` is accepted after setup so a failed `cd`, `export`, or source prevents the protected call from running under the wrong setup.
@@ -137,7 +134,7 @@ Every semantic deny includes one stable code in square brackets before its prose
 | `watcher-nested` | A wrapper, group, substitution, nested shell, `eval`, or constructed dynamic payload executes the protected command. |
 | `broad-watcher-kill` | An actual broad process kill targets the watcher. |
 | `unclassifiable-protected-command` | Malformed or unsupported syntax contains a protected command and cannot be safely classified. |
-| `watcher-direct` | A direct `bin/fm-watch.sh` execution; the watcher must be reached through `bin/fm-watch-arm.sh` or `bin/fm-watch-checkpoint.sh`. |
+| `watcher-direct` | A direct `bin/fm-watch.sh` execution; use the Pi tool `fm_watch_arm_pi` to restore a missing cycle. |
 
 Reason codes are the stable contract for tests and adapters.
 Prose may improve without changing adapter behavior.
@@ -151,23 +148,6 @@ Prose may improve without changing adapter behavior.
 ## Harness wiring
 
 `.pi/extensions/fm-primary-turnend-guard.ts` reads `event.input.command` on each Pi `tool_call`, passes it as one `--command` argument, and blocks the call only when the checker exits 2.
-
-## Live validation record, 2026-07-09
-
-Validation ran in a git-initialized scratch firstmate-shaped project with copies of the checker and policy, a dummy checkpoint, a dummy arm script, and a private sentinel path.
-No live watcher, worker state, or herdr lifecycle command was used.
-Pi 0.80.5 ran `pi -p -e .pi/extensions/fm-primary-turnend-guard.ts --no-context-files --no-session "$PROMPT"` and issued these exact commands as separate tool calls:
-
-```sh
-printf 'UNRELATED_EXECUTED\n'
-pgrep -fl '/bin/fm-watch.sh' || true
-source '<scratch-project>/config/x-mode.env'; bin/fm-watch-checkpoint.sh --seconds 180
-bin/fm-watch-arm.sh &
-```
-
-The first three calls ran, and the backgrounded arm was blocked with `[watcher-background] a protected watcher command cannot run in an asynchronous shell list or through nohup/disown`.
-The deny sentinel stayed absent.
-Pi also loaded both primary extensions, called `fm_watch_arm_pi`, and created the scratch automatic-arm marker.
 
 ## Automated validation
 
