@@ -1013,9 +1013,6 @@ test_scan_does_not_overwrite_a_pr_recorded_meanwhile() {
   pass "the scan keeps a PR the supervisor recorded during its registration"
 }
 
-# With config/pr-register-scan present, the watcher's check sweep runs the
-# scan, so a reported PR gets its merge poll without the supervisor, and a
-# refusal becomes a durable wake. With the flag absent, the sweep is unchanged.
 test_watcher_sweep_records_a_reported_pr() {
   local dir state rc
   dir=$(make_case watcher-scan-off)
@@ -1034,6 +1031,22 @@ test_watcher_sweep_records_a_reported_pr() {
   if grep -F 'pr-register' "$state/.wake-queue" >/dev/null 2>&1; then
     fail "the watcher sweep queued a pr-register wake with config/pr-register-scan absent"
   fi
+
+  dir=$(make_case watcher-scan-remote)
+  state="$dir/home/state"
+  fm_write_meta "$state/task-a.meta" 'window=firstmate:fm-task-a' 'endpoint_task_id=task-a' \
+    'worktree=/remote/missing' "project=$dir/project" 'kind=ship' 'mode=no-mistakes' \
+    'remote_host=winbox' 'remote_route=winbox'
+  printf '%s\n' 'done [at=2]: PR https://github.com/o/r/pull/7 checks green' > "$state/task-a.status"
+  add_stop_custom_check "$dir"
+  set +e
+  run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/watch.out" 2> "$dir/watch.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "the remote watcher failed: $(cat "$dir/watch.err")"
+  grep -qxF 'pr=https://github.com/o/r/pull/7' "$state/task-a.meta" \
+    || fail "the watcher did not record the remote PR without the flag"
+  fm_pr_poll_artifacts_valid "$state" task-a "$POLL" || fail "the remote PR did not get a merge poll"
 
   dir=$(make_case watcher-scan-records)
   state="$dir/home/state"
@@ -1063,7 +1076,7 @@ test_watcher_sweep_records_a_reported_pr() {
   [ "$rc" -eq 0 ] || fail "the refusal watcher failed: $(cat "$dir/watch.err")"
   grep -F 'check: pr-register: task-a reported https://github.com/o/r/pull/9' "$state/.wake-queue" >/dev/null \
     || fail "the refusal was not queued as a durable wake: $(cat "$state/.wake-queue" 2>/dev/null)"
-  pass "the watcher sweep scans only with config/pr-register-scan present, then records a reported PR and queues a refusal"
+  pass "the watcher records remote PRs without the flag and local PRs with it"
 }
 
 test_valid_recording_and_merge_derivation() {
