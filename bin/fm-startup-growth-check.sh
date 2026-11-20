@@ -240,7 +240,7 @@ evaluate_budget() {
     *) valid=no ;;
   esac
   case "$exception" in
-    ''|primary-owned-shared-file-alone-exceeds-budget) ;;
+    '') ;;
     *) valid=no ;;
   esac
   if [ "$valid" = no ]; then
