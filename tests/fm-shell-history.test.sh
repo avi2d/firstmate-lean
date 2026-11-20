@@ -72,20 +72,6 @@ test_helper_prefixes_one_space() {
   pass "fm_shell_history_prefix: prefixes one space, idempotently"
 }
 
-test_tmux_shell_lines_carry_the_space() {
-  local dir="$TMP_ROOT/tmux" fb log
-  mkdir -p "$dir"
-  fb=$(make_tmux_fakebin "$dir")
-  unset HERDR_SESSION HERDR_PANE_ID HERDR_ENV
-  PATH="$fb:$PATH" FM_TMUX_LOG="$dir/log" \
-    bash -c '. "$0/bin/fm-backend.sh"; fm_backend_source tmux >/dev/null; fm_backend_tmux_send_text_line "sess:win" "$1"; fm_backend_tmux_send_literal "sess:win" "$2"' "$ROOT" "$SHELL_LINE" "$SOURCE_LINE"
-  log=$(cat "$dir/log")
-  assert_contains "$log" "$(printf '\x1f %s\x1f' "$SHELL_LINE")" "tmux send_text_line did not guard its shell line from history"
-  assert_contains "$log" "$(printf '\x1f-l\x1f%s' "$SOURCE_LINE")" "tmux send_literal must stay a verbatim transport"
-  assert_not_contains "$log" "$(printf '\x1f-l\x1f %s' "$SOURCE_LINE")" "tmux send_literal must not guard composer-bound bytes"
-  pass "tmux: shell lines guarded, literal transport verbatim"
-}
-
 test_herdr_shell_lines_carry_the_space() {
   local dir="$TMP_ROOT/herdr" fb log
   mkdir -p "$dir"
@@ -103,16 +89,15 @@ test_herdr_shell_lines_carry_the_space() {
 test_composer_text_stays_verbatim() {
   local dir="$TMP_ROOT/composer" fb log
   mkdir -p "$dir"
-  fb=$(make_tmux_fakebin "$dir")
-  PATH="$fb:$PATH" FM_TMUX_LOG="$dir/log" \
-    bash -c '. "$0/bin/fm-backend.sh"; fm_backend_send_text_submit tmux "sess:win" "$1" 1 0.01 0.01 >/dev/null' "$ROOT" "$COMPOSER_TEXT" || true
+  fb=$(make_herdr_fakebin "$dir")
+  PATH="$fb:$PATH" FM_HERDR_LOG="$dir/log" \
+    bash -c '. "$0/bin/fm-backend.sh"; fm_backend_send_text_submit herdr "testsession:w1:p1" "$1" 1 0.01 0.01 >/dev/null' "$ROOT" "$COMPOSER_TEXT" || true
   log=$(cat "$dir/log")
-  assert_contains "$log" "$(printf '\x1f-l\x1f%s' "$COMPOSER_TEXT")" "composer text must reach the agent verbatim"
-  assert_not_contains "$log" "$(printf '\x1f-l\x1f %s' "$COMPOSER_TEXT")" "composer text must not carry the shell history-guard space"
+  assert_contains "$log" "$(printf '\x1fsend-text\x1fw1:p1\x1f%s' "$COMPOSER_TEXT")" "composer text must reach the agent verbatim"
+  assert_not_contains "$log" "$(printf '\x1fsend-text\x1fw1:p1\x1f %s' "$COMPOSER_TEXT")" "composer text must not carry the shell history-guard space"
   pass "composer: agent-composer text stays verbatim"
 }
 
 test_helper_prefixes_one_space
-test_tmux_shell_lines_carry_the_space
 test_herdr_shell_lines_carry_the_space
 test_composer_text_stays_verbatim

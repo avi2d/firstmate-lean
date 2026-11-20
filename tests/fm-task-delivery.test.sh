@@ -24,7 +24,7 @@ PROJECT_MODE="$ROOT/bin/fm-project-mode.sh"
 MERGE_LOCAL="$ROOT/bin/fm-merge-local.sh"
 TMP_ROOT=$(fm_test_tmproot fm-task-delivery)
 
-# A home with one registered project, one project directory, and a fake tmux that
+# A home with one registered project, one project directory, and a fake Herdr that
 # refuses, so a spawn that clears the delivery checks still creates nothing.
 # Echoes "<home>|<project-dir>|<fakebin>".
 make_home() {  # <name> [<registry-line>...]
@@ -36,9 +36,9 @@ make_home() {  # <name> [<registry-line>...]
   mkdir -p "$home/data" "$home/state" "$home/config" "$projects/proj" "$fakebin"
   git -C "$projects/proj" init -q || fail "could not initialize project fixture"
   git -c user.name=test -c user.email=test@example.com -C "$projects/proj" commit -q --allow-empty -m init || fail "could not commit project fixture"
-  printf '#!/bin/sh\nexit 1\n' > "$fakebin/tmux"
-  chmod +x "$fakebin/tmux"
-  fm_fake_exit0 "$fakebin" claude codex opencode grok gemini
+  printf '#!/bin/sh\nexit 1\n' > "$fakebin/herdr"
+  chmod +x "$fakebin/herdr"
+  fm_fake_exit0 "$fakebin" pi
   if [ "$#" -gt 0 ]; then
     printf '%s\n' "$@" > "$home/data/projects.md"
   fi
@@ -68,7 +68,7 @@ run_spawn() {  # <home> <fakebin> <spawn-args...>
   FM_ROOT_OVERRIDE='' FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
     FM_PROJECTS_OVERRIDE="$TMP_ROOT/projects-unused" FM_CONFIG_OVERRIDE="$home/config" \
-    FM_SPAWN_NO_GUARD=1 FM_BACKEND=tmux PATH="$fakebin:$PATH" \
+    FM_SPAWN_NO_GUARD=1 FM_BACKEND=herdr PATH="$fakebin:$PATH" \
     "$SPAWN" "$@" 2>&1
 }
 
@@ -138,7 +138,7 @@ test_spawn_refuses_a_brief_mode_mismatch() {
 $rec
 EOF
   write_brief "$home" delivery-mismatch-b1 no-mistakes
-  out=$(run_spawn "$home" "$fakebin" delivery-mismatch-b1 "$proj" claude --mode direct-PR --yolo off)
+  out=$(run_spawn "$home" "$fakebin" delivery-mismatch-b1 "$proj" pi --mode direct-PR --yolo off)
   status=$?
   [ "$status" -ne 0 ] || fail "a brief/spawn mode mismatch should exit non-zero"
   assert_contains "$out" "delivery mismatch for delivery-mismatch-b1" "mismatch refusal did not name the task"
@@ -146,14 +146,14 @@ EOF
     "mismatch refusal did not show both sides of the disagreement"
   assert_absent "$home/state/delivery-mismatch-b1.meta" "mismatched spawn wrote task metadata"
 
-  # The agreeing case clears the check and only fails later, at the refusing tmux.
+  # The agreeing case clears the check and only fails later, at the refusing Herdr.
   write_brief "$home" delivery-agree-b2 direct-PR
-  out=$(run_spawn "$home" "$fakebin" delivery-agree-b2 "$proj" claude --mode direct-PR --yolo off)
+  out=$(run_spawn "$home" "$fakebin" delivery-agree-b2 "$proj" pi --mode direct-PR --yolo off)
   assert_not_contains "$out" "delivery mismatch" "an agreeing mode was reported as a mismatch"
 
   # A brief scaffolded before the contract line existed warns once and continues.
   write_brief "$home" delivery-legacy-b3
-  out=$(run_spawn "$home" "$fakebin" delivery-legacy-b3 "$proj" claude --mode local-only --yolo off)
+  out=$(run_spawn "$home" "$fakebin" delivery-legacy-b3 "$proj" pi --mode local-only --yolo off)
   assert_contains "$out" "records no delivery contract line" "a legacy brief did not warn about its missing contract"
   assert_not_contains "$out" "delivery mismatch" "a legacy brief was treated as a mismatch"
   pass "fm-spawn: the brief's recorded mode and the spawn's explicit mode must agree"
@@ -174,7 +174,7 @@ test_spawn_notices_a_rigor_downgrade_against_the_registry() {
 $rec
 EOF
     write_brief "$home" "delivery-dev-$n" "$mode"
-    out=$(run_spawn "$home" "$fakebin" "delivery-dev-$n" "$proj" claude --mode "$mode" --yolo off)
+    out=$(run_spawn "$home" "$fakebin" "delivery-dev-$n" "$proj" pi --mode "$mode" --yolo off)
     case "$expect" in
       notice)
         assert_contains "$out" "less rigor than the captain's standing posture" \
@@ -693,7 +693,7 @@ test_spawn_requires_the_brief_to_carry_the_registered_pr_text() {
 $rec
 EOF
   write_brief "$home" pr-manual-a1 no-mistakes
-  out=$(run_spawn "$home" "$fakebin" pr-manual-a1 "$proj" claude --mode no-mistakes --yolo off 2>&1)
+  out=$(run_spawn "$home" "$fakebin" pr-manual-a1 "$proj" pi --mode no-mistakes --yolo off 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "a pr=manual project launched on a brief that records no pr token"
   assert_contains "$out" "PR-text mismatch for pr-manual-a1" "the refusal did not name the drift it caught"
@@ -704,7 +704,7 @@ EOF
   FM_HOME="$home" "$BRIEF" pr-manual-a2 proj --mode no-mistakes --pr manual >/dev/null \
     || fail "a pr=manual brief should scaffold"
   fill_brief_subsections "$home/data/pr-manual-a2/brief.md" "Open the PR by hand." "Ship it."
-  out=$(run_spawn "$home" "$fakebin" pr-manual-a2 "$proj" claude --mode no-mistakes --yolo off 2>&1)
+  out=$(run_spawn "$home" "$fakebin" pr-manual-a2 "$proj" pi --mode no-mistakes --yolo off 2>&1)
   assert_not_contains "$out" "PR-text mismatch" "an agreeing brief and registry were reported as drift"
 
   # The other direction: a brief that hands the PR text to the worker on a
@@ -716,7 +716,7 @@ EOF
   FM_HOME="$home" "$BRIEF" pr-manual-a3 proj --mode no-mistakes --pr manual >/dev/null \
     || fail "a pr=manual brief should scaffold"
   fill_brief_subsections "$home/data/pr-manual-a3/brief.md" "Open the PR by hand." "Ship it."
-  out=$(run_spawn "$home" "$fakebin" pr-manual-a3 "$proj" claude --mode no-mistakes --yolo off 2>&1)
+  out=$(run_spawn "$home" "$fakebin" pr-manual-a3 "$proj" pi --mode no-mistakes --yolo off 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "a pr=manual brief launched on a project with no registered pr token"
   assert_contains "$out" "PR-text mismatch for pr-manual-a3" "the unbound-project refusal did not name the drift"
@@ -731,7 +731,7 @@ EOF
   FM_HOME="$home" "$BRIEF" pr-manual-a4 proj --mode direct-PR >/dev/null \
     || fail "a direct-PR brief should scaffold"
   fill_brief_subsections "$home/data/pr-manual-a4/brief.md" "Open the PR." "Ship it."
-  out=$(run_spawn "$home" "$fakebin" pr-manual-a4 "$proj" claude --mode direct-PR --yolo off 2>&1)
+  out=$(run_spawn "$home" "$fakebin" pr-manual-a4 "$proj" pi --mode direct-PR --yolo off 2>&1)
   assert_not_contains "$out" "PR-text mismatch" "a direct-PR task on a prod-only pr=manual project was reported as drift"
 
   # A registry entry the parser refuses stops the spawn rather than launching on
@@ -741,7 +741,7 @@ EOF
 $rec
 EOF
   write_brief "$home" pr-manual-a5 direct-PR
-  out=$(run_spawn "$home" "$fakebin" pr-manual-a5 "$proj" claude --mode direct-PR --yolo off 2>&1)
+  out=$(run_spawn "$home" "$fakebin" pr-manual-a5 "$proj" pi --mode direct-PR --yolo off 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "a project registered direct-PR with pr=manual launched"
   assert_contains "$out" "only a no-mistakes ship takes it" "the refused entry's reason did not reach the operator"
@@ -805,7 +805,7 @@ STUB
 
 # Spawn and promotion refuse leftover Task-subsection placeholders through the
 # public brief/spawn/promote path. Filling both subsections lets the spawn
-# delivery checks proceed (the fake tmux still fails later).
+# delivery checks proceed (the fake Herdr still fails later).
 test_spawn_and_promote_require_filled_task_subsections() {
   local rec home proj fakebin out status id brief meta intent_body spec_body authorized
   rec=$(make_home subsections)
@@ -816,7 +816,7 @@ EOF
   id=delivery-unfilled-ship
   FM_HOME="$home" "$BRIEF" "$id" proj --mode no-mistakes >/dev/null 2>&1 \
     || fail "unfilled ship brief should still scaffold"
-  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --mode no-mistakes --yolo off)
+  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" pi --mode no-mistakes --yolo off)
   status=$?
   [ "$status" -ne 0 ] || fail "spawn of an unfilled ship brief should exit non-zero"
   assert_contains "$out" "still contains {TASK} or {FIRSTMATE_SPEC}" \
@@ -838,11 +838,11 @@ Use the existing task setup.
 # Definition of done
 Delivery contract: mode=direct-PR
 EOF
-  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --mode direct-PR --yolo off)
+  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" pi --mode direct-PR --yolo off)
   assert_not_contains "$out" "Herdr isolation contract" \
     "the Herdr lifecycle guard changed the default-off spawn path"
   : > "$home/config/herdr-lifecycle-spawn-guard"
-  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --mode direct-PR --yolo off)
+  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" pi --mode direct-PR --yolo off)
   status=$?
   [ "$status" -ne 0 ] || fail "a Herdr lifecycle brief without the isolation contract should be refused"
   assert_contains "$out" "Herdr isolation contract" \
@@ -854,7 +854,7 @@ EOF
   assert_absent "$home/state/$id.meta" \
     "Herdr lifecycle refusal wrote task metadata"
   printf '\n# Herdr isolation - HARD SAFETY CONTRACT\n' >> "$home/data/$id/brief.md"
-  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --mode direct-PR --yolo off)
+  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" pi --mode direct-PR --yolo off)
   assert_not_contains "$out" "Herdr isolation contract" \
     "a brief carrying the Herdr isolation contract was refused"
 
@@ -864,7 +864,7 @@ EOF
   fill_brief_subsections "$home/data/$id/brief.md" \
     "Reproduce the session restart in an isolated lab." \
     "Drive every lifecycle step through the lab helper."
-  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --mode direct-PR --yolo off)
+  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" pi --mode direct-PR --yolo off)
   assert_not_contains "$out" "Herdr isolation contract" \
     "a brief scaffolded with --herdr-lab was refused by the Herdr lifecycle guard"
 
@@ -874,7 +874,7 @@ EOF
   fill_brief_subsections "$home/data/$id/brief.md" \
     "Fix replacement of \`{TASK}\` in Herdr briefs." \
     "Keep literal \`{FIRSTMATE_SPEC}\` examples intact."
-  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --mode direct-PR --yolo off)
+  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" pi --mode direct-PR --yolo off)
   assert_not_contains "$out" "still contains {TASK} or {FIRSTMATE_SPEC}" \
     "a filled ship brief mentioning placeholder tokens was refused as unfilled"
   assert_not_contains "$out" "must contain nonempty" \
@@ -898,7 +898,7 @@ Example specification
 # Definition of done
 Delivery contract: mode=direct-PR
 EOF
-  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --mode direct-PR --yolo off)
+  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" pi --mode direct-PR --yolo off)
   assert_not_contains "$out" "must contain nonempty" \
     "fenced example headings made a filled legacy Task fail validation"
   assert_not_contains "$out" "still contains {TASK} or {FIRSTMATE_SPEC}" \
@@ -915,7 +915,7 @@ Do not copy this Firstmate-authored constraint into intent.
 Delivery contract: mode=no-mistakes
 Pass the entire Task as --intent.
 EOF
-  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --mode no-mistakes --yolo off)
+  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" pi --mode no-mistakes --yolo off)
   assert_not_contains "$out" "has no provenance-marked captain words" \
     "legacy no-mistakes spawn rejected explicitly marked captain words"
   assert_present "$home/data/$id/launch-brief.md" \
@@ -946,7 +946,7 @@ Preserve the existing compatibility path.
 Delivery contract: mode=no-mistakes
 Pass the entire Task and every Firstmate requirement as --intent.
 EOF
-  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --mode no-mistakes --yolo off)
+  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" pi --mode no-mistakes --yolo off)
   assert_present "$home/data/$id/launch-brief.md" \
     "migrated subsection brief did not receive the current launch contract"
   authorized=$(awk '$0 == "## Captain intent authorized for --intent" { emit=1; next } emit && /^$/ { exit } emit { print }' "$home/data/$id/launch-brief.md")
@@ -980,7 +980,7 @@ Unrelated notes must not become task intent.
 ## Firstmate spec
 Unrelated notes must not satisfy task validation.
 EOF
-  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --mode no-mistakes --yolo off)
+  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" pi --mode no-mistakes --yolo off)
   status=$?
   [ "$status" -ne 0 ] || fail "unmarked legacy no-mistakes spawn should require provenance"
   assert_contains "$out" "has no provenance-marked captain words" \
@@ -1004,7 +1004,7 @@ EOF
   FM_HOME="$home" "$BRIEF" "$id" proj --mode direct-PR >/dev/null 2>&1 \
     || fail "empty-ship brief should scaffold"
   fill_brief_subsections "$home/data/$id/brief.md" "" ""
-  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --mode direct-PR --yolo off)
+  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" pi --mode direct-PR --yolo off)
   status=$?
   [ "$status" -ne 0 ] || fail "spawn of empty Task subsections should exit non-zero"
   assert_contains "$out" "must contain nonempty ## Captain's intent and ## Firstmate spec" \
@@ -1181,7 +1181,7 @@ EOF
   FM_HOME="$home" "$BRIEF" "$id" proj --mode no-mistakes >/dev/null 2>&1 \
     || fail "intent brief should scaffold"
   fill_brief_subsections "$home/data/$id/brief.md" "$words" 'This build constraint must not become intent.'
-  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --mode no-mistakes --yolo off)
+  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" pi --mode no-mistakes --yolo off)
   assert_present "$home/data/$id/launch-brief.md" "plain intent was not serialized"
   authorized=$(awk '$0 == "## Captain intent authorized for --intent" { emit=1; next } emit { print }' "$home/data/$id/launch-brief.md")
   [ "$authorized" = "$words" ] || fail "authorized --intent must contain exactly the request, without headings, address, or contract prose: $authorized"
@@ -1192,7 +1192,7 @@ EOF
     "Stop composing Captain:, Captain's words:, Captain's ask:, and Captain's intent: into PR bodies.")
   write_brief "$home" intent-literal no-mistakes
   printf '# Task\n## Captain'"'"'s intent\n%s\n\n## Firstmate spec\nDo not paraphrase.\n\n# Definition of done\nDelivery contract: mode=no-mistakes\n' "$words" > "$home/data/intent-literal/brief.md"
-  out=$(run_spawn "$home" "$fakebin" intent-literal "$proj" claude --mode no-mistakes --yolo off)
+  out=$(run_spawn "$home" "$fakebin" intent-literal "$proj" pi --mode no-mistakes --yolo off)
   assert_not_contains "$out" "operator-address line" "labels mentioned mid-line were refused as address"
   authorized=$(awk '$0 == "## Captain intent authorized for --intent" { emit=1; next } emit { print }' "$home/data/intent-literal/launch-brief.md")
   [ "$authorized" = "$words" ] || fail "literal words in the request were scrubbed"
@@ -1204,7 +1204,7 @@ EOF
     write_brief "$home" "$id" no-mistakes
     printf '# Task\n## Captain'"'"'s intent\nKeep the original request intact.\n  %s preserve its provenance.\n\n## Firstmate spec\nDo not paraphrase.\n\n# Definition of done\nDelivery contract: mode=no-mistakes\n' \
       "$marker" > "$home/data/$id/brief.md"
-    out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --mode no-mistakes --yolo off)
+    out=$(run_spawn "$home" "$fakebin" "$id" "$proj" pi --mode no-mistakes --yolo off)
     status=$?
     [ "$status" -ne 0 ] || fail "$marker: addressed intent should be refused"
     assert_contains "$out" "operator-address line:   $marker preserve its provenance." \
@@ -1236,7 +1236,7 @@ EOF
     write_brief "$home" "$id" no-mistakes
     printf '# Task\n%s %s\nDo not include this build constraint.\n%s %s\n\n# Definition of done\nDelivery contract: mode=no-mistakes\n' \
       "$marker" 'Keep the original request intact.' "$marker" 'Preserve its provenance.' > "$home/data/$id/brief.md"
-    out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --mode no-mistakes --yolo off)
+    out=$(run_spawn "$home" "$fakebin" "$id" "$proj" pi --mode no-mistakes --yolo off)
     assert_present "$home/data/$id/launch-brief.md" "$marker: provenance was not accepted"
     authorized=$(awk '$0 == "## Captain intent authorized for --intent" { emit=1; next } emit { print }' "$home/data/$id/launch-brief.md")
     words=$(printf '%s\n' 'Keep the original request intact.' 'Preserve its provenance.')
@@ -1268,7 +1268,7 @@ EOF
       if [ "$kind" = scout ]; then
         out=$(run_spawn "$home" "$fakebin" "$id" "$proj" codex --scout)
       else
-        out=$(run_spawn "$home" "$fakebin" "$id" "$proj" codex --mode "$kind" --yolo off)
+        out=$(run_spawn "$home" "$fakebin" "$id" "$proj" pi --mode "$kind" --yolo off)
       fi
       assert_not_contains "$out" 'could not render' "worker role rendering failed"
       brief="$home/data/$id/launch-brief.md"
@@ -1453,7 +1453,7 @@ EOF
     || fail "a gerrit ship brief should scaffold"
   fill_brief_subsections "$home/data/forge-yolo-s1/brief.md" \
     "Run the review loop on the Gerrit project." "Ship the review pass."
-  out=$(run_spawn "$home" "$fakebin" forge-yolo-s1 "$proj" claude --mode no-mistakes --yolo on 2>&1)
+  out=$(run_spawn "$home" "$fakebin" forge-yolo-s1 "$proj" pi --mode no-mistakes --yolo on 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "a spawn with --yolo on launched on a gerrit-forge project"
   assert_contains "$out" "--yolo on is refused" "the spawn refusal did not name the refused flag"
@@ -1583,7 +1583,7 @@ test_spawn_requires_the_brief_to_carry_the_registered_forge() {
 $rec
 EOF
   write_brief "$home" forge-agree-a1 no-mistakes
-  out=$(run_spawn "$home" "$fakebin" forge-agree-a1 "$proj" claude --mode no-mistakes --yolo off 2>&1)
+  out=$(run_spawn "$home" "$fakebin" forge-agree-a1 "$proj" pi --mode no-mistakes --yolo off 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "a gerrit project launched on a brief that records no forge"
   assert_contains "$out" "forge mismatch for forge-agree-a1" "the refusal did not name the drift it caught"
@@ -1600,14 +1600,14 @@ EOF
   FM_HOME="$home" "$BRIEF" forge-agree-a2 proj --mode direct-PR --forge gerrit >/dev/null \
     || fail "a gerrit direct-PR brief should scaffold"
   fill_brief_subsections "$home/data/forge-agree-a2/brief.md" "Publish the change." "Ship it."
-  out=$(run_spawn "$home" "$fakebin" forge-agree-a2 "$proj" claude --mode direct-PR --yolo off 2>&1)
+  out=$(run_spawn "$home" "$fakebin" forge-agree-a2 "$proj" pi --mode direct-PR --yolo off 2>&1)
   assert_not_contains "$out" "forge mismatch" "a gerrit direct-PR brief was reported as drift"
   assert_not_contains "$out" "cannot ship" "direct-PR was refused on the forge it publishes to"
 
   FM_HOME="$home" "$BRIEF" forge-agree-a3 proj --mode no-mistakes --forge gerrit >/dev/null \
     || fail "a gerrit ship brief should scaffold"
   fill_brief_subsections "$home/data/forge-agree-a3/brief.md" "Run the review loop." "Ship it."
-  out=$(run_spawn "$home" "$fakebin" forge-agree-a3 "$proj" claude --mode no-mistakes --yolo off 2>&1)
+  out=$(run_spawn "$home" "$fakebin" forge-agree-a3 "$proj" pi --mode no-mistakes --yolo off 2>&1)
   assert_not_contains "$out" "forge mismatch" "an agreeing brief and registry were reported as drift"
 
   # local-only publishes nothing and cannot carry the forge, so a bound project
@@ -1616,7 +1616,7 @@ EOF
   FM_HOME="$home" "$BRIEF" forge-agree-a4 proj --mode local-only >/dev/null \
     || fail "a local-only ship brief should scaffold without a forge"
   fill_brief_subsections "$home/data/forge-agree-a4/brief.md" "Land it locally." "Stop at a ready branch."
-  out=$(run_spawn "$home" "$fakebin" forge-agree-a4 "$proj" claude --mode local-only --yolo off 2>&1)
+  out=$(run_spawn "$home" "$fakebin" forge-agree-a4 "$proj" pi --mode local-only --yolo off 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "a local-only launch on a gerrit-bound project was accepted"
   assert_contains "$out" "forge mismatch for forge-agree-a4" "the local-only refusal did not name the drift"
@@ -1631,7 +1631,7 @@ EOF
   FM_HOME="$home" "$BRIEF" forge-agree-a5 proj --mode no-mistakes --forge gerrit >/dev/null \
     || fail "a gerrit ship brief should scaffold"
   fill_brief_subsections "$home/data/forge-agree-a5/brief.md" "Run the review loop." "Ship it."
-  out=$(run_spawn "$home" "$fakebin" forge-agree-a5 "$proj" claude --mode no-mistakes --yolo off 2>&1)
+  out=$(run_spawn "$home" "$fakebin" forge-agree-a5 "$proj" pi --mode no-mistakes --yolo off 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "a gerrit brief launched on a project with no registered forge"
   assert_contains "$out" "forge mismatch for forge-agree-a5" "the unbound-project refusal did not name the drift"
@@ -1659,7 +1659,7 @@ EOF
   FM_HOME="$home" "$BRIEF" branch-agree-a1 proj --mode no-mistakes --branch-prefix fix/ >/dev/null \
     || fail "a fix/-prefixed brief should scaffold"
   fill_brief_subsections "$home/data/branch-agree-a1/brief.md" "Run the review loop." "Ship it."
-  out=$(run_spawn "$home" "$fakebin" branch-agree-a1 "$proj" claude --mode no-mistakes --yolo off --branch-prefix contrib/)
+  out=$(run_spawn "$home" "$fakebin" branch-agree-a1 "$proj" pi --mode no-mistakes --yolo off --branch-prefix contrib/)
   status=$?
   [ "$status" -ne 0 ] || fail "a spawn selecting a different prefix than its brief records was accepted"
   assert_contains "$out" "branch mismatch for branch-agree-a1" "the refusal did not name the drift it caught"
@@ -1668,7 +1668,7 @@ EOF
   assert_absent "$home/state/branch-agree-a1.meta" "the refused spawn still recorded a task"
 
   write_brief "$home" branch-agree-a2 no-mistakes
-  out=$(run_spawn "$home" "$fakebin" branch-agree-a2 "$proj" claude --mode no-mistakes --yolo off --branch-prefix contrib/)
+  out=$(run_spawn "$home" "$fakebin" branch-agree-a2 "$proj" pi --mode no-mistakes --yolo off --branch-prefix contrib/)
   status=$?
   [ "$status" -ne 0 ] || fail "a non-legacy spawn on a brief that records no ship branch was accepted"
   assert_contains "$out" "records no ship branch; regenerate it with --branch-prefix" \
@@ -1676,7 +1676,7 @@ EOF
   assert_absent "$home/state/branch-agree-a2.meta" "the refused legacy-brief spawn still recorded a task"
 
   write_brief "$home" branch-agree-a3 no-mistakes
-  out=$(run_spawn "$home" "$fakebin" branch-agree-a3 "$proj" claude --mode no-mistakes --yolo off)
+  out=$(run_spawn "$home" "$fakebin" branch-agree-a3 "$proj" pi --mode no-mistakes --yolo off)
   assert_contains "$out" "records no ship branch; defaulting to legacy branch fm/branch-agree-a3" \
     "the legacy default did not warn about the brief's missing ship branch"
   assert_not_contains "$out" "branch mismatch" "the legacy default was refused as drift"
@@ -1684,7 +1684,7 @@ EOF
   FM_HOME="$home" "$BRIEF" branch-agree-a4 proj --mode no-mistakes --branch-prefix fix/ >/dev/null \
     || fail "a second fix/-prefixed brief should scaffold"
   fill_brief_subsections "$home/data/branch-agree-a4/brief.md" "Run the review loop." "Ship it."
-  out=$(run_spawn "$home" "$fakebin" branch-agree-a4 "$proj" claude --mode no-mistakes --yolo off --branch-prefix fix/)
+  out=$(run_spawn "$home" "$fakebin" branch-agree-a4 "$proj" pi --mode no-mistakes --yolo off --branch-prefix fix/)
   assert_not_contains "$out" "branch mismatch" "an agreeing brief and selection were reported as drift"
   assert_not_contains "$out" "records no ship branch" "an agreeing spawn reported the brief as legacy"
 
@@ -1700,7 +1700,7 @@ EOF
   assert_contains "$out" "--branch-prefix applies only to ship spawns" \
     "the scout refusal did not name the flag it refused"
 
-  out=$(run_spawn "$home" "$fakebin" branch-agree-a7 "$proj" claude --mode no-mistakes --yolo off --branch-prefix "has space")
+  out=$(run_spawn "$home" "$fakebin" branch-agree-a7 "$proj" pi --mode no-mistakes --yolo off --branch-prefix "has space")
   status=$?
   [ "$status" -ne 0 ] || fail "a spawn whose prefix and task id compose an invalid branch was accepted"
   assert_contains "$out" "--branch-prefix and task id must form a valid git branch (got 'has spacebranch-agree-a7')" \
@@ -1724,7 +1724,7 @@ $rec
 EOF
 
   write_brief "$home" prefix-dev-a1 no-mistakes
-  out=$(run_spawn "$home" "$fakebin" prefix-dev-a1 "$proj" claude --mode no-mistakes --yolo off)
+  out=$(run_spawn "$home" "$fakebin" prefix-dev-a1 "$proj" pi --mode no-mistakes --yolo off)
   assert_contains "$out" "ships branch=fm/prefix-dev-a1 while proj registers the ship-branch prefix 'fix/'" \
     "no deviation notice for shipping the legacy prefix past a registered override"
   assert_contains "$out" "will read as firstmate-authored" \
@@ -1733,7 +1733,7 @@ EOF
   FM_HOME="$home" "$BRIEF" prefix-dev-a2 proj --mode no-mistakes --branch-prefix fix/ >/dev/null \
     || fail "a fix/-prefixed brief should scaffold"
   fill_brief_subsections "$home/data/prefix-dev-a2/brief.md" "Run the review loop." "Ship it."
-  out=$(run_spawn "$home" "$fakebin" prefix-dev-a2 "$proj" claude --mode no-mistakes --yolo off --branch-prefix fix/)
+  out=$(run_spawn "$home" "$fakebin" prefix-dev-a2 "$proj" pi --mode no-mistakes --yolo off --branch-prefix fix/)
   assert_not_contains "$out" "registers the ship-branch prefix" \
     "a spawn matching the registered prefix was announced as a deviation"
 
@@ -1753,7 +1753,7 @@ test_spawn_refuses_a_registry_forge_it_cannot_read() {
 $rec
 EOF
   write_brief "$home" forge-typo-a1 no-mistakes
-  out=$(run_spawn "$home" "$fakebin" forge-typo-a1 "$proj" claude --mode no-mistakes --yolo on 2>&1)
+  out=$(run_spawn "$home" "$fakebin" forge-typo-a1 "$proj" pi --mode no-mistakes --yolo on 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "a spawn launched on a registry entry whose forge token does not resolve"
   assert_contains "$out" 'unknown forge "gerit"' \
@@ -1830,7 +1830,7 @@ test_forge_forgejo_rides_the_same_binding() {
 $rec
 EOF
   write_brief "$home" forge-forgejo-s1 direct-PR
-  out=$(run_spawn "$home" "$fakebin" forge-forgejo-s1 "$proj" claude --mode direct-PR --yolo off 2>&1)
+  out=$(run_spawn "$home" "$fakebin" forge-forgejo-s1 "$proj" pi --mode direct-PR --yolo off 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "a forgejo project launched on a brief that records no forge"
   assert_contains "$out" "forge mismatch for forge-forgejo-s1" "the refusal did not name the drift it caught"
@@ -1841,7 +1841,7 @@ EOF
   FM_HOME="$home" "$BRIEF" forge-forgejo-s2 proj --mode direct-PR --forge forgejo >/dev/null \
     || fail "a forgejo direct-PR brief should scaffold"
   fill_brief_subsections "$home/data/forge-forgejo-s2/brief.md" "Open the pull request." "Ship it."
-  out=$(run_spawn "$home" "$fakebin" forge-forgejo-s2 "$proj" claude --mode direct-PR --yolo on 2>&1)
+  out=$(run_spawn "$home" "$fakebin" forge-forgejo-s2 "$proj" pi --mode direct-PR --yolo on 2>&1)
   assert_not_contains "$out" "forge mismatch" "an agreeing forgejo brief and registry were reported as drift"
   assert_not_contains "$out" "--yolo on is refused" "yolo was refused on forgejo, where only gerrit deactivates it"
 
