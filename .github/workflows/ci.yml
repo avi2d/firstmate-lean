@@ -12,7 +12,7 @@ permissions:
 # with no restore-keys fallback, so a bump installs fresh instead of reusing a stale tree.
 env:
   FM_CI_TASKS_AXI_VERSION: '0.2.6'
-  FM_CI_PI_VERSION: '1.5.0'
+  FM_CI_PI_VERSION: '1.6.0'
   FM_CI_CHECKS_VERSION: '0.89.0'
   FM_CI_BUN_VERSION: '1.4.3'
 
