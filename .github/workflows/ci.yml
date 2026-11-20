@@ -17,8 +17,8 @@ env:
   FM_CI_BUN_VERSION: '1.4.3'
 
 # Timeout policy: paired lint shards are capped at 15 minutes and the static gate
-# at 10 minutes. Scheduled and manual dispatch jobs keep the tiers in
-# docs/fm-test-portable-shards.md "Timeouts".
+# at 10 minutes. Scheduled and manual dispatch jobs keep the tiers that
+# tests/fm-ci-workflow.test.sh holds against this file.
 # Each job comment identifies the tier implemented by its executable value.
 
 # Fork opt-out: the repository variable FM_CI_SKIP_MACOS=1 skips the macOS job.
@@ -111,7 +111,7 @@ jobs:
         run: bin/fm-test-run.sh --check-coverage
 
   # Two duration-balanced portable parallel shards of the Phase 2 proven-isolated
-  # set only. Composition owner: bin/fm-test-run.sh (docs/fm-test-portable-shards.md).
+  # set only. Composition owner: bin/fm-test-run.sh.
   tests-portable-parallel-1:
     name: Behavior portable parallel 1
     runs-on: ubuntu-24.04
@@ -233,7 +233,7 @@ jobs:
   # Split across separate runners so no two of these stateful scripts ever share
   # a machine: each shard is still strictly serial in itself. Shard membership
   # and the shard count both belong to bin/fm-test-run.sh, which refuses a lane
-  # whose "ofN" disagrees with it (docs/fm-test-portable-shards.md).
+  # whose "ofN" disagrees with it.
   tests-portable-serial:
     name: Behavior portable serial ${{ matrix.shard }}
     runs-on: ubuntu-24.04

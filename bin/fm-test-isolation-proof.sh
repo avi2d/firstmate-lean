@@ -5,7 +5,7 @@
 # This is the single owner of the proven portable candidate set, the reusable
 # concurrent proof run, and its isolation checks. Production portable CI shards,
 # bounded local fm-test-run.sh --jobs admission, and family worker caps are owned
-# by bin/fm-test-run.sh (docs/fm-test-portable-shards.md).
+# by bin/fm-test-run.sh.
 #
 # It does NOT compose production CI shard membership; fm-test-run.sh owns that
 # partition. The default portable pool excludes real Herdr, real default-server

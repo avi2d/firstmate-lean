@@ -124,7 +124,7 @@
 # live in this script only (one owner). The proven-isolated candidate set remains
 # owned by bin/fm-test-isolation-proof.sh; portable parallel shards are a
 # duration-balanced partition of that exact set, packed from the measured hints
-# in portable_parallel_weight_hints (see docs/fm-test-portable-shards.md).
+# in portable_parallel_weight_hints.
 # --check-coverage reports parallel_max_ms (the larger lane hint sum),
 # parallel_imbalance_ms (the absolute difference between the sums), and
 # parallel_unhinted (the number of members missing a parallel hint).
@@ -221,7 +221,7 @@ PORTABLE_SERIAL_MAX_WEIGHT_MS=1200000
 # unmeasured the balance is guesswork and one shard can reach its CI job cap
 # while another sits idle. The coverage guard refuses past this share, which
 # leaves room for newly added tests while making a stale hint table fail loudly
-# instead of silently. docs/fm-test-portable-shards.md owns the refresh.
+# instead of silently.
 PORTABLE_SERIAL_MAX_UNHINTED_PERCENT=15
 
 usage() {
@@ -484,8 +484,7 @@ EOF
 }
 
 # Per-script serial CI duration hints, one "<path> <ms>" per line, used to
-# pack only the two portable parallel lanes. Measurement provenance and the
-# refresh procedure are owned by docs/fm-test-portable-shards.md.
+# pack only the two portable parallel lanes, taken from CI timing artifacts.
 portable_parallel_weight_hints() {
   cat <<'EOF'
 tests/fm-arm-pretool-check.test.sh 60490
@@ -632,10 +631,8 @@ list_portable_serial() {
   done < <(all_repo_tests)
 }
 
-# Measured portable-serial script durations in milliseconds, from the CI timing
-# artifacts recorded in docs/fm-test-portable-shards.md. Each value is the
-# slowest successful sample in the referenced complete/partial CI runs, with
-# the version-specific host and native-Windows exceptions documented there.
+# Measured portable-serial script durations in milliseconds: the slowest
+# successful sample per script in CI timing artifacts.
 # These are balance hints only: the shard
 # partition stays complete and disjoint whatever they say, so a stale hint costs
 # balance rather than coverage. That doc owns the refresh procedure.
@@ -1186,7 +1183,7 @@ run_coverage_guard() {
   if [ "$serial_total" -gt 0 ] &&
     [ "$((unhinted * 100))" -gt "$((serial_total * PORTABLE_SERIAL_MAX_UNHINTED_PERCENT))" ]; then
     log "coverage guard: $unhinted of $serial_total portable serial scripts have no measured duration hint (max ${PORTABLE_SERIAL_MAX_UNHINTED_PERCENT}%)"
-    log "refresh the hints from a green run's timing artifacts: docs/fm-test-portable-shards.md"
+    log "refresh the hints from a green run's timing artifacts"
     cat "$tmp/unhinted" >&2
     rm -rf "$tmp"
     return 1
@@ -1194,7 +1191,7 @@ run_coverage_guard() {
 
   if [ "$serial_max_ms" -gt "$PORTABLE_SERIAL_MAX_WEIGHT_MS" ]; then
     log "coverage guard: largest portable serial shard packs ${serial_max_ms}ms above the ${PORTABLE_SERIAL_MAX_WEIGHT_MS}ms target"
-    log "refresh CI hints and rebalance or add shards; do not raise the job timeout: docs/fm-test-portable-shards.md"
+    log "refresh CI hints and rebalance or add shards; do not raise the job timeout"
     rm -rf "$tmp"
     return 1
   fi
@@ -1692,11 +1689,6 @@ families_for_changed_path() {
     .no-mistakes.yaml)
       printf '%s\n' pure-contract-unit
       printf '%s\n' real-herdr-gated
-      ;;
-    docs/fm-test-portable-shards.md)
-      # Nothing executes this procedure doc; its classified surface is covered
-      # by the documentation audience check.
-      printf '%s\n' "__script__:fm-documentation-audiences.test.sh"
       ;;
     docs/fm-test-isolation-proof.md|\
     docs/fm-test-isolation-proof.json)

@@ -316,10 +316,9 @@ test_changed_workflow_selects_readers_not_invoked_families() {
       fail "workflow change selected the invoked family: $listed" ;;
   esac
 
-  # Contributor prose and the shard procedure doc reach only the audience
-  # check that covers their classified surfaces.
+  # Contributor prose reaches only the audience check that covers its
+  # classified surface.
   printf '\n' >>"$repo/CONTRIBUTING.md"
-  : >"$repo/docs/fm-test-portable-shards.md"
   listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD | LC_ALL=C sort)
   case "$listed" in
     *tests/fm-documentation-audiences.test.sh*) ;;
@@ -1318,7 +1317,7 @@ test_portable_serial_hint_coverage_is_reported_and_bounded() {
     || fail "unmeasured count $unhinted exceeds the serial lane size $serial"
   # 15% is the guard's own bound; staying well inside it is what keeps the
   # balance evidence-based. Refresh from a green run's timing artifacts when
-  # this trips (docs/fm-test-portable-shards.md).
+  # this trips.
   [ "$((unhinted * 100))" -le "$((serial * 15))" ] \
     || fail "$unhinted of $serial portable serial scripts lack a measured hint; refresh them"
   # A complete partition can still overflow a CI job. Assert the runner's
