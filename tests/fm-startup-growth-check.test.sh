@@ -22,7 +22,6 @@ make_world() {
   printf '7500\n' > "$home/config/startup-memory-budget"
   printf 'projects\n' > "$home/data/projects.md"
   printf 'captain\n' > "$home/data/captain.md"
-  printf 'shared\n' > "$home/data/captain-shared.md"
   printf 'learnings\n' > "$home/data/learnings.md"
   printf '%s|%s\n' "$root" "$home"
 }
@@ -191,19 +190,6 @@ test_established_baseline_survives_disappearance_and_restoration() {
   assert_contains "$out" 'printed-memory growth data/projects.md +300 estimated_tokens (+900 bytes' "growth above the preserved baseline was not reported after restoration"
 }
 
-test_shared_file_growth_is_reported() {
-  local rec root home result out
-  rec=$(make_world shared-growth)
-  root=${rec%%|*}
-  home=${rec#*|}
-  run_check "$root" "$home" 1000 >/dev/null
-  add_bytes "$home/data/captain-shared.md" 900
-  result=$(run_check "$root" "$home" 87401)
-  [ "$(status_part "$result")" = 0 ] || fail "shared-growth check failed: $(output_part "$result")"
-  out=$(output_part "$result")
-  assert_contains "$out" 'memory growth data/captain-shared.md +300 estimated_tokens (+900 bytes' "growth of the shared captain file was not reported"
-}
-
 test_budget_overrun_reports_and_separates_prompt_cost() {
   local rec root home result out
   rec=$(make_world overrun)
@@ -222,19 +208,6 @@ test_budget_overrun_reports_and_separates_prompt_cost() {
   [ "$(status_part "$result")" = 0 ] || fail "repeated overrun check failed: $(output_part "$result")"
   out=$(output_part "$result")
   [ -z "$out" ] || fail "standing budget overrun was reported again instead of deduplicated: $out"
-}
-
-test_shared_file_alone_overruns_the_budget() {
-  local rec root home result out
-  rec=$(make_world shared-overrun)
-  root=${rec%%|*}
-  home=${rec#*|}
-  printf '10\n' > "$home/config/startup-memory-budget"
-  add_bytes "$home/data/captain-shared.md" 900
-  result=$(run_check "$root" "$home" 87401)
-  [ "$(status_part "$result")" = 0 ] || fail "shared overrun check failed: $(output_part "$result")"
-  out=$(output_part "$result")
-  assert_contains "$out" 'startup memory budget overrun total_estimated_tokens=' "an overrun caused by the shared captain file alone was not reported"
 }
 
 test_metadata_read_failure_keeps_the_retained_baseline() {
@@ -277,13 +250,13 @@ test_due_unsafe_inputs_are_reported_but_absent_optional_memory_is_not() {
   root=${rec%%|*}
   home=${rec#*|}
   run_check "$root" "$home" 1000 >/dev/null
-  rm -f "$home/data/captain-shared.md" "$home/data/learnings.md"
+  rm -f "$home/data/projects.md" "$home/data/learnings.md"
   ln -s "$home/data/captain.md" "$home/data/learnings.md"
   result=$(run_check "$root" "$home" 87401)
   [ "$(status_part "$result")" = 0 ] || fail "unsafe check failed: $(output_part "$result")"
   out=$(output_part "$result")
   assert_contains "$out" 'unsafe memory data/learnings.md' "unsafe symlinked memory was not reported"
-  assert_not_contains "$out" 'missing memory data/captain-shared.md' "absent optional shared memory should not be reported"
+  assert_not_contains "$out" 'missing printed-memory data/projects.md' "absent optional printed memory should not be reported"
   result=$(run_check "$root" "$home" 173802)
   [ "$(status_part "$result")" = 0 ] || fail "repeated unsafe check failed: $(output_part "$result")"
   out=$(output_part "$result")
@@ -593,9 +566,7 @@ test_gradual_growth_below_daily_threshold_is_reported_cumulatively
 test_printed_memory_growth_is_reported_without_entering_the_budget_total
 test_first_content_of_an_optional_file_is_baselined_silently
 test_established_baseline_survives_disappearance_and_restoration
-test_shared_file_growth_is_reported
 test_budget_overrun_reports_and_separates_prompt_cost
-test_shared_file_alone_overruns_the_budget
 test_metadata_read_failure_keeps_the_retained_baseline
 test_due_unsafe_inputs_are_reported_but_absent_optional_memory_is_not
 test_findings_are_delivered_even_when_the_record_cannot_be_published

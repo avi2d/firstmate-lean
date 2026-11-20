@@ -275,7 +275,6 @@ run_check() {
   stat_surface tracked bin/fm-supervision-instructions.sh "$FM_ROOT/bin/fm-supervision-instructions.sh" no
   stat_surface printed-memory data/projects.md "$DATA_DIR/projects.md" yes
   stat_surface memory data/captain.md "$DATA_DIR/captain.md" yes
-  stat_surface memory data/captain-shared.md "$DATA_DIR/captain-shared.md" yes
   stat_surface memory data/learnings.md "$DATA_DIR/learnings.md" yes
 
   evaluate_budget

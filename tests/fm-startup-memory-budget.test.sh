@@ -147,7 +147,7 @@ test_safe_parser_rejects_ambiguous_and_unsafe_values() {
   pass "budget parser accepts one exact positive value and rejects malformed or unsafe inputs"
 }
 
-test_budget_accounting_reports_all_three_files_and_safe_failure() {
+test_budget_accounting_sums_captain_and_learnings_and_ignores_other_memory_files() {
   local home out rc outside
   home="$TMP_ROOT/accounting-home"
   mkdir -p "$home/config" "$home/data"
@@ -160,11 +160,11 @@ test_budget_accounting_reports_all_three_files_and_safe_failure() {
     "report did not name the stable estimator"
   assert_contains "$out" 'file=data/captain.md bytes=4 estimated_tokens=2 status=present' \
     "report did not account for captain memory"
-  assert_contains "$out" 'file=data/captain-shared.md bytes=7 estimated_tokens=3 status=present' \
-    "report did not account for shared memory"
+  assert_not_contains "$out" 'captain-shared.md' \
+    "report counted a memory file outside the startup set"
   assert_contains "$out" 'file=data/learnings.md bytes=0 estimated_tokens=0 status=absent' \
     "report did not account for absent learnings"
-  assert_contains "$out" 'total_estimated_tokens=5' "report total was not the sum of all three files"
+  assert_contains "$out" 'total_estimated_tokens=2' "report total was not the sum of the startup files"
   assert_contains "$out" 'budget_status=within-budget' "report did not classify the initial total"
 
   printf 'abcdefabcdefabcdefabcdef\n' > "$home/data/learnings.md"
@@ -183,11 +183,11 @@ test_budget_accounting_reports_all_three_files_and_safe_failure() {
   assert_contains "$out" 'memory file is not an ordinary regular file' \
     "accounting failure did not identify the unsafe memory file"
   [ "$(<"$outside")" = outside ] || fail "accounting failure changed a symlink target"
-  pass "budget accounting sums the three startup files and reports safe failures"
+  pass "budget accounting sums captain and learnings memory and reports safe failures"
 }
 
 test_bootstrap_materializes_visible_default
 test_safe_parser_rejects_ambiguous_and_unsafe_values
-test_budget_accounting_reports_all_three_files_and_safe_failure
+test_budget_accounting_sums_captain_and_learnings_and_ignores_other_memory_files
 
 echo '# all fm-startup-memory-budget tests passed'
