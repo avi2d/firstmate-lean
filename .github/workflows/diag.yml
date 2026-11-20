@@ -1,0 +1,53 @@
+name: Diag
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  each:
+    name: Diag ${{ matrix.shard }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Install tools
+        run: |
+          set -eu
+          bin/fm-install-shellcheck.sh "$RUNNER_TEMP/bin"
+          bin/fm-install-actionlint.sh "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          npm install -g tasks-axi@0.2.6 @earendil-works/pi-coding-agent@1.6.0
+          npm ci --prefix bin/fm-backlog-md --no-audit --no-fund
+      - name: Run each test function alone
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          set -u
+          i=0
+          while IFS= read -r f; do
+            i=$((i + 1))
+            [ $((i % 12)) -eq "$SHARD" ] || continue
+            copy="tests/.diag-$(basename "$f")"
+            names=$(python3 -I .github/diag/split.py "$f" "$copy")
+            if [ -z "$names" ]; then
+              timeout 600 bash "$f" > "$RUNNER_TEMP/out" 2>&1; rc=$?
+              echo "DIAG $f WHOLE rc=$rc"
+              [ "$rc" -eq 0 ] || grep -E 'not ok|No such file|command not found|REFUSED|error' "$RUNNER_TEMP/out" | head -4 | cut -c1-400 | sed 's/^/  | /'
+              continue
+            fi
+            for n in $names; do
+              timeout 300 bash .github/diag/run1.sh "$copy" "$n" > "$RUNNER_TEMP/out" 2>&1; rc=$?
+              echo "DIAG $f $n rc=$rc"
+              [ "$rc" -eq 0 ] || grep -E 'not ok|No such file|command not found|REFUSED|error' "$RUNNER_TEMP/out" | head -4 | cut -c1-400 | sed 's/^/  | /'
+            done
+          done < .github/diag/files.txt
+          exit 0
