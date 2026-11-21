@@ -1517,6 +1517,41 @@ test_watcher_exits_when_its_state_directory_is_removed() {
   pass "watch-arm: a watcher exits when its state directory is removed"
 }
 
+# A removal landing after the per-poll teardown check fails the cycle's next
+# state write instead. Only a stub at that point places the removal there on
+# every run, so the watcher runs from a root whose reconcile step is the stub.
+test_state_removed_mid_cycle_is_logged_not_a_bare_exit() {
+  local dir home state root f watch_out watch_err rc
+  dir=$(make_case state-removed-mid-cycle)
+  home="$dir/home"
+  state="$dir/state"
+  root="$dir/root"
+  watch_out="$dir/watch.out"
+  watch_err="$dir/watch.err"
+  mkdir -p "$home/data" "$root/bin"
+  for f in "$ROOT"/bin/*; do
+    ln -s "$f" "$root/bin/${f##*/}"
+  done
+  rm "$root/bin/fm-inactive-reconcile.sh"
+  cat > "$root/bin/fm-inactive-reconcile.sh" <<'SH'
+#!/usr/bin/env bash
+mv "$FM_STATE_OVERRIDE" "$FM_STATE_OVERRIDE.removed"
+SH
+  chmod +x "$root/bin/fm-inactive-reconcile.sh"
+
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" FM_CHECK_INTERVAL=0 FM_POLL=0.02 \
+    FM_HEARTBEAT=999999 FM_SIGNAL_GRACE=0 \
+    perl -e 'alarm shift; exec @ARGV or die $!' 60 "$root/bin/fm-watch.sh" > "$watch_out" 2> "$watch_err"
+  rc=$?
+  [ -d "$state.removed" ] || fail "the stub never removed the state directory: $(cat "$watch_err")"
+  expect_code 1 "$rc" "a watcher whose state directory was removed mid-cycle must exit 1: $(cat "$watch_err")"
+  grep -qxF "watcher: exiting - state directory no longer exists: $state" "$watch_err" \
+    || fail "the mid-cycle removal exited without its reason: $(cat "$watch_err")"
+  [ ! -s "$watch_out" ] || fail "a mid-cycle removal was reported as a wake: $(cat "$watch_out")"
+  rm -rf "$state.removed"
+  pass "watch-arm: a state directory removed mid-cycle is logged as the exit reason"
+}
+
 # The same for a deleted home whose state directory still exists elsewhere: the
 # lock is released through the ordinary cleanup so nothing stale is left behind.
 test_watcher_exits_when_its_home_is_removed() {
@@ -1731,6 +1766,7 @@ test_attached_arm_reports_the_delivered_wake_after_drain
 test_arm_refuses_an_unusable_launch_confirm_window
 test_arm_refuses_a_disposable_validation_checkout
 test_watcher_exits_when_its_state_directory_is_removed
+test_state_removed_mid_cycle_is_logged_not_a_bare_exit
 test_watcher_exits_when_its_home_is_removed
 test_attached_arm_exits_when_its_root_is_removed
 test_reaper_stops_a_tracked_watcher
