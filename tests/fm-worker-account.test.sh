@@ -2,8 +2,8 @@
 # Behavior tests for the opt-in per-home worker account pin
 # (config/claude-account, config/pi-account; bin/fm-worker-account-lib.sh).
 #
-# Each case drives the real fm-spawn.sh through the shared fake tmux, which
-# records the launch command, then runs that command in a synthetic pane whose
+# Each case drives the real fm-spawn.sh through the shared fake Herdr pane,
+# which records the launch command, then runs that command in a synthetic pane whose
 # ambient environment carries a different account. The fake claude and pi
 # answer the sign-in checks the way the real runners do - an environment
 # credential counts as signed in, otherwise the selected root's stored login
@@ -138,110 +138,39 @@ assert_refused_before_launch() {
 }
 
 test_absent_pin_keeps_the_launch_unchanged() {
-  local out rc id=acct-absent
-  new_case absent claude
-  out=$(spawn_ship "$id"); rc=$?
-  expect_code 0 "$rc" "an unpinned Claude spawn should succeed: $out"
+  local out rc id=acct-absent-pi
+  new_case absent-pi pi
+  out=$(spawn_ship "$id" --model gpt-5.5); rc=$?
+  expect_code 0 "$rc" "an unpinned Pi spawn with an unqualified model should succeed: $out"
   assert_not_contains "$out" "account=" "an unpinned spawn must not report an account"
   assert_no_grep "account=" "$HOME_DIR/state/$id.meta" "an unpinned task record must not carry an account"
-  assert_absent "$CASE/claude-checks" "an unpinned spawn must not run a sign-in check"
-  run_pane
-  assert_grep "CLAUDE_CONFIG_DIR=$CASE/ambient-claude" "$CASE/claude-worker" \
-    "an unpinned launch must keep forwarding the invoking process's own Claude root"
-  assert_grep "ANTHROPIC_API_KEY=ambient-pane-key" "$CASE/claude-worker" \
-    "an unpinned launch must leave the pane's environment credentials alone"
-
-  new_case absent-pi pi
-  out=$(spawn_ship acct-absent-pi --model gpt-5.5); rc=$?
-  expect_code 0 "$rc" "an unpinned Pi spawn with an unqualified model should succeed: $out"
+  assert_absent "$CASE/pi-checks" "an unpinned spawn must not run a sign-in check"
   assert_not_contains "$(cat "$CASE/launch.log")" "--provider" "an unpinned Pi launch must not add a provider"
   run_pane
   assert_grep "PI_CODING_AGENT_DIR=$CASE/ambient-pi" "$CASE/pi-worker" \
     "an unpinned Pi launch must keep the pane's own Pi root"
-  pass "an absent pin leaves Claude and Pi launches exactly as they were"
-}
-
-test_claude_pin_selects_the_root_and_sheds_ambient_credentials() {
-  local out rc id=acct-claude
-  new_case claude-pin claude
-  signed_in_claude_root "$CASE/work"
-  printf '%s\n' "$CASE/work" > "$HOME_DIR/config/claude-account"
-  out=$(spawn_ship "$id"); rc=$?
-  expect_code 0 "$rc" "a Claude spawn pinned to a signed-in root should succeed: $out"
-  assert_contains "$out" "account=$CASE/work" "the spawn should report the pinned account"
-  assert_grep "account=$CASE/work" "$HOME_DIR/state/$id.meta" "the task record should carry the pinned account"
-  [ "$(cat "$CASE/claude-checks")" = "$CASE/work" ] \
-    || fail "the sign-in check should ask about the pinned root only: $(cat "$CASE/claude-checks")"
-  assert_contains "$(cat "$CASE/work/.claude.json" 2>/dev/null)" "$WT" \
-    "workspace trust should be registered in the pinned root's store"
-  assert_absent "$CASE/ambient-claude/.claude.json" "the ambient Claude store must not receive the trust entry"
-  run_pane
-  assert_grep "CLAUDE_CONFIG_DIR=$CASE/work" "$CASE/claude-worker" "the worker should run under the pinned root"
-  assert_grep "ANTHROPIC_API_KEY=unset" "$CASE/claude-worker" "an ambient API key must not outrank the pin"
-  assert_grep "CLAUDE_CODE_OAUTH_TOKEN=unset" "$CASE/claude-worker" "an ambient OAuth token must not outrank the pin"
-  assert_grep "CLAUDE_CODE_USE_BEDROCK=unset" "$CASE/claude-worker" "an ambient cloud-provider switch must not outrank the pin"
-  pass "a Claude pin selects its root and sheds the credentials that would outrank it"
-}
-
-test_claude_pin_refuses_a_signed_out_root_despite_an_ambient_login() {
-  local out rc id=acct-claude-out
-  new_case claude-signed-out claude
-  mkdir -p "$CASE/work"
-  printf '%s\n' "$CASE/work" > "$HOME_DIR/config/claude-account"
-  out=$(spawn_ship "$id"); rc=$?
-  expect_code 1 "$rc" "a Claude pin to a signed-out root must refuse"
-  assert_refused_before_launch "$id" "$out" "config/claude-account pins Claude workers to $CASE/work, which is not signed in"
-  assert_absent "$CASE/work/.claude.json" "a refused spawn must not register trust in the pinned root"
-  pass "a Claude pin refuses a signed-out root even when the invoking process has a usable login and API key"
-}
-
-test_claude_ordinary_pin_unsets_the_config_root() {
-  local out rc id=acct-ordinary
-  new_case ordinary claude
-  printf 'ordinary' > "$HOME_DIR/config/claude-account"
-  out=$(spawn_ship "$id"); rc=$?
-  expect_code 1 "$rc" "an ordinary pin with no default login must refuse"
-  assert_refused_before_launch "$id" "$out" "pins Claude workers to the ordinary account, which is not signed in"
-  signed_in_claude_root "$HOME_DIR/user-home/.claude"
-  : > "$CASE/claude-checks"
-  out=$(spawn_ship "$id"); rc=$?
-  expect_code 0 "$rc" "an ordinary pin with a default login should succeed: $out"
-  assert_contains "$out" "account=ordinary" "the spawn should report the ordinary account"
-  [ "$(cat "$CASE/claude-checks")" = unset ] \
-    || fail "the ordinary check must run with CLAUDE_CONFIG_DIR unset: $(cat "$CASE/claude-checks")"
-  assert_contains "$(cat "$HOME_DIR/user-home/.claude.json" 2>/dev/null)" "$WT" \
-    "ordinary trust should land in the default ~/.claude.json store"
-  assert_absent "$CASE/ambient-claude/.claude.json" "the ambient Claude store must not receive the trust entry"
-  run_pane
-  assert_grep "CLAUDE_CONFIG_DIR=unset" "$CASE/claude-worker" \
-    "the ordinary account must drop an ambient CLAUDE_CONFIG_DIR"
-  assert_grep "ANTHROPIC_API_KEY=unset" "$CASE/claude-worker" "an ambient API key must not outrank the ordinary pin"
-  pass "an ordinary Claude pin selects the default login and drops an ambient root"
+  pass "an absent pin leaves a Pi launch exactly as it was"
 }
 
 test_malformed_pins_refuse_before_launch() {
   local out rc id=acct-bad n=0 body
-  new_case malformed claude
+  new_case malformed pi
   mkdir -p "$CASE/work"
-  for body in 'relative/root' "$CASE/work"$'\r' '' 'ordinary'$'\n''environment' "$CASE/missing-root"; do
+  for body in 'relative/root'$'\n''openai-codex' "$CASE/work"$'\r\n''openai-codex' '' 'ordinary' \
+    'ordinary'$'\n''openai-codex'$'\n''extra' "$CASE/missing-root"$'\n''openai-codex'; do
     n=$((n + 1))
-    printf '%s' "$body" > "$HOME_DIR/config/claude-account"
-    out=$(spawn_ship "$id-$n"); rc=$?
+    printf '%s' "$body" > "$HOME_DIR/config/pi-account"
+    out=$(spawn_ship "$id-$n" --model openai-codex/gpt-5.5); rc=$?
     expect_code 1 "$rc" "malformed pin #$n must refuse"
-    assert_refused_before_launch "$id-$n" "$out" "config/claude-account"
+    assert_refused_before_launch "$id-$n" "$out" "config/pi-account"
   done
-  rm "$HOME_DIR/config/claude-account"
-  mkdir "$HOME_DIR/config/claude-account"
-  out=$(spawn_ship "$id-dir"); rc=$?
+  rm "$HOME_DIR/config/pi-account"
+  mkdir "$HOME_DIR/config/pi-account"
+  out=$(spawn_ship "$id-dir" --model openai-codex/gpt-5.5); rc=$?
   expect_code 1 "$rc" "a directory in place of the pin must refuse"
-  assert_refused_before_launch "$id-dir" "$out" "config/claude-account must be a readable regular file"
-  rmdir "$HOME_DIR/config/claude-account"
-  printf 'ordinary\n' > "$HOME_DIR/config/pi-account"
-  out=$(spawn_ship "$id-pi" --harness pi --model openai-codex/gpt-5.5); rc=$?
-  expect_code 1 "$rc" "a Pi pin without a providers line must refuse"
-  assert_refused_before_launch "$id-pi" "$out" "config/pi-account must hold"
-  assert_absent "$CASE/claude-checks" "a malformed pin must refuse before any sign-in check"
-  pass "malformed, relative, CR-terminated, empty, extra-line, missing-root, and non-file pins refuse before launch"
+  assert_refused_before_launch "$id-dir" "$out" "config/pi-account must be a readable regular file"
+  assert_absent "$CASE/pi-checks" "a malformed pin must refuse before any sign-in check"
+  pass "malformed, relative, CR-terminated, empty, providerless, extra-line, missing-root, and non-file pins refuse before launch"
 }
 
 test_pi_pin_selects_the_root_and_the_declared_provider() {
@@ -317,16 +246,14 @@ test_pi_extension_provider_and_old_pi_fall_back_to_the_model_listing() {
 
 test_a_pin_governs_only_its_own_runner() {
   local out rc id=acct-scope
-  new_case scope codex
+  new_case scope pi
   mkdir -p "$CASE/work"
   printf '%s\n' "$CASE/work" > "$HOME_DIR/config/claude-account"
-  out=$(spawn_ship "$id-codex"); rc=$?
-  expect_code 0 "$rc" "a codex spawn must ignore a Claude pin: $out"
-  assert_not_contains "$out" "account=" "a codex spawn must not report a Claude pin"
-  out=$(spawn_ship "$id-pi" --harness pi --model gpt-5.5); rc=$?
+  out=$(spawn_ship "$id-pi" --model gpt-5.5); rc=$?
   expect_code 0 "$rc" "a Pi spawn must ignore a Claude pin: $out"
+  assert_not_contains "$out" "account=" "a Pi spawn must not report a Claude pin"
   assert_absent "$CASE/claude-checks" "no Claude sign-in check may run for another runner"
-  pass "a Claude pin leaves codex and Pi launches unchanged"
+  pass "a Claude pin leaves a Pi launch unchanged"
 }
 
 test_raw_claude_command_receives_the_pin() {
@@ -371,26 +298,6 @@ test_raw_claude_account_override_is_kept_without_a_pin() {
   assert_grep "CLAUDE_CONFIG_DIR=$CASE/other" "$CASE/claude-worker" "an unpinned raw override should keep its own root"
   assert_grep "ANTHROPIC_API_KEY=override-key" "$CASE/claude-worker" "an unpinned raw override should keep its own key"
   pass "an unpinned home keeps a raw Claude account override"
-}
-
-test_claude_account_launches_claude_on_its_mapped_login() {
-  local out rc id=cacct-claude
-  new_case claude-account claude
-  signed_in_claude_root "$CASE/second"
-  printf '%s\n' '# clauth profile -> login' 'main ordinary' "second $CASE/second" > "$HOME_DIR/config/claude-accounts"
-  out=$(spawn_ship "$id" --claude-account second); rc=$?
-  expect_code 0 "$rc" "a Claude spawn naming a mapped, signed-in account should succeed: $out"
-  assert_contains "$out" "claude_account=second" "the spawn should report the account"
-  assert_grep "claude_account=second" "$HOME_DIR/state/$id.meta" "the task record should carry the account"
-  [ "$(cat "$CASE/claude-checks")" = "$CASE/second" ] \
-    || fail "the sign-in check should ask about the account's root only: $(cat "$CASE/claude-checks")"
-  assert_contains "$(cat "$CASE/second/.claude.json" 2>/dev/null)" "$WT" \
-    "workspace trust should be registered in the account's store"
-  run_pane
-  assert_grep "CLAUDE_CONFIG_DIR=$CASE/second" "$CASE/claude-worker" "the worker should run on the account's root"
-  assert_grep "ANTHROPIC_API_KEY=unset" "$CASE/claude-worker" "an ambient API key must not outrank the account"
-  assert_grep "CLAUDE_CODE_OAUTH_TOKEN=unset" "$CASE/claude-worker" "an ambient OAuth token must not outrank the account"
-  pass "--claude-account launches a Claude worker on its mapped login and sheds outranking credentials"
 }
 
 test_claude_account_reaches_a_pi_claude_bridge_worker() {
@@ -450,42 +357,42 @@ test_pi_claude_bridge_without_an_account_is_unchanged_elsewhere() {
 
 test_claude_account_ordinary_requires_clauth_to_report_it_active() {
   local out rc id=cacct-ordinary
-  new_case ordinary-account claude
+  new_case ordinary-account pi
   signed_in_claude_root "$HOME_DIR/user-home/.claude"
   printf '%s\n' 'main ordinary' > "$HOME_DIR/config/claude-accounts"
-  out=$(spawn_ship "$id-noclauth" --claude-account main); rc=$?
+  out=$(spawn_ship "$id-noclauth" --model claude-bridge/claude-opus-5-5 --claude-account main); rc=$?
   expect_code 1 "$rc" "an ordinary account must refuse when clauth cannot confirm it"
   assert_refused_before_launch "$id-noclauth" "$out" "clauth status --json failed, so the ordinary login cannot be confirmed as main"
   printf 'second' > "$CASE/clauth-active"
-  out=$(spawn_ship "$id-other" --claude-account main); rc=$?
+  out=$(spawn_ship "$id-other" --model claude-bridge/claude-opus-5-5 --claude-account main); rc=$?
   expect_code 1 "$rc" "an ordinary account must refuse while another clauth profile is active"
   assert_refused_before_launch "$id-other" "$out" "which clauth reports is profile 'second'"
   printf 'main' > "$CASE/clauth-active"
-  out=$(spawn_ship "$id" --claude-account main); rc=$?
+  out=$(spawn_ship "$id" --model claude-bridge/claude-opus-5-5 --claude-account main); rc=$?
   expect_code 0 "$rc" "an ordinary account clauth reports active should launch: $out"
   [ "$(cat "$CASE/claude-checks")" = unset ] \
     || fail "the ordinary check must run with CLAUDE_CONFIG_DIR unset: $(cat "$CASE/claude-checks")"
   run_pane
-  assert_grep "CLAUDE_CONFIG_DIR=unset" "$CASE/claude-worker" "the ordinary account must drop an ambient root"
+  assert_grep "CLAUDE_CONFIG_DIR=unset" "$CASE/pi-worker" "the ordinary account must drop an ambient root"
   pass "an ordinary account launches only while clauth reports that profile active"
 }
 
 test_claude_account_refusals() {
   local out rc id=cacct-bad
-  new_case account-refusals claude
+  new_case account-refusals pi
   mkdir -p "$CASE/second"
-  out=$(spawn_ship "$id-nomap" --claude-account second); rc=$?
+  out=$(spawn_ship "$id-nomap" --model claude-bridge/claude-opus-5-5 --claude-account second); rc=$?
   expect_code 1 "$rc" "an account with no map must refuse"
   assert_refused_before_launch "$id-nomap" "$out" "--claude-account second needs a login declared for it in config/claude-accounts"
   printf '%s\n' "second $CASE/second" > "$HOME_DIR/config/claude-accounts"
-  out=$(spawn_ship "$id-out" --claude-account second); rc=$?
+  out=$(spawn_ship "$id-out" --model claude-bridge/claude-opus-5-5 --claude-account second); rc=$?
   expect_code 1 "$rc" "a signed-out account root must refuse"
   assert_refused_before_launch "$id-out" "$out" "maps account second to $CASE/second, which is not signed in"
-  out=$(spawn_ship "$id-undeclared" --claude-account main); rc=$?
+  out=$(spawn_ship "$id-undeclared" --model claude-bridge/claude-opus-5-5 --claude-account main); rc=$?
   expect_code 1 "$rc" "an undeclared account must refuse"
   assert_refused_before_launch "$id-undeclared" "$out" "--claude-account main needs a login declared"
   signed_in_claude_root "$CASE/second"
-  out=$(spawn_ship "$id-codex" --harness codex --claude-account second); rc=$?
+  out=$(spawn_ship "$id-codex" --harness "codex --print raw" --claude-account second); rc=$?
   expect_code 1 "$rc" "a codex spawn must refuse an account"
   assert_refused_before_launch "$id-codex" "$out" "--claude-account applies to the claude harness and to Pi claude-bridge models, not codex"
   out=$(spawn_ship "$id-pimodel" --harness pi --model openai-codex/gpt-6-luna --claude-account second); rc=$?
@@ -495,33 +402,13 @@ test_claude_account_refusals() {
   expect_code 1 "$rc" "a raw launch must refuse an account"
   assert_refused_before_launch "$id-raw" "$out" "cannot carry --claude-account"
   printf '%s\n' 'second relative/root' > "$HOME_DIR/config/claude-accounts"
-  out=$(spawn_ship "$id-malformed" --claude-account second); rc=$?
+  out=$(spawn_ship "$id-malformed" --model claude-bridge/claude-opus-5-5 --claude-account second); rc=$?
   expect_code 1 "$rc" "a malformed account map must refuse"
   assert_refused_before_launch "$id-malformed" "$out" "config/claude-accounts line 1 must be"
   pass "--claude-account refuses unmapped, signed-out, undeclared, wrong-runner, raw, and malformed launches"
 }
 
-test_claude_account_replaces_the_home_claude_pin_for_its_launch() {
-  local out rc id=cacct-pin
-  new_case account-over-pin claude
-  signed_in_claude_root "$CASE/second"
-  mkdir -p "$CASE/pinned-signed-out"
-  printf '%s\n' "$CASE/pinned-signed-out" > "$HOME_DIR/config/claude-account"
-  printf '%s\n' "second $CASE/second" > "$HOME_DIR/config/claude-accounts"
-  out=$(spawn_ship "$id" --claude-account second); rc=$?
-  expect_code 0 "$rc" "an account launch should not depend on the home pin's login: $out"
-  assert_not_contains "$out" "account=$CASE/pinned-signed-out" "the home pin must not be reported for an account launch"
-  [ "$(cat "$CASE/claude-checks")" = "$CASE/second" ] \
-    || fail "only the account's root should be checked: $(cat "$CASE/claude-checks")"
-  run_pane
-  assert_grep "CLAUDE_CONFIG_DIR=$CASE/second" "$CASE/claude-worker" "the account should win over the home pin"
-  pass "--claude-account replaces the home's Claude pin for that one launch"
-}
-
 test_absent_pin_keeps_the_launch_unchanged
-test_claude_pin_selects_the_root_and_sheds_ambient_credentials
-test_claude_pin_refuses_a_signed_out_root_despite_an_ambient_login
-test_claude_ordinary_pin_unsets_the_config_root
 test_malformed_pins_refuse_before_launch
 test_pi_pin_selects_the_root_and_the_declared_provider
 test_pi_pin_refusals
@@ -530,12 +417,10 @@ test_a_pin_governs_only_its_own_runner
 test_raw_claude_command_receives_the_pin
 test_raw_claude_account_override_refuses_under_a_pin
 test_raw_claude_account_override_is_kept_without_a_pin
-test_claude_account_launches_claude_on_its_mapped_login
 test_claude_account_reaches_a_pi_claude_bridge_worker
 test_pi_claude_bridge_without_an_account_refuses_where_accounts_are_declared
 test_pi_claude_bridge_without_an_account_is_unchanged_elsewhere
 test_claude_account_ordinary_requires_clauth_to_report_it_active
 test_claude_account_refusals
-test_claude_account_replaces_the_home_claude_pin_for_its_launch
 
 echo "# all fm-worker-account tests passed"
