@@ -3168,8 +3168,36 @@ pr_poll_publish_release() {
   PR_POLL_PUBLISH_LOCK=
 }
 
+# A detached helper this watcher started can recreate a deleted state directory
+# before the next poll, so a holderless lock counts as teardown only once the
+# state directory is no longer the one this watcher opened. A holderless lock in
+# the same directory was released by a successor: the main loop's self-eviction.
+WATCHER_WORLD_GONE_REPORTED=0
+watcher_world_gone_report() {
+  local gone state_devino_now
+  if [ "$WATCH_HOME_EXISTED" -eq 1 ] && [ ! -d "$FM_HOME" ]; then
+    gone="home no longer exists: $FM_HOME"
+  elif [ ! -d "$STATE" ]; then
+    gone="state directory no longer exists: $STATE"
+  elif [ ! -e "$WATCH_LOCK/pid" ] \
+    && { [ -z "$WATCH_STATE_DEVINO" ] \
+      || { state_devino_now=$(stat_devino "$STATE") \
+        && [ -n "$state_devino_now" ] && [ "$state_devino_now" != "$WATCH_STATE_DEVINO" ]; }; }; then
+    gone="state directory was torn down (singleton lock removed): $STATE"
+  elif [ ! -d "$SCRIPT_DIR" ]; then
+    gone="code root no longer exists: $SCRIPT_DIR"
+  else
+    return 1
+  fi
+  [ "$WATCHER_WORLD_GONE_REPORTED" -eq 1 ] || echo "watcher: exiting - $gone" >&2
+  WATCHER_WORLD_GONE_REPORTED=1
+}
+
 watcher_cleanup() {
-  local cleanup_status=0 owns_lock=0 transition=release-lock staged lock
+  local exit_status=$? cleanup_status=0 owns_lock=0 transition=release-lock staged lock
+  # A teardown that lands mid-cycle fails whichever state write comes next, and
+  # that step's own error would otherwise stand as the exit reason.
+  [ "$exit_status" -eq 0 ] || watcher_world_gone_report || true
   # Join any interrupted owner creation/publication before the release sweep:
   # a child must not publish a lock or staging directory after we removed ours.
   fm_lock_wait_pending_mutation
@@ -3353,34 +3381,8 @@ while :; do
     echo 'watcher: exiting - native Codex park owner is gone' >&2
     exit 1
   fi
-  # Home-gone exit: a deleted home, state directory, or code root means this
-  # watcher's world is gone (a torn-down temporary home or a discarded
-  # disposable checkout). Exit with a logged reason rather than writing state
-  # into nothing, or into a live home from a checkout that no longer exists.
-  # A detached helper this watcher started (such as reconcile)
-  # can recreate a deleted state directory before the next poll, so a lock
-  # with no holder at all is read as the same teardown when the state directory
-  # is no longer the one this watcher holds open. A lock with no holder in the
-  # same directory was released by a successor - one still relinking the lock
-  # it reclaimed from this watcher, or one that already delivered its wake and
-  # exited before this poll - so it is the self-eviction below.
   # Scoped to this process alone: no other watcher is signalled.
-  if [ "$WATCH_HOME_EXISTED" -eq 1 ] && [ ! -d "$FM_HOME" ]; then
-    echo "watcher: exiting - home no longer exists: $FM_HOME" >&2
-    exit 1
-  elif [ ! -d "$STATE" ]; then
-    echo "watcher: exiting - state directory no longer exists: $STATE" >&2
-    exit 1
-  elif [ ! -e "$WATCH_LOCK/pid" ] \
-    && { [ -z "$WATCH_STATE_DEVINO" ] \
-      || { STATE_DEVINO_NOW=$(stat_devino "$STATE") \
-        && [ -n "$STATE_DEVINO_NOW" ] && [ "$STATE_DEVINO_NOW" != "$WATCH_STATE_DEVINO" ]; }; }; then
-    echo "watcher: exiting - state directory was torn down (singleton lock removed): $STATE" >&2
-    exit 1
-  elif [ ! -d "$SCRIPT_DIR" ]; then
-    echo "watcher: exiting - code root no longer exists: $SCRIPT_DIR" >&2
-    exit 1
-  fi
+  ! watcher_world_gone_report || exit 1
 
   # Self-eviction: if the singleton lock no longer names this process, a second
   # watcher has taken over (e.g. a transient duplicate from a racy arm). Stand
