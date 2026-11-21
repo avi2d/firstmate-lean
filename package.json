@@ -1,0 +1,18 @@
+{
+  "name": "@avi2d/firstmate-runtime",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.4.3",
+  "scripts": {
+    "build": "bash bin/fm-effect-run.sh --build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "effect": "4.0.0",
+    "@effect/platform-bun": "4.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.3",
+    "typescript": "7.0.2"
+  }
+}

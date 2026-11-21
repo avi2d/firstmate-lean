@@ -100,6 +100,22 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+  effect-runtime:
+    name: Effect runtime
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.FM_CI_BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun test runtime --pass-with-no-tests
+      - run: bun run build
+      - name: Compare the built command with its source
+        run: bin/fm-effect-shadow.sh runtime/cli.ts bin/fm-effect-run.sh --help
+
   # Deterministic proof that portable parallel shards + portable serial + Herdr
   # equal the complete tests/*.test.sh inventory with no missing or duplicates,
   # and that the portable serial CI shards partition that serial lane exactly.
