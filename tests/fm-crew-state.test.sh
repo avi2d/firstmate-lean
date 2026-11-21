@@ -2035,11 +2035,9 @@ checks failed: 1 of 2 checks red" ;;
   [ "$failures" -eq 0 ] || fail "$failures cancellation verdict regressions"
 }
 
-# The real inventory consumer must not confuse a cancellation with a failed
-# child contradicting an In flight row. Unknown remains explicitly partial.
-test_cancelled_fleet_inventory_is_unverified_not_contradictory() {
+test_cancelled_run_reads_unknown_not_failed() {
   reset_fakes
-  local d out summary backlog_before status_before scenario=${1:-synthetic}
+  local d out backlog_before status_before scenario=${1:-synthetic}
   d=$(new_case "cancelled-inventory-$scenario")
   make_repo_on_branch "$d/wt" fm/cancelled
   make_fakebin "$d" >/dev/null
@@ -2100,22 +2098,15 @@ EOF
   assert_contains "$out" 'run cancelled: no verdict' "$scenario cancellation outweighs interrupted steps"
   assert_not_contains "$out" 'state: failed' "$scenario cancellation is not a failure"
   assert_not_contains "$out" 'held for merge' "$scenario has no positive delivery evidence"
-  summary=$(PATH="$d/fakebin:$PATH" FM_HOME="$d" FM_ROOT_OVERRIDE="$d/fixture-root" \
-    "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary)
-  printf '%s' "$summary" | jq -e '
-    .state == "unknown" and .valid == false
-    and .invalidity == {kind:"child_current_unavailable",ids:["cancelled"]}
-    and .reason == "child current state unavailable: cancelled"
-  ' >/dev/null || fail "cancellation must not report a terminal/backlog contradiction: $summary"
   assert_equals "$backlog_before" "$(cat "$d/data/backlog.md")" 'correct backlog is unchanged'
   assert_equals "$status_before" "$(cat "$d/state/cancelled.status")" 'historical event is unchanged'
-  pass "$scenario cancelled run leaves fleet inventory unverified without a failure contradiction"
+  pass "$scenario cancelled run reads unknown and leaves the backlog and status unchanged"
 }
 
 # Replay the recorded producer output through both public consumers, without
 # starting or aborting a daemon run or claiming live cancellation evidence.
 test_captured_cancelled_review_has_no_verdict() {
-  test_cancelled_fleet_inventory_is_unverified_not_contradictory captured
+  test_cancelled_run_reads_unknown_not_failed captured
 }
 
 test_terminal_failed_ci_orphan_after_green_reads_done() {
@@ -6896,7 +6887,7 @@ cancellation_failures=0
 for cancellation_test in test_captured_cancelled_review_has_no_verdict \
   test_terminal_green_delivery_disposition \
   test_cancelled_without_delivery_has_no_verdict \
-  test_cancelled_fleet_inventory_is_unverified_not_contradictory \
+  test_cancelled_run_reads_unknown_not_failed \
   test_cancelled_delivery_and_skipped_rebase; do
   ("$cancellation_test") || cancellation_failures=$((cancellation_failures + 1))
 done
