@@ -207,7 +207,7 @@ test_disable_autoupdater_reaches_the_harness_pane_on_the_fm_spawn_launch_path() 
   # pane whose only pi is a stub recording the variable it inherited. (A
   # backend daemon already running before the gate exported the variable is a
   # separate case this cannot cover without launcher support.)
-  local case_dir home proj wt fakebin launchlog panebin panelog launch rc
+  local case_dir home proj wt fakebin launchlog panelog launch rc
   case_dir="$TMP_ROOT/spawn-launch-path"
   home="$case_dir/home"; proj="$case_dir/proj"; wt="$case_dir/wt"
   launchlog="$case_dir/launch.log"
@@ -222,18 +222,18 @@ test_disable_autoupdater_reaches_the_harness_pane_on_the_fm_spawn_launch_path() 
   launch=$(cat "$launchlog")
   [ -n "$launch" ] || fail "no pi launch command was captured"
 
-  # Synthetic pane: only pi is a recording stub, and DISABLE_AUTOUPDATER=1
-  # stands in for the value the live gate put in the ambient environment.
-  panebin="$case_dir/panebin"; mkdir -p "$panebin"
+  # Synthetic pane: the launch names the pi fm-spawn resolved, which becomes a
+  # recording stub, and DISABLE_AUTOUPDATER=1 stands in for the value the live
+  # gate put in the ambient environment.
   panelog="$case_dir/pane-autoupdater.log"
-  cat > "$panebin/pi" <<SH
+  cat > "$fakebin/pi" <<SH
 #!/usr/bin/env bash
 printf 'autoupdater=%s\n' "\${DISABLE_AUTOUPDATER:-unset}" > "$panelog"
 exit 0
 SH
-  chmod +x "$panebin/pi"
+  chmod +x "$fakebin/pi"
   set +e
-  DISABLE_AUTOUPDATER=1 PATH="$panebin:/usr/bin:/bin" bash -c "$launch" >/dev/null 2>&1
+  DISABLE_AUTOUPDATER=1 PATH="/usr/bin:/bin" bash -c "$launch" >/dev/null 2>&1
   rc=$?
   set -e
   expect_code 0 "$rc" "the staged pi launch must run cleanly in the synthetic pane"
@@ -250,7 +250,7 @@ test_disable_autoupdater_survives_a_daemon_pane_that_never_inherited_it() {
   # environment lacks the variable (standing in for the daemon). The harness must still
   # see it, which only holds if fm-spawn embedded the assignment into the launch
   # command text rather than relying on the pane inheriting it.
-  local case_dir home proj wt fakebin launchlog panebin panelog launch rc
+  local case_dir home proj wt fakebin launchlog panelog launch rc
   case_dir="$TMP_ROOT/spawn-daemon-path"
   home="$case_dir/home"; proj="$case_dir/proj"; wt="$case_dir/wt"
   launchlog="$case_dir/launch.log"
@@ -265,18 +265,17 @@ test_disable_autoupdater_survives_a_daemon_pane_that_never_inherited_it() {
   launch=$(cat "$launchlog")
   [ -n "$launch" ] || fail "no pi launch command was captured"
 
-  panebin="$case_dir/panebin"; mkdir -p "$panebin"
   panelog="$case_dir/pane-autoupdater.log"
-  cat > "$panebin/pi" <<SH
+  cat > "$fakebin/pi" <<SH
 #!/usr/bin/env bash
 printf 'autoupdater=%s\n' "\${DISABLE_AUTOUPDATER:-unset}" > "$panelog"
 exit 0
 SH
-  chmod +x "$panebin/pi"
+  chmod +x "$fakebin/pi"
   # The synthetic daemon-launched pane runs the staged command with the variable
   # absent from its own environment; env -u strips any value the suite inherited.
   set +e
-  env -u DISABLE_AUTOUPDATER PATH="$panebin:/usr/bin:/bin" bash -c "$launch" >/dev/null 2>&1
+  env -u DISABLE_AUTOUPDATER PATH="/usr/bin:/bin" bash -c "$launch" >/dev/null 2>&1
   rc=$?
   set -e
   expect_code 0 "$rc" "the staged pi launch must run cleanly in the synthetic pane"

@@ -1686,6 +1686,7 @@ families_for_changed_path() {
       printf '%s\n' pure-contract-unit
       printf '%s\n' real-herdr-gated
       ;;
+    docs/fm-test-isolation-proof.md|\
     docs/fm-test-isolation-proof.json)
       printf '%s\n' pure-contract-unit
       ;;
