@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -u
 
+# shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 TMP_ROOT=$(fm_test_tmproot fm-harness-precedence)
@@ -8,9 +9,9 @@ HARNESS="$ROOT/bin/fm-harness.sh"
 under_process() {
   local bin=$1
   shift
-  env -u PI_CODING_AGENT -u FM_PI_HARNESS "$@" "$bin" -c '
-    result=$("$1"); printf "%s" "$result"
-  ' _ "$HARNESS"
+  env -u PI_CODING_AGENT -u FM_PI_HARNESS "$@" "$bin" -c "
+    result=\$(\"\$1\"); printf '%s' \"\$result\"
+  " _ "$HARNESS"
 }
 
 named_bin() {  # <dir> <name>

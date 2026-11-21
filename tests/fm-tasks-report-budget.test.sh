@@ -54,8 +54,8 @@ make_home() {  # <name> <ready> <held> <blocked> <live>
       '{group: 2, row: {id: $id, title: "Held \($i), waiting", project: "?", kind: "scout", home: $home,
         queuedOn: $queued_on, hold: {kind: $kind, reason: "reason \($i)"}, after: []}}' >>"$EXPECTED_PLANNED"
     if [ "$i" -le "$ready" ]; then
-      id="$name-ready-$i"
-      FM_HOME="$home" "$TASKS_AXI" add "$id" "Ready $i" --kind ship --repo "org/repo-$i" >/dev/null || fail "fixture add $id"
+      id="repo-$i-1"
+      FM_HOME="$home" "$TASKS_AXI" add "$id" "Ready $i" --kind ship --repo "repo-$i" >/dev/null || fail "fixture add $id"
       jq -nc --arg id "$id" --arg i "$i" --arg home "$name" --arg queued_on "$QUEUED_ON" \
         '{group: 1, row: {id: $id, title: "Ready \($i)", project: "repo-\($i)", kind: "ship", home: $home,
           queuedOn: $queued_on, hold: null, after: []}}' >>"$EXPECTED_PLANNED"
@@ -63,8 +63,8 @@ make_home() {  # <name> <ready> <held> <blocked> <live>
   done
   for i in $(seq 1 "$blocked"); do
     id="$name-blocked-$i"
-    FM_HOME="$home" "$TASKS_AXI" add "$id" "Blocked $i" --kind ship --blocked-by "$name-ready-1" >/dev/null || fail "fixture add $id"
-    jq -nc --arg id "$id" --arg i "$i" --arg home "$name" --arg queued_on "$QUEUED_ON" --arg a "$name-ready-1" \
+    FM_HOME="$home" "$TASKS_AXI" add "$id" "Blocked $i" --kind ship --blocked-by repo-1-1 >/dev/null || fail "fixture add $id"
+    jq -nc --arg id "$id" --arg i "$i" --arg home "$name" --arg queued_on "$QUEUED_ON" --arg a repo-1-1 \
       '{group: 3, row: {id: $id, title: "Blocked \($i)", project: "?", kind: "ship", home: $home,
         queuedOn: $queued_on, hold: null, after: [$a]}}' >>"$EXPECTED_PLANNED"
   done

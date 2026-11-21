@@ -456,8 +456,8 @@ shell_quote() {
 STATUS_FILE=$(shell_quote "$STATE/$ID.status")
 # The worker's status command: the plain append always carries the line, then
 # the opt-in fleet ledger (docs/fleet-ledger.md) records it at once, costing one
-# file test when the flag is absent. A host without that flag, such as a remote
-# second mate's, runs only the append; the watcher capture is the backstop.
+# file test when the flag is absent. A host without that flag runs only the
+# append; the watcher capture is the backstop.
 STATUS_APPEND="echo \"{state} [at=<epoch>]: {one short line}\" >> $STATUS_FILE && { [ ! -e $(shell_quote "$CONFIG/fleet-ledger") ] || $(shell_quote "$FM_ROOT/bin/fm-fleet-ledger.sh") appended $(shell_quote "$CONFIG") $STATUS_FILE >/dev/null 2>&1 || true; }"
 INBOX_DIR=$(shell_quote "$STATE/$ID.inbox")
 
@@ -557,13 +557,6 @@ IFS= read -r -d '' TASK_SECTION <<'EOF' || true
 {FIRSTMATE_SPEC}
 EOF
 TASK_SECTION=${TASK_SECTION%$'\n'}
-if [ -f "$DATA/backlog/decisions/.fm-memory" ]; then
-  DECISION_CONTEXT=$(node "$SCRIPT_DIR/fm-backlog-md/decisions.cjs" render-full "$DATA/backlog/decisions" "$REPO") || {
-    echo 'error: decision memory could not be loaded' >&2
-    exit 1
-  }
-  TASK_SECTION="$TASK_SECTION"$'\n\n'"## Decision memory"$'\n'"$DECISION_CONTEXT"
-fi
 [ -z "$REMOTE_MARKER" ] || TASK_SECTION="$REMOTE_MARKER"$'\n'"$TASK_SECTION"
 
 # One shared string keeps the ship and scout infrastructure rule identical.

@@ -520,7 +520,7 @@ test_changed_mode_lints_only_the_changed_file() {
     FM_TEST_GIT_DIFF_FILE="$diff_file" "$LINT" 2>&1) \
     || fail "changed-mode lint run failed"$'\n'"$out"
   [ "$(cat "$log")" = "$target" ] \
-    || fail "changed-mode lint did not run ShellCheck on exactly the changed file"$'\n'"logged: $(cat "$log")"
+    || fail "changed-mode lint did not run ShellCheck on exactly the changed file"$'\n'"logged: $(cat "$log")"$'\n'"$out"
   pass "fm-lint.sh changed mode lints only the changed canonical file"
 }
 
@@ -636,7 +636,7 @@ test_changed_mode_drops_external_sources_and_excludes_cross_file_codes() {
   telemetry="$tmp/telemetry.tsv"
   fm_lint_stub_shellcheck "$fakebin" "$log"
   diff_file="$tmp/diff.nul"
-  target="bin/fm-afk-launch.sh"
+  target="bin/fm-usage-warner.sh"
   fm_lint_write_diff_file "$diff_file" "$target"
 
   out=$(PATH="$fakebin:$PATH" GITHUB_ACTIONS='' CI='' FM_LINT_JOBS=1 \

@@ -370,29 +370,6 @@ It keeps archived tasks in the archive and retains non-blocking relations and bl
 The converter rejects duplicate ticket IDs and public follow-up obligations rather than dropping records.
 Keep both source copies if an import stops partway through, and retry in a fresh lab board.
 
-### Decision memory in Backlog.md
-
-The JSON topic map assigns a topic key to each source entry by its filename without the extension and its line number, such as `captain-7`.
-Entries omitted from the map get distinct topic keys, so review the map for related entries before relying on the check.
-The summaries JSON maps every source entry to an authored, single-line summary of at most 120 characters.
-The converter reports each entry with an unknown date and retains the source text without claiming that it is a direct quotation.
-The source records remain unchanged.
-
-Run `node bin/fm-backlog-md/decisions.cjs check DECISIONS_DIR` to find invalid summaries, duplicate active topics, missing or inconsistent replacement links, and cycles.
-For a replacement, set the older record's status to `superseded` and its `superseded_by` to the new record ID.
-Add the older ID to the new record's `supersedes` list.
-Preserve unrelated text from an older entry in separate records when only part of it is superseded.
-Run the check again before activating the memory.
-
-Place the checked records in the lab home's `data/backlog/decisions` directory.
-Run `node bin/fm-backlog-md/decisions.cjs activate DECISIONS_DIR` once to select decision memory at startup.
-Startup regenerates `data/decision-current.md` from the active global records and loads it instead of the four prose files.
-A read-only startup renders the same view without writing it.
-A failed check reports the error rather than loading the old prose.
-Run `node bin/fm-backlog-md/decisions.cjs render DECISIONS_DIR PROJECT` to include summaries scoped to a project.
-Use `render-full` in place of `render` to include the source text for global and matching project records.
-A missing date or provenance is recorded as `unknown`.
-
 ### User holds on Beads
 
 Captain-hold row creation is owned by [`bin/fm-captain-hold.sh`](../bin/fm-captain-hold.sh) `hold`: when no work item exists, it creates an ordinary backlog row (`--kind captain` metadata; Beads native type `task`) and then applies the user hold.
@@ -721,7 +698,6 @@ Publishing is best-effort and never changes what the watcher does; no spawn read
 No Firstmate script calls it.
 The script's header owns the report line, the published document's fields, the verdict, the beat freshness rules, the host-constraint thresholds, and the probe fallbacks.
 
-The child's own `done` line still reaches the parent through `bin/fm-inactive-reconcile.sh`.
 The flag is a home-local preference; [`bin/fm-pr-check.sh`](../bin/fm-pr-check.sh) owns the mechanics.
 
 ## Task status archive (config/status-archive)
@@ -1284,13 +1260,14 @@ Regression coverage executes emitted launch commands with synthetic nonsecret va
 
 ### Compact adviser setting
 
-Every worker, scout, and secondmate Firstmate launches starts with `COMPACT_ADVISER_DISABLE=1` in its environment, on a fresh spawn and on a relaunch alike, so an unattended session never activates the compact adviser.
-This guarantee also covers raw launch commands, remote secondmates, and launches filtered by `config/launch-env-allowlist`; it does not depend on the destination environment already containing the variable.
+Every worker and scout Firstmate launches starts with `COMPACT_ADVISER_DISABLE=1` in its environment, on a fresh spawn and on a relaunch alike, so an unattended session never activates the compact adviser.
+This guarantee also covers raw launch commands and launches filtered by `config/launch-env-allowlist`.
+It does not depend on the destination environment already containing the variable.
 
 Firstmate provides no configuration or flag to change this value.
 This applies only to agents Firstmate launches; the user's own primary Firstmate session is never given the variable.
 
-[`fm-spawn.sh --help`](../bin/fm-spawn.sh) owns the delivery mechanics, with focused regression coverage in [`tests/fm-spawn-compact-adviser-disable.test.sh`](../tests/fm-spawn-compact-adviser-disable.test.sh) and [`tests/fm-spawn-compact-adviser-disable-remote.test.sh`](../tests/fm-spawn-compact-adviser-disable-remote.test.sh).
+[`fm-spawn.sh --help`](../bin/fm-spawn.sh) owns the delivery mechanics, with focused regression coverage in [`tests/fm-spawn-compact-adviser-disable.test.sh`](../tests/fm-spawn-compact-adviser-disable.test.sh).
 
 ### Commit attribution
 
@@ -2305,24 +2282,25 @@ bin/fm-extension.sh verify org.firstmate.example.file-signal
 
 Use an absent destination for the copy so the source identity remains inspectable and reproducible.
 
-**Bind on a remote secondmate**
+**Bind on a remote execution home**
 
-For a configured remote secondmate, keep the package at the controller and transfer it through the authenticated `fm-on` route:
+For a configured remote route, keep the package at the controller and transfer it through the authenticated `fm-on` route:
 
 ```sh
-bin/fm-extension.sh remote-bind <secondmate-id> \
-  /absolute/controller/path/to/file-signal \
-  --adapter file-signal \
-  --trust-same-user-code \
-  --consent artifact-references
+bin/fm-extension.sh pack-transfer /absolute/controller/path/to/file-signal \
+  | bin/fm-on.sh --stdin <route> fm-extension.sh receive-transfer-bind \
+    --adapter file-signal \
+    --trust-same-user-code \
+    --consent artifact-references
 ```
 
-The command serializes only the validated extension package, stages it below the addressed remote home's fixed extension staging root, binds it there, and prints transfer and binding digests.
-Registration uses `bin/fm-on.sh <secondmate-id> fm-procevent.sh ...`.
+`pack-transfer` serializes only the validated extension package.
+The receiver stages it below the addressed remote home's fixed extension staging root, binds it there, and prints transfer and binding digests.
+Registration uses `bin/fm-on.sh <route> fm-procevent.sh ...`.
 
 **Retire a binding**
 
-After retiring every registration with its printed owner token and handling every captured result, retire the enabled remote binding and its exact staged transfer together with `bin/fm-on.sh <secondmate-id> fm-extension.sh retire-transfer <extension-id> --if-transfer-digest <transfer-digest> --if-binding-digest <binding-digest>`.
+After retiring every registration with its printed owner token and handling every captured result, retire the enabled remote binding and its exact staged transfer together with `bin/fm-on.sh <route> fm-extension.sh retire-transfer <extension-id> --if-transfer-digest <transfer-digest> --if-binding-digest <binding-digest>`.
 For a direct local binding, use `bin/fm-extension.sh retire-binding <extension-id> --if-binding-digest <binding-digest>` after the same process-event retirement and handling steps.
 
 Both commands retain the retired identity reversibly and leave unrelated bindings and content-addressed installed packages unchanged.
@@ -2806,7 +2784,6 @@ FM_TASKS_AXI_CHECK_REASON=   # internal one-hop handoff of the reason behind tha
 FM_GUARD_READ_ONLY=0    # internal/read-only guard mode: keep alarms but suppress drain, supervision repair, and checkout repair commands
 FM_GUARD_CONTINUE_LINE='This is a supervision warning only; the guarded operation WILL still run.'   # banner continuation line; fm-send.sh overrides it to name the requested message specifically
 FM_POLL=15              # seconds between watcher poll cycles
-FM_HOME_SUMMARY_TIMEOUT=60     # seconds bounding the complete best-effort home-summary refresh, including lock acquisition, validation, atomic publication, and worker-side failure logging; invalid or zero values use 60
 FM_SNAPSHOT_CREW_STATE_TIMEOUT=10   # seconds bounding each local per-task current-state read inside bin/fm-fleet-snapshot.sh; remote endpoint liveness is not probed on the snapshot path
 FM_SNAPSHOT_LOCAL_READ_CONCURRENCY=8   # maximum local tasks whose current-state and endpoint observations are collected concurrently during snapshot composition
 FM_SNAPSHOT_UNDATED_HOLD_AGE_DAYS=14  # floored elapsed-day threshold at which an undated captain hold (no hold-until; age from its UTC hold-set timestamp, falling back to since for legacy unstamped holds) is projected as a Charted Next gate instead of a live Captain's Call; 0 applies once the computed age is non-negative

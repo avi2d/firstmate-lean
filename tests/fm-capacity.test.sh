@@ -14,19 +14,12 @@ BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
 TMP_ROOT=$(fm_test_tmproot fm-capacity)
 CAPACITY="$ROOT/bin/fm-capacity.sh"
 
-# make_home <name> <ship-count> <secondmate-count>: a home with that many
-# ship metas and secondmate metas.
-make_home() {
+make_home() {  # <name> <ship-count>
   local home="$TMP_ROOT/$1" i
   mkdir -p "$home/state" "$home/config"
   i=0
   while [ "$i" -lt "$2" ]; do
     fm_write_meta "$home/state/ship-$i.meta" "kind=ship" "mode=no-mistakes"
-    i=$((i + 1))
-  done
-  i=0
-  while [ "$i" -lt "$3" ]; do
-    fm_write_secondmate_meta "$home/state/sm-$i.meta" "$home"
     i=$((i + 1))
   done
   printf '%s\n' "$home"
@@ -65,19 +58,19 @@ run_capacity() {  # <home> <fakebin>
 
 test_no_target_prints_counts_only() {
   local home fakebin out rc
-  home=$(make_home no-target 3 1)
+  home=$(make_home no-target 3)
   fakebin=$(make_probes "$TMP_ROOT/p-no-target" 0.50 60 8 20971520)
   out=$(run_capacity "$home" "$fakebin"); rc=$?
   expect_code 0 "$rc" "absent target"
   assert_contains "$(printf '%s\n' "$out" | head -1)" \
-    'capacity: free_lanes=unknown reason=no-target lanes=3 target=none secondmates=1 load1=0.50 cores=8 mem_free_pct=60 disk_free_mb=20480' \
+    'capacity: free_lanes=unknown reason=no-target lanes=3 target=none load1=0.50 cores=8 mem_free_pct=60 disk_free_mb=20480' \
     "absent target must report counts without inventing one"
   pass "absent config/lane-capacity reports counts and no target"
 }
 
 test_no_target_never_prints_constrained_line() {
   local home fakebin out rc
-  home=$(make_home no-target-constrained 1 0)
+  home=$(make_home no-target-constrained 1)
   fakebin=$(make_probes "$TMP_ROOT/p-no-target-constrained" 9.50 9 8 1048576)
   out=$(run_capacity "$home" "$fakebin"); rc=$?
   expect_code 0 "$rc" "absent target on a constrained host"
@@ -91,12 +84,12 @@ test_no_target_never_prints_constrained_line() {
 
 test_target_yields_open_lanes_and_full() {
   local home fakebin out
-  home=$(make_home target 2 1)
+  home=$(make_home target 2)
   fakebin=$(make_probes "$TMP_ROOT/p-target" 0.50 60 8 20971520)
   printf '5\n' > "$home/config/lane-capacity"
   out=$(run_capacity "$home" "$fakebin")
-  assert_contains "$out" 'capacity: free_lanes=3 reason=ok lanes=2 target=5 secondmates=1 ' \
-    "secondmates must not consume lanes"
+  assert_contains "$out" 'capacity: free_lanes=3 reason=ok lanes=2 target=5 ' \
+    "open lanes must be the target minus the lanes held"
   printf '2\n' > "$home/config/lane-capacity"
   out=$(run_capacity "$home" "$fakebin")
   assert_contains "$out" 'free_lanes=0 reason=full lanes=2 target=2' "target reached must be full"
@@ -108,7 +101,7 @@ test_target_yields_open_lanes_and_full() {
 
 test_host_constraints_close_lanes() {
   local home fakebin out
-  home=$(make_home constrained 1 0)
+  home=$(make_home constrained 1)
   printf '6\n' > "$home/config/lane-capacity"
   fakebin=$(make_probes "$TMP_ROOT/p-cpu" 8.00 60 8 20971520)
   out=$(run_capacity "$home" "$fakebin")
@@ -125,19 +118,19 @@ test_host_constraints_close_lanes() {
 
 test_unavailable_probes_degrade() {
   local home fakebin out rc
-  home=$(make_home degrade 1 0)
+  home=$(make_home degrade 1)
   printf '4\n' > "$home/config/lane-capacity"
   fakebin=$(make_probes "$TMP_ROOT/p-none" "" "" "" "")
   out=$(run_capacity "$home" "$fakebin"); rc=$?
   expect_code 0 "$rc" "unavailable probes"
-  assert_contains "$out" 'capacity: free_lanes=3 reason=ok lanes=1 target=4 secondmates=0 load1=unknown cores=unknown mem_free_pct=unknown disk_free_mb=unknown' \
+  assert_contains "$out" 'capacity: free_lanes=3 reason=ok lanes=1 target=4 load1=unknown cores=unknown mem_free_pct=unknown disk_free_mb=unknown' \
     "unavailable probes must print unknown and not constrain"
   pass "unavailable probes print unknown and do not constrain"
 }
 
 test_invalid_target_is_reported() {
   local home fakebin out rc
-  home=$(make_home invalid 1 0)
+  home=$(make_home invalid 1)
   fakebin=$(make_probes "$TMP_ROOT/p-invalid" 0.50 60 8 20971520)
   printf 'lots\n' > "$home/config/lane-capacity"
   out=$(run_capacity "$home" "$fakebin"); rc=$?
@@ -161,11 +154,11 @@ test_invalid_target_is_reported() {
 
 test_real_host_smoke() {
   local home out rc
-  home=$(make_home real 0 0)
+  home=$(make_home real 0)
   out=$(FM_HOME="$home" "$CAPACITY" 2>&1); rc=$?
   expect_code 0 "$rc" "real host"
   case "$(printf '%s\n' "$out" | head -1)" in
-    'capacity: free_lanes=unknown reason=no-target lanes=0 target=none secondmates=0 load1='*' cores='*' mem_free_pct='*' disk_free_mb='*) : ;;
+    'capacity: free_lanes=unknown reason=no-target lanes=0 target=none load1='*' cores='*' mem_free_pct='*' disk_free_mb='*) : ;;
     *) fail "real host line malformed: $out" ;;
   esac
   pass "real host probes produce a well-formed report"
@@ -200,7 +193,7 @@ capacity_doc() {
 
 test_config_keys_parse_and_refuse_guessing() {
   local home fakebin out rc
-  home=$(make_home keys 1 0)
+  home=$(make_home keys 1)
   fakebin=$(make_probes "$TMP_ROOT/p-keys" 0.50 60 8 20971520)
   cat > "$home/config/lane-capacity" <<CFG
 # lanes this home runs at once
@@ -242,13 +235,13 @@ CFG
 
 test_fresh_beat_replaces_probes() {
   local home fakebin out doc
-  home=$(make_home beat 1 0)
+  home=$(make_home beat 1)
   # Probes say constrained on load; a fresh ok beat replaces them.
   fakebin=$(make_probes "$TMP_ROOT/p-beat" 9.00 60 8 20971520)
   write_beat "$home/beat.json" ok 13.5 25.2 0.29 24.7 false
   printf '4\npressure-file %s\n' "$home/beat.json" > "$home/config/lane-capacity"
   out=$(run_capacity_jq "$home" "$fakebin")
-  assert_contains "$out" 'capacity: free_lanes=3 reason=ok lanes=1 target=4 secondmates=0 load1=9.00 cores=8 ' \
+  assert_contains "$out" 'capacity: free_lanes=3 reason=ok lanes=1 target=4 load1=9.00 cores=8 ' \
     "a fresh ok beat must replace the raw load probe"
   assert_contains "$out" 'Pressure: ok from beat.' "the summary must name the beat basis"
   doc=$(capacity_doc "$home" "$fakebin")
@@ -269,7 +262,7 @@ test_fresh_beat_replaces_probes() {
 
 test_late_stale_missing_and_malformed_beats() {
   local home fakebin out doc now
-  home=$(make_home stale 1 0)
+  home=$(make_home stale 1)
   fakebin=$(make_probes "$TMP_ROOT/p-stale" 0.50 60 8 20971520)
   now=$(date +%s)
   printf '4\npressure-file %s\n' "$home/beat.json" > "$home/config/lane-capacity"
@@ -305,7 +298,7 @@ test_late_stale_missing_and_malformed_beats() {
 
 test_several_pressure_files() {
   local home fakebin doc
-  home=$(make_home several 0 0)
+  home=$(make_home several 0)
   fakebin=$(make_probes "$TMP_ROOT/p-several" 0.50 60 8 20971520)
   write_beat "$home/vm.json" ok 13.5 25.2 0.29 2.0 false "" 700
   write_beat "$home/win.json" critical 2.0 64 1.5 9.0 false "memory 6% available" 40
@@ -321,7 +314,7 @@ test_several_pressure_files() {
 
 test_beat_with_missing_fields() {
   local home fakebin out doc
-  home=$(make_home sparse 1 0)
+  home=$(make_home sparse 1)
   fakebin=$(make_probes "$TMP_ROOT/p-sparse" 24.00 60 32 20971520)
   cat > "$home/beat.json" <<'JSON'
 {"schema":"lookout.beat","schema_version":"1.0","host":"mac-host",
@@ -351,7 +344,7 @@ pressure-file %s
 
 test_cap_only_memory_rule_unchanged() {
   local home fakebin out
-  home=$(make_home cap-only 1 0)
+  home=$(make_home cap-only 1)
   fakebin=$(make_probes "$TMP_ROOT/p-cap-only" 0.50 11 8 20971520)
   printf '%s\n' 8589934592 > "$fakebin/memsize"
   printf '4\n' > "$home/config/lane-capacity"
@@ -365,7 +358,7 @@ test_cap_only_memory_rule_unchanged() {
 
 test_limits_and_admit() {
   local home fakebin out rc
-  home=$(make_home limits 1 0)
+  home=$(make_home limits 1)
   fakebin=$(make_probes "$TMP_ROOT/p-limits" 0.50 60 8 20971520)
   out=$(run_capacity_jq "$home" "$fakebin" --admit); rc=$?
   expect_code 0 "$rc" "admit without config"
@@ -403,12 +396,11 @@ CFG
 
 test_publish_document() {
   local home fakebin rc doc mode i
-  home=$(make_home publish 2 1)
+  home=$(make_home publish 2)
   fakebin=$(make_probes "$TMP_ROOT/p-publish" 0.50 60 8 20971520)
   printf '%s\n' 34359738368 > "$fakebin/memsize"
   printf '%s\n' 1791484127 > "$fakebin/boottime"
   fm_write_meta "$home/state/ship-1.meta" "kind=ship" "mode=no-mistakes" "pr=https://github.com/o/r/pull/9"
-  printf 'lanes-a\n' > "$home/.fm-secondmate-home"
   mkdir -p "$home/projects/alpha" "$home/projects/beta"
   touch "$home/state/.last-watcher-beat"
   run_capacity_jq "$home" "$fakebin" --publish >/dev/null; rc=$?
@@ -418,7 +410,7 @@ test_publish_document() {
   FM_LANE_CAPACITY_PUBLISH_INTERVAL=0 run_capacity_jq "$home" "$fakebin" --publish >/dev/null; rc=$?
   expect_code 0 "$rc" "publish"
   doc=$(cat "$home/state/lane-capacity.json")
-  assert_equals 'fm-lane-capacity.v1|lanes-a|2|1|ship-0,ship-1|6|ok|alpha,beta|probe|19.2|32|0.06|4|null|null' \
+  assert_equals 'fm-lane-capacity.v1|main|2|1|ship-0,ship-1|6|ok|alpha,beta|probe|19.2|32|0.06|4|null|null' \
     "$(printf '%s\n' "$doc" | jq -r '[.schema,.home,.lanes.count,.lanes.pr_ready,(.lanes.ids | join(",")),.cap.target,.cap.status,(.projects | join(",")),.pressure.basis,.pressure.avail_gb,.pressure.total_gb,.pressure.runq_per_core,.limits.min_avail_gb,.limits.max_load1,.quota] | map(tostring) | join("|")')" \
     "the published document must carry lanes, cap, projects, and probe pressure"
   assert_equals 'true|4|not-configured|not-configured|1791484127|[1791484127]|true' \
@@ -454,7 +446,7 @@ test_publish_document() {
 
 test_captain_and_quota() {
   local home fakebin doc
-  home=$(make_home captain 0 0)
+  home=$(make_home captain 0)
   fakebin=$(make_probes "$TMP_ROOT/p-captain" 0.50 60 8 20971520)
   cat > "$fakebin/ioreg" <<SH
 #!/usr/bin/env bash
@@ -473,14 +465,10 @@ SH
   printf '%s\n' 900000000000 > "$fakebin/idle-ns"
   doc=$(capacity_doc "$home" "$fakebin")
   assert_equals idle "$(printf '%s\n' "$doc" | jq -r .captain)" "old input must read idle"
-  printf 'version: 2\nwords: |\n  gone\n' > "$home/state/.afk-contract"
-  doc=$(capacity_doc "$home" "$fakebin")
-  assert_equals away "$(printf '%s\n' "$doc" | jq -r .captain)" "an away record must read away"
   printf '%s\n' "$doc" > "$TMP_ROOT/captain-doc.json"
   assert_no_grep 900000 "$TMP_ROOT/captain-doc.json" "raw idle time must never be published"
   assert_no_grep HIDIdleTime "$TMP_ROOT/captain-doc.json" "raw idle input must never be published"
   printf '#!/usr/bin/env bash\nexit 1\n' > "$fakebin/quota-axi"
-  rm -f "$home/state/.afk-contract"
   printf '#!/usr/bin/env bash\nexit 1\n' > "$fakebin/ioreg"
   doc=$(capacity_doc "$home" "$fakebin")
   assert_equals 'unknown|unknown' "$(printf '%s\n' "$doc" | jq -r '"\(.captain)|\(.quota.runway)"')" \
@@ -502,7 +490,7 @@ stop_watcher() {  # <home>
 
 test_heavy_queue_depth_is_read_fresh_not_reported_without_orc() {
   local home fakebin out
-  home=$(make_home heavy 1 0)
+  home=$(make_home heavy 1)
   fakebin=$(make_probes "$TMP_ROOT/p-heavy" 0.50 60 8 20971520)
   out=$(run_capacity "$home" "$fakebin")
   assert_not_contains "$out" "Heavy queue" "a host without orc must print no heavy-queue line"
@@ -522,8 +510,8 @@ SH
 
 test_watcher_publishes_only_when_opted_in() {
   local on off i
-  on=$(make_home watch-on 1 0)
-  off=$(make_home watch-off 1 0)
+  on=$(make_home watch-on 1)
+  off=$(make_home watch-off 1)
   printf '3\n' > "$on/config/lane-capacity"
   start_watcher "$on"
   start_watcher "$off"

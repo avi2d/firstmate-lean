@@ -65,10 +65,6 @@ test_branch_prompt_is_byte_stable_and_above_cache_floor() {
     *"A worker whose pull request has landed is finished, not stuck"*"\`check: merge landed:\` wake names exactly that moment"*"\`bin/fm-teardown.sh <task>\` with no flags"*"never forced, worked around, or repaired by hand"*) ;;
     *) fail "branch prompt lost the landed-work cleanup rule" ;;
   esac
-  case "$out_a" in
-    *"A second mate's status log is a relay channel for its child work"*"retiring a second mate is MAIN's alone"*"Report a second mate's signal wake from the status lines that wake newly presents"*"A second mate's stale wake is a liveness event: report it even when it presents no new status lines."*) ;;
-    *) fail "branch prompt lost the second-mate relay, signal-span, or stale-liveness rule" ;;
-  esac
   pass "branch prompt is byte-stable across homes, cwd, timezone, and time, above the cache floor"
 }
 
@@ -1040,46 +1036,33 @@ test_unmarked_guard_with_a_lease_file_holds_exclusivity_through_mutation() {
   pass "a lease file makes an unmarked guard exclude a concurrent claim for the complete mutation"
 }
 
-# A home that runs the supervision host has a branch actor that can claim a
-# task no one has leased yet, so its unmarked main must exclude that first
-# claim for the whole guarded mutation, while a home that does not run it
-# keeps taking no lock at all. A Claude home runs it by default and an off
-# file opts out; another primary needs the file (bin/fm-supervision-contract.sh
-# owns the gate, and FM_TEST_HARNESS pins the primary it judges).
+# A Pi primary runs the supervision host, whose branch actor can claim a task
+# no one has leased yet, so its unmarked main must exclude that first claim for
+# the whole guarded mutation. A caller outside Pi keeps taking no lock at all.
 test_host_home_unmarked_guard_excludes_the_first_claim() {
-  local home operation_pid claim_pid claim_status out harness line
+  local home operation_pid claim_pid claim_status out
   home="$TMP_ROOT/host-first-claim-home"
   mkdir -p "$home/state" "$home/config"
   printf '%s\n' "$$" > "$home/state/.lock"
 
-  # Where the home does not run the host the unmarked guard stays lock-free
-  # for an unleased task. The positional parameter belongs to the nested shell.
-  probe_lock() {  # <harness>
-    # shellcheck disable=SC2016
-    env -u PI_CODING_AGENT -u FM_SUPERVISION_ACTOR CLAUDECODE=1 FM_TEST_HARNESS="$1" FM_HOME="$home" STATE="$home/state" bash -c '
-      . "$1"
-      fm_lease_guard task-first "probe"
-      if [ -e "$STATE/.fm-lease-command.lock" ]; then echo lock-taken; else echo no-lock; fi
-      fm_lease_guard_release
-    ' _ "$ROOT/bin/fm-lease-lib.sh" 2>&1
+  cat > "$home/probe-lock.sh" <<'SH'
+. "$1"
+fm_lease_guard task-first "probe"
+if [ -e "$STATE/.fm-lease-command.lock" ]; then echo lock-taken; else echo no-lock; fi
+fm_lease_guard_release
+SH
+  probe_lock() {  # <PI_CODING_AGENT value or empty>
+    env -u PI_CODING_AGENT -u FM_SUPERVISION_ACTOR ${1:+PI_CODING_AGENT=$1} FM_HOME="$home" STATE="$home/state" \
+      bash "$home/probe-lock.sh" "$ROOT/bin/fm-lease-lib.sh" 2>&1
   }
-  for line in - off; do
-    rm -f "$home/config/supervision-host" "$home/config/supervision-host-off"
-    [ "$line" = - ] || : > "$home/config/supervision-host-off"
-    for harness in claude codex; do
-      [ "$line:$harness" != -:claude ] || continue
-      out=$(probe_lock "$harness")
-      [ "$out" = no-lock ] || fail "a $harness home whose config/supervision-host is ${line/-/absent} engaged the lease-command lock: $out"
-    done
-  done
-  rm -f "$home/config/supervision-host" "$home/config/supervision-host-off"
-  out=$(probe_lock claude)
-  [ "$out" = lock-taken ] || fail "a Claude home without config/supervision-host runs the host, so its unmarked guard must take the lease-command lock: $out"
+  out=$(probe_lock "")
+  [ "$out" = no-lock ] || fail "a caller outside Pi engaged the lease-command lock for an unleased task: $out"
+  out=$(probe_lock true)
+  [ "$out" = lock-taken ] || fail "a Pi primary runs the host, so its unmarked guard must take the lease-command lock: $out"
 
-  : > "$home/config/supervision-host"
   # The positional parameter belongs to the nested shell.
   # shellcheck disable=SC2016
-  env -u PI_CODING_AGENT -u FM_SUPERVISION_ACTOR CLAUDECODE=1 FM_HOME="$home" STATE="$home/state" \
+  env -u FM_SUPERVISION_ACTOR PI_CODING_AGENT=true FM_HOME="$home" STATE="$home/state" \
     FM_TEST_READY="$home/operation-ready" FM_TEST_RELEASE="$home/operation-release" bash -c '
       . "$1"
       fm_lease_guard task-first "probe"
@@ -1110,7 +1093,7 @@ test_host_home_unmarked_guard_excludes_the_first_claim() {
     "branch $$ "*" live") ;;
     *) fail "the first claim recorded: $out" ;;
   esac
-  pass "a host home's unmarked main excludes the host's first claim for its whole mutation, and other homes take no lock"
+  pass "a Pi primary's unmarked main excludes the host's first claim for its whole mutation, and a caller outside Pi takes no lock"
 }
 
 # --- session-bound staleness and the loud accidental-override guard ---------

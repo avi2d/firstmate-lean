@@ -142,7 +142,7 @@ test_wedge_threshold_keeps_a_wait_past_a_default_key_answer() {
 # confirm points them away from the only action that ends the wait. The sibling
 # absorber makes exactly this distinction, and a lane routed here must not lose it.
 test_wedge_threshold_recheck_names_the_captain_for_a_held_lane() {
-  local dir state fakebin out capture window key n armed_timer
+  local dir state fakebin out capture window key n
   local working='state: working · source: run-step · ci running'
 
   dir=$(wedge_threshold_fixture captain-held-wait \
@@ -179,50 +179,7 @@ test_wedge_threshold_recheck_names_the_captain_for_a_held_lane() {
   [ ! -e "$state/.wedge-escalations-$key" ] \
     || fail "a captain-held lane counted $(cat "$state/.wedge-escalations-$key") wedge escalation(s)"
 
-  # While the away-posture record exists there is nobody to answer the hold, so
-  # this path absorbs it in silence like every other captain-held path in the
-  # watcher. The recheck is not merely delayed but not owed at all: no wake, and
-  # no throttle armed, so the moment the record is archived the hold is rechecked
-  # at once rather than waiting out a cadence that started while the captain was
-  # away. Same fixture and same age as the attended leg above, which is what makes
-  # the difference attributable to the record alone.
-  # The idle timer is pre-armed well past the threshold, so every round below
-  # reaches the absorb with the same timer value and a restart would be visible.
-  dir=$(wedge_threshold_fixture captain-held-away \
-    'captain-held: which retention window wins' 2000 2000)
-  state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"; capture="$dir/pane.txt"
-  armed_timer=$(cat "$state/.stale-since-$key")
-  write_away_record "$state"
-  n=1
-  while [ "$n" -le 3 ]; do
-    FM_TEST_PAUSE_RESURFACE=240 wedge_threshold_round "$state" "$fakebin" "$out" "$capture" "$window" "$working" absorb \
-      || fail "a captain-held lane was rechecked at threshold $n while the away-posture record existed: $(cat "$out")"
-    n=$((n + 1))
-  done
-  [ "$(wedge_stale_wakes "$state" "$window")" -eq 0 ] \
-    || fail "a captain-held lane woke the away captain: $(cat "$state/.wake-queue")"
-  [ ! -s "$out" ] \
-    || fail "a captain-held lane printed a recheck while the away-posture record existed: $(cat "$out")"
-  [ ! -e "$state/.waiting-resurfaced-$key" ] \
-    || fail "an away-silenced hold armed the recheck throttle, so the recheck owed on return would be delayed a full cadence"
-  [ ! -e "$state/.wedge-escalations-$key" ] \
-    || fail "an away-silenced hold counted $(cat "$state/.wedge-escalations-$key") wedge escalation(s)"
-  grep -F 'never rechecked while the away-posture record exists' "$state/.watch-triage.log" >/dev/null \
-    || fail "the away-silenced hold was not recorded in the triage log: $(cat "$state/.watch-triage.log")"
-  [ "$(cat "$state/.stale-since-$key")" = "$armed_timer" ] \
-    || fail "an away-silenced hold restarted the idle timer, so part of the away window would be spent against the cadence the recheck owed on return uses"
-
-  # And the recheck is owed in full the moment the captain is back: the absorb
-  # above leaves the idle timer alone, so no part of the away window is spent
-  # against the cadence the hold is rechecked on.
-  archive_away_record "$state"
-  : > "$out"
-  FM_TEST_PAUSE_RESURFACE=240 wedge_threshold_round "$state" "$fakebin" "$out" "$capture" "$window" "$working" exit \
-    || fail "a captain-held lane was never rechecked after the away-posture record was archived: $(cat "$out")"
-  grep -F 'awaiting the captain' "$out" >/dev/null \
-    || fail "the recheck owed on return did not name the captain: $(cat "$out")"
-  ack_stopped_cycle "$state" || fail "could not acknowledge the on-return captain-held recheck"
-  pass "a captain-held lane is rechecked as a hold on the captain, never as an external wait, and never at all while the captain is away"
+  pass "a captain-held lane is rechecked as a hold on the captain, never as an external wait"
 }
 
 # The backlog record of the same hold. Once firstmate hands a decision to the
@@ -243,7 +200,7 @@ backlog_hold_wedge_fixture() {  # <name> <status-age-secs> [<wedge-timer-age-sec
 }
 
 test_wedge_threshold_defers_to_a_backlog_captain_hold() {
-  local dir state fakebin out capture window key n queued armed_timer past
+  local dir state fakebin out capture window key n queued past
   local working='state: working · source: run-step · ci running'
   command -v tasks-axi >/dev/null 2>&1 \
     || { echo "skip: tasks-axi not found (backlog captain hold wedge bound)"; return 0; }
@@ -297,27 +254,7 @@ test_wedge_threshold_defers_to_a_backlog_captain_hold() {
     || fail "a backlog-held lane behind an elapsed pause counted a wedge escalation"
   ack_stopped_cycle "$state" || fail "could not acknowledge the elapsed-pause backlog-hold recheck"
 
-  # While the away-posture record exists it is never rechecked, and the backlog
-  # read that proves the hold is paced by the idle timer rather than every poll.
-  dir=$(backlog_hold_wedge_fixture backlog-hold-away 2000 2000) \
-    || fail "could not build a backlog captain-hold wedge fixture"
-  state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"; capture="$dir/pane.txt"
-  armed_timer=$(cat "$state/.stale-since-$key")
-  write_away_record "$state"
-  n=1
-  while [ "$n" -le 3 ]; do
-    FM_HOME="$dir" FM_DATA_OVERRIDE="$dir/data" FM_TEST_PAUSE_RESURFACE=240 \
-      wedge_threshold_round "$state" "$fakebin" "$out" "$capture" "$window" "$working" absorb \
-      || fail "a backlog-held lane was rechecked at threshold $n while the away-posture record existed: $(cat "$out")"
-    n=$((n + 1))
-  done
-  [ "$(wedge_stale_wakes "$state" "$window")" -eq 0 ] \
-    || fail "a backlog-held lane woke the away captain: $(cat "$state/.wake-queue")"
-  [ ! -s "$out" ] \
-    || fail "a backlog-held lane printed a recheck while the away-posture record existed: $(cat "$out")"
-  [ "$(cat "$state/.stale-since-$key")" != "$armed_timer" ] \
-    || fail "an away-silenced backlog hold left the idle timer expired, so its backlog read repeats on every poll"
-  pass "a backlog captain hold bounds the wedge ladder like a captain-held line, and stays silent while the captain is away"
+  pass "a backlog captain hold bounds the wedge ladder like a captain-held line"
 }
 
 # --- the wedge threshold reads the crew's own parked-gate state --------------
@@ -430,34 +367,6 @@ working: still parked at that gate'
   grep -F 'verified wait at a parked gate' "$out" >/dev/null \
     && fail "a gate awaiting the crewmate was deferred as a wait on a human: $(cat "$out")"
 
-  # The wait is owed by firstmate, not the captain, so the captain-away silence
-  # does not apply: under away posture the supervision branch is the actor
-  # allowed to answer it, and it keeps the long recheck cadence throughout.
-  dir=$(wedge_threshold_fixture parked-gate-away "$escalated" 2000)
-  arm_parked_gate "$dir"
-  state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"; capture="$dir/pane.txt"
-  write_away_record "$state"
-  wedge_threshold_round "$state" "$fakebin" "$out" "$capture" "$window" "$human" exit \
-    || fail "a parked gate owed firstmate's decision was silenced while the away-posture record existed: $(cat "$out")"
-  grep -F "awaiting firstmate's ask-user decision" "$out" >/dev/null \
-    || fail "the away-posture parked-gate recheck did not name firstmate: $(cat "$out")"
-  grep -F 'possible wedge' "$out" >/dev/null \
-    && fail "an away-posture parked gate was reported as a possible wedge: $(cat "$out")"
-  grep -F 'never rechecked while the away-posture record exists' "$state/.watch-triage.log" >/dev/null \
-    && fail "a parked gate owed firstmate took the captain-away silence: $(cat "$state/.watch-triage.log")"
-  ack_stopped_cycle "$state" || fail "could not acknowledge the away-posture parked-gate recheck"
-  queued=$(wedge_stale_wakes "$state" "$window")
-  n=1
-  while [ "$n" -le 3 ]; do
-    wedge_threshold_round "$state" "$fakebin" "$out" "$capture" "$window" "$human" absorb \
-      || fail "an away-posture parked gate wedge-escalated at threshold $n: $(cat "$out")"
-    n=$((n + 1))
-  done
-  [ "$(wedge_stale_wakes "$state" "$window")" -eq "$queued" ] \
-    || fail "an away-posture parked gate queued a further wake inside its recheck cadence: $(cat "$state/.wake-queue")"
-  [ ! -e "$state/.wedge-escalations-$key" ] \
-    || fail "an away-posture parked gate counted $(cat "$state/.wedge-escalations-$key") wedge escalation(s)"
-
   # An open decision under an unrelated key does not bind to this gate, so the
   # lane keeps the unchanged ladder: nothing says anyone was told about it.
   dir=$(wedge_threshold_fixture parked-gate-unrelated-key "$unrelated" 2000)
@@ -487,7 +396,7 @@ working: still parked at that gate'
   ack_stopped_cycle "$state" || fail "could not acknowledge the runless-gate escalation"
   grep -F 'possible wedge, escalation 1' "$out" >/dev/null \
     || fail "a runless human-owed gate did not take the unchanged ladder: $(cat "$out")"
-  pass "a gate awaiting firstmate's decision for its own run is rechecked on the long cadence in either posture, while a crewmate-owed gate, an unrelated open decision and a runless verdict keep the unchanged ladder"
+  pass "a gate awaiting firstmate's decision for its own run is rechecked on the long cadence, while a crewmate-owed gate, an unrelated open decision and a runless verdict keep the unchanged ladder"
 }
 
 # --- an unconfigured home behaves exactly as it did before this evidence -----

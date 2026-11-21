@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Contract tests for .github/workflows/ci.yml: one daily schedule and manual
-# dispatch run every job, and every job carries a finite timeout.
+# Contract tests for the triggers, job conditions, and timeouts of ci.yml.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -181,7 +180,7 @@ LINT_TIER_JOBS='lint'
 STATIC_TIER_JOBS='static'
 FAST_TIER_JOBS='test-coverage tests-timing-aggregate'
 NORMAL_TIER_JOBS='tests-portable-parallel-1 tests-portable-parallel-2 tests-portable-serial macos-stock-bash'
-HEAVY_TIER_JOBS='tests-herdr tests-hc'
+HEAVY_TIER_JOBS='tests-herdr'
 ALL_TIER_JOBS="$LINT_TIER_JOBS $STATIC_TIER_JOBS $FAST_TIER_JOBS $NORMAL_TIER_JOBS $HEAVY_TIER_JOBS"
 
 # Print the one timeout every listed job shares; fail on any disagreement.
@@ -201,29 +200,30 @@ tier_timeout() {  # <tier> <job>...
   printf '%s\n' "$first"
 }
 
-test_triggers_are_one_daily_schedule_and_manual_dispatch() {
+test_triggers_are_pull_requests_one_daily_schedule_and_manual_dispatch() {
   ruby -ryaml - "$CI_WORKFLOW" <<'RUBY' || fail "trigger contract"
 doc = YAML.load_file(ARGV[0])
 triggers = doc.key?(true) ? doc[true] : doc.fetch("on")
-raise "triggers must be exactly schedule and workflow_dispatch, got #{triggers.keys}" unless triggers.keys.sort == ["schedule", "workflow_dispatch"]
+raise "triggers must be exactly pull_request, schedule, and workflow_dispatch, got #{triggers.keys}" unless triggers.keys.sort == ["pull_request", "schedule", "workflow_dispatch"]
+raise "pull_request must not filter branches or paths, got #{triggers["pull_request"]}" unless triggers["pull_request"].nil?
 crons = triggers.fetch("schedule").map { |entry| entry.fetch("cron") }
 raise "schedule must have one cron entry, got #{crons}" unless crons.length == 1
 minute, hour, day, month, weekday = crons.first.split
 raise "schedule must run once a day: #{crons.first}" unless minute.match?(/\A\d+\z/) && hour.match?(/\A\d+\z/) && [day, month, weekday] == ["*", "*", "*"]
 RUBY
-  pass "ci.yml runs on one daily schedule and manual dispatch only"
+  pass "ci.yml runs on pull requests, one daily schedule, and manual dispatch only"
 }
 
-test_every_job_runs_on_the_scheduled_and_manual_runs() {
+test_every_job_runs_on_pull_request_scheduled_and_manual_runs() {
   local all event actual
   all=$(workflow_jobs | LC_ALL=C sort) || fail "could not list ci.yml jobs"
-  for event in schedule workflow_dispatch; do
+  for event in pull_request schedule workflow_dispatch; do
     actual=$(jobs_running_under "$event" '' | LC_ALL=C sort) \
       || fail "could not resolve the job conditions for $event"
     [ "$actual" = "$all" ] \
       || fail "$event must run every job"$'\n'"ran: $(printf '%s' "$actual" | tr '\n' ' ')"$'\n'"wanted: $(printf '%s' "$all" | tr '\n' ' ')"
   done
-  pass "a scheduled run and a manual run each run every job"
+  pass "a pull request run, a scheduled run, and a manual run each run every job"
 }
 
 # FM_CI_SKIP_MACOS=1 removes only the macOS job; no other job reads that variable.
@@ -231,7 +231,7 @@ test_fork_skip_variable_removes_only_the_macos_job() {
   local all expected event actual
   all=$(workflow_jobs | LC_ALL=C sort) || fail "could not list ci.yml jobs"
   expected=$(printf '%s\n' "$all" | grep -vx macos-stock-bash)
-  for event in schedule workflow_dispatch; do
+  for event in pull_request schedule workflow_dispatch; do
     actual=$(jobs_running_under "$event" 1 | LC_ALL=C sort) \
       || fail "could not resolve the job conditions for $event with FM_CI_SKIP_MACOS=1"
     [ "$actual" = "$expected" ] \
@@ -289,12 +289,12 @@ test_lint_and_static_keep_their_caps() {
 # The aggregate summarizes the lanes and must still run after one fails, so its summary lands.
 test_timing_aggregate_still_runs_after_a_failed_lane() {
   local event actual
-  for event in schedule workflow_dispatch; do
+  for event in pull_request schedule workflow_dispatch; do
     actual=$(job_runs_under tests-timing-aggregate "$event" '' failure) \
       || fail "could not resolve the aggregate condition for $event"
     [ "$actual" = true ] || fail "after a failed lane, the aggregate on $event must still run, got $actual"
   done
-  pass "the timing aggregate runs after a failed lane on each scheduled and manual run"
+  pass "the timing aggregate runs after a failed lane on each pull request, scheduled, and manual run"
 }
 
 test_no_ci_job_lists_a_dependency_twice() {
@@ -355,9 +355,6 @@ test_heavy_tier_keeps_a_step_tripwire_under_a_job_backstop() {
     || fail "heavy tier backstop ($heavy) must exceed the normal tier ($normal)"
   [ "$heavy" -ge 60 ] && [ "$heavy" -le 75 ] \
     || fail "heavy tier backstop must stay a 60-75 minute last resort, got $heavy"
-  # Each heavy lane's family-run step owns the same 20-minute tripwire shape:
-  # its own timeout, an always() cleanup step that must come after it, and a
-  # bound below the shared job backstop.
   while read -r lane run_step cleanup_step; do
     step=$(ruby -ryaml -e '
 steps = YAML.load_file(ARGV[0]).fetch("jobs").fetch(ARGV[1]).fetch("steps")
@@ -376,9 +373,8 @@ puts steps[index].fetch("timeout-minutes", "none")
       || fail "the $lane step tripwire ($step) must stay below the job backstop ($heavy)"
   done <<'LANES'
 tests-herdr run-real-herdr-family cleanup-herdr-lab-sessions
-tests-hc run-real-hc-family cleanup-hc-lab-sessions
 LANES
-  pass "each heavy lane keeps a 20 minute step tripwire under a $heavy minute job backstop"
+  pass "the heavy lane keeps a 20 minute step tripwire under a $heavy minute job backstop"
 }
 
 test_ci_matrices_match_executable_partitions() {
@@ -531,8 +527,8 @@ test_scan_version_pin_matches_the_documented_local_command() {
 }
 
 test_ci_matrices_match_executable_partitions
-test_triggers_are_one_daily_schedule_and_manual_dispatch
-test_every_job_runs_on_the_scheduled_and_manual_runs
+test_triggers_are_pull_requests_one_daily_schedule_and_manual_dispatch
+test_every_job_runs_on_pull_request_scheduled_and_manual_runs
 test_fork_skip_variable_removes_only_the_macos_job
 test_no_job_condition_keys_on_a_pull_request_or_push
 test_no_ci_job_lists_a_dependency_twice

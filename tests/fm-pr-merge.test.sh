@@ -6,7 +6,7 @@
 # never fires.
 #
 # The test_* functions below name the covered merge, refusal, live-head,
-# away-authority, outcome-publication, and recovery behavior directly.
+# outcome-publication, and recovery behavior directly.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -218,13 +218,6 @@ case "${1:-} ${2:-}" in
           && [ -f "${FM_TEST_GH_UPDATE_FINAL_VIEW:-}" ]; then
           cp "$FM_TEST_GH_UPDATE_FINAL_VIEW" "$FM_TEST_GH_UPDATE_VIEW"
         fi
-        if [ -f "${FM_TEST_AWAY_RECORD_AFTER_VIEW:-}" ]; then
-          if [ -s "${FM_TEST_AWAY_RECORD_AFTER_VIEW}" ]; then
-            cp "$FM_TEST_AWAY_RECORD_AFTER_VIEW" "$FM_STATE_OVERRIDE/.afk-contract"
-          else
-            rm -f "$FM_STATE_OVERRIDE/.afk-contract"
-          fi
-        fi
         view_dir=$(dirname "$FM_TEST_GH_VIEW_JSON")
         if [ -f "$view_dir/github-head-after-view" ]; then
           cp "$view_dir/github-head-after-view" "$view_dir/github-server-head"
@@ -257,17 +250,6 @@ case "${1:-} ${2:-}" in
   "pr merge")
     if [ -n "${FM_TEST_META_AT_MERGE:-}" ] && [ -f "${FM_STATE_OVERRIDE:-}/task-x1.meta" ]; then
       cat "$FM_STATE_OVERRIDE/task-x1.meta" > "$FM_TEST_META_AT_MERGE"
-    fi
-    # The forge call runs inside the merge's critical section, so a real
-    # away-record change attempted from here is the TOCTOU itself: whatever
-    # happens to it happens between the authority read and the merge.
-    if [ -x "${FM_TEST_AWAY_MUTATE_AT_MERGE:-}" ]; then
-      away_rc=0
-      "$FM_TEST_AWAY_MUTATE_AT_MERGE" > "$FM_TEST_AWAY_MUTATE_OUT" 2>&1 || away_rc=$?
-      printf '%s\n' "$away_rc" > "$FM_TEST_AWAY_MUTATE_RC"
-      "$FM_TEST_ROOT/bin/fm-afk-contract.sh" words \
-        > "$FM_TEST_AWAY_WORDS_AT_MERGE" 2>/dev/null \
-        || printf 'no-live-record\n' > "$FM_TEST_AWAY_WORDS_AT_MERGE"
     fi
     view_dir=$(dirname "$FM_TEST_GH_VIEW_JSON")
     if [ -f "$view_dir/github-server-head" ]; then
@@ -867,12 +849,6 @@ run_pr_merge() {
   FM_TEST_GH_REQUIRED_RULES="$case_dir/github-required-rules.json" \
   FM_TEST_GH_REQUIRED_RULES_FAIL="$case_dir/github-required-rules-fail" \
   FM_TEST_META_AT_MERGE="$case_dir/meta-at-merge" \
-  FM_TEST_AWAY_RECORD_AFTER_VIEW="$case_dir/away-record-after-view" \
-  FM_TEST_ROOT="$ROOT" \
-  FM_TEST_AWAY_MUTATE_AT_MERGE="${FM_TEST_AWAY_MUTATE_AT_MERGE:-}" \
-  FM_TEST_AWAY_MUTATE_OUT="$case_dir/away-mutate-output" \
-  FM_TEST_AWAY_MUTATE_RC="$case_dir/away-mutate-rc" \
-  FM_TEST_AWAY_WORDS_AT_MERGE="$case_dir/away-words-at-merge" \
   FM_TEST_REAL_MV="$REAL_MV" \
   FM_TEST_GLAB_LOG="$case_dir/glab.log" \
   FM_TEST_GLAB_DIFFS="$case_dir/gitlab-diffs.json" \
@@ -1779,10 +1755,6 @@ test_github_plan_gated_403_reads_as_no_queue() {
     "github-plan-gated-403: a plan-gated 403 was reported as an unreadable rules response"
   pass "fm-pr-merge reads a plan-gated 403 on branch rules as no merge queue, not unreadable"
 }
-
-# The practical effect of the fix: while away, a private repository's plan-gated 403
-# must no longer refuse the merge the way any other unreadable queue response
-# does.
 
 test_github_no_queue_rule_says_nothing_about_a_queue() {
   local case_dir rc
@@ -3385,34 +3357,16 @@ test_expected_head_bad_inputs_refuse_before_effects() {
 # bin/fm-merge-outcome-lib.sh owns where that record goes; these cases pin the
 # behavior through the real merge entrypoint.
 
-# make_home_case <name> [<route> [<parent-home>]]: a case dir whose home is a
-# secondmate home bound to a parent, or a plain main home when no route is
-# given. Echoes the case dir; the home is "$case_dir/home".
-make_home_case() {
-  local name=$1 route=${2:-} parent=${3:-} case_dir home
-  case_dir=$(make_case "$name")
-  home="$case_dir/home"
-  mkdir -p "$home" "$case_dir/wt"
-  if [ -n "$route" ]; then
-    printf '%s\n' mate-x >"$home/.fm-secondmate-home"
-    {
-      printf 'schema=fm-secondmate-parent.v1\n'
-      printf 'route=%s\n' "$route"
-      [ "$route" != local ] || printf 'parent_home=%s\n' "$parent"
-    } >"$home/.fm-secondmate-parent"
-  fi
+make_home_case() {  # <name>; the home is "$case_dir/home"
+  local case_dir
+  case_dir=$(make_case "$1")
+  mkdir -p "$case_dir/home" "$case_dir/wt"
   printf '%s\n' "$case_dir"
 }
 
-parent_reply_lines() {  # <file> <url>
-  grep -c -F "$2" "$1" 2>/dev/null || true
-}
-
-
-
 test_failed_merge_reports_nothing() {
   local case_dir rc
-  case_dir=$(make_home_case failed-merge-silent remote)
+  case_dir=$(make_home_case failed-merge-silent)
   add_gh_mocks_merge_fails "$case_dir"
   : >"$case_dir/gh-axi.log"
 
@@ -3423,9 +3377,7 @@ test_failed_merge_reports_nothing() {
   set -e
 
   expect_code 1 "$rc" "failed-merge-silent: a failed merge should propagate"
-  # The registration's ready line is a fact of its own; only a merge line
-  # would misreport the unlanded merge.
-  assert_no_grep 'merged-task-x1' "$case_dir/state/parent-replies.status" \
+  assert_no_grep 'merge landed' "$case_dir/state/.wake-queue" \
     "failed-merge-silent: a merge that never landed was reported as landed"
   pass "a refused or failed merge reports no outcome"
 }
@@ -3434,8 +3386,6 @@ test_gitlab_refusal_reports_nothing() {
   local case_dir rc
   case_dir=$(make_gitlab_case gitlab-refusal-silent state=merged)
   mkdir -p "$case_dir/home"
-  printf '%s\n' mate-x >"$case_dir/home/.fm-secondmate-home"
-  printf 'schema=fm-secondmate-parent.v1\nroute=remote\n' >"$case_dir/home/.fm-secondmate-parent"
 
   set +e
   FM_TEST_HOME="$case_dir/home" run_pr_merge "$case_dir" task-x1 "$MR_URL" \
@@ -3444,28 +3394,9 @@ test_gitlab_refusal_reports_nothing() {
   set -e
 
   expect_code 1 "$rc" "gitlab-refusal-silent: a refused GitLab merge should exit non-zero"
-  # Registration succeeds before the later GitLab pre-merge refusal, so the
-  # PR-ready fact is expected; only a merged outcome would be false.
-  assert_no_grep 'merged-task-x1' "$case_dir/state/parent-replies.status" \
+  assert_no_grep 'merge landed' "$case_dir/state/.wake-queue" \
     "gitlab-refusal-silent: a refused merge request was reported as landed"
   pass "a GitLab merge refused before the forge call reports no outcome"
-}
-
-test_gitlab_merge_reports_upward() {
-  local case_dir url
-  case_dir=$(make_gitlab_case gitlab-merge-reports)
-  mkdir -p "$case_dir/home"
-  printf '%s\n' mate-x >"$case_dir/home/.fm-secondmate-home"
-  printf 'schema=fm-secondmate-parent.v1\nroute=remote\n' >"$case_dir/home/.fm-secondmate-parent"
-  url=$MR_URL
-
-  FM_TEST_HOME="$case_dir/home" run_pr_merge "$case_dir" task-x1 "$url" \
-    >"$case_dir/stdout" 2>"$case_dir/stderr" || fail "gitlab-merge-reports: merge failed"
-
-  assert_grep "done [key=merged-task-x1]: merged task-x1 $url" \
-    <(sed -E 's/ \[at=[0-9]+\]//' "$case_dir/state/parent-replies.status") \
-    "gitlab-merge-reports: a landed merge request was not reported upward"
-  pass "a landed GitLab merge request is reported upward on the same channel"
 }
 
 test_queued_gitlab_merge_leaves_the_poll_armed() {
@@ -3501,8 +3432,6 @@ test_main_home_merge_leaves_a_durable_wake() {
     "main-merge-wake: a merge this home performed left no durable record naming the PR"
   [ "$(grep -c -F "$url" "$case_dir/state/.wake-queue")" -eq 1 ] \
     || fail "main-merge-wake: one merge produced more than one durable record"
-  assert_absent "$case_dir/state/parent-replies.status" \
-    "main-merge-wake: a main home wrote a parent reply channel it does not have"
   pass "a merge a main home performs itself leaves one durable wake naming the PR"
 }
 
@@ -3693,7 +3622,6 @@ test_github_updated_head_other_refusals_stop_waiting() {
         assert_grep "$reason" "$case_dir/stderr" "$visibility-$blocker-$waiting: missing the actual refusal reason"
         assert_no_grep 'pr merge' "$case_dir/gh.log" "$visibility-$blocker-$waiting: merged despite a blocker"
         assert_absent "$case_dir/state/.control-task-x1.lock" "$visibility-$blocker-$waiting: task control lock remained held"
-        assert_absent "$case_dir/state/.afk-contract.lock" "$visibility-$blocker-$waiting: away-authority lock remained held"
         [ "$(grep -c '/pulls/6190/update-branch' "$case_dir/gh.log")" -eq 1 ] \
           || fail "$visibility-$blocker-$waiting: the update request was repeated"
         reads=$(grep -c 'statusCheckRollup' "$case_dir/gh.log")
@@ -4861,9 +4789,6 @@ test_allow_red_still_waives_only_the_current_failure() {
 }
 
 
-# A quiet-mode record is a present captain, not an away posture: the attended
-# red-check waiver still works and the merge is recorded as attended.
-
 test_allow_red_requires_one_separate_name() {
   local case_dir rc head
   head=afafafafafafafafafafafafafafafafafafafaf
@@ -4896,47 +4821,6 @@ test_allow_red_requires_one_separate_name() {
   pass "fm-pr-merge accepts exactly one separately named red-check waiver"
 }
 
-
-# While the away-posture record exists main is parked, so the supervision
-# branch actor may reach the merge gate - and meets exactly the gate main
-# would: any task merges green at its live head under away authority, a red
-# one is refused whatever the words say, and without the record the branch is
-# refused at the role partition before any forge call
-# (docs/pi-supervision-branch.md "Postures").
-
-# The race this closes: a branch merge passes the opening partition
-# because the live record exists, then the captain returns and archives that
-# record during the slow forge preflight. The locked authority recheck must
-# treat that archive as absence and refuse the branch before gh pr merge.
-# An empty away-record-after-view file is the mock's archive-during-view hook.
-
-
-
-
-# The race this closes: the away record is read for merge authority and the
-# forge is called afterwards, so an archive (the captain's return) or a
-# replacement of the words landing in between would merge on authority that no
-# longer holds.
-# away_change_script writes the change the gh mock attempts from inside the
-# forge call, which IS that window. Its body drives the real away-record
-# commands /afk and the return use, never a file edit, and takes a one-second
-# lock bound so a contended case refuses quickly instead of waiting.
-
-# Two away-record changes, each attempted from inside the merge's critical
-# section: the archive a captain return performs, and the replacement /afk with
-# new words performs. Neither may land there, and the merge must still complete
-# on the authority it read.
-
-# The same serialization from the other side. A record change that wins the
-# race lands BEFORE the in-lock authority read, and the merge then answers to
-# what it finds there: an unreadable record refuses rather than merging on the
-# record the opening partition saw. The lock decides an order, it never lets a
-# stale read through.
-
-# Fail closed. The lock is what makes the authority read and the merge one
-# action, so a merge that cannot take it has no locked window to merge in and
-# refuses - including on this attended case, where the record is absent and
-# there is no away authority to read at all.
 
 test_allow_red_refused_on_gitlab() {
   local case_dir rc
@@ -5395,10 +5279,9 @@ test_allow_no_pipeline_merges_only_a_null_head_pipeline() {
 
 
 test_gitlab_head_override_args_refuse_before_recording
-test_gitlab_merge_reports_upward
-test_queued_gitlab_merge_leaves_the_poll_armed
 test_failed_merge_reports_nothing
 test_gitlab_refusal_reports_nothing
+test_queued_gitlab_merge_leaves_the_poll_armed
 test_main_home_merge_leaves_a_durable_wake
 test_queued_github_merge_leaves_the_poll_armed
 test_distinct_merged_prs_keep_distinct_wakes

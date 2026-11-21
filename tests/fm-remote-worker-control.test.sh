@@ -65,7 +65,7 @@ if [ -f "$FM_HOME/config/crew-dispatch.json" ] && [ ! -f "$FM_HOME/data/$id/disp
 kind=ship
 for arg in "$@"; do [ "$arg" != --scout ] || kind=scout; done
 printf '%s\n' "$@" > "$FM_HOME/state/$id.args"
-printf 'window=lab:fm-%s\nworktree=/tmp/worktree\nproject=/tmp/project\nkind=%s\nharness=pi\n' "$id" "$kind" > "$FM_HOME/state/$id.meta"
+printf 'window=fm-remote:w1:fm-%s\nbackend=herdr\nendpoint_task_id=%s\nherdr_session=fm-remote\nherdr_workspace_id=w1\nherdr_tab_id=w1:t1\nherdr_pane_id=w1:fm-%s\nworktree=/tmp/worktree\nproject=/tmp/project\nkind=%s\nharness=pi\n' "$id" "$id" "$id" "$kind" > "$FM_HOME/state/$id.meta"
 printf 'working: reading brief\n' > "$FM_HOME/state/$id.status"
 SH
 chmod +x "$FAKE_ROOT/bin/fm-spawn.sh"
@@ -75,7 +75,7 @@ assert_grep 'Independent request.' "$HOME_DIR/data/scout-c/brief.md" "remote sca
 assert_grep 'Exact constraints.' "$HOME_DIR/data/scout-c/brief.md" "remote scaffold dropped specification"
 assert_grep '--local' "$HOME_DIR/state/scout-c.args" "host spawn did not override remote placement"
 assert_grep "$HOME_DIR/state/scout-c.status" "$HOME_DIR/data/scout-c/brief.md" "remote scaffold retained main paths"
-printf '%s\n' "$out" | grep -Fx 'target=lab:fm-scout-c' >/dev/null || fail "launch omitted route"
+printf '%s\n' "$out" | grep -Fx 'target=fm-remote:w1:fm-scout-c' >/dev/null || fail "launch omitted route"
 pass "remote launch rebuilds the brief and returns the host endpoint"
 { printf '# Task\n'; sleep 0.2; printf '## Captain\x27s intent\nComplete request.\n\n## Firstmate spec\nComplete constraints.\n'; } | \
   FM_ROOT_OVERRIDE="$FAKE_ROOT" FM_HOME="$HOME_DIR" bash "$FAKE_ROOT/bin/fm-remote-worker-control.sh" launch scout-d alpha scout - - fm/ - pi - - herdr >/dev/null \
@@ -110,8 +110,8 @@ pass "remote send-stdin refuses a blank steer without touching the inbox"
 if PATH="$TMP_ROOT/fake-bin:$PATH" FM_HOME="$HOME_DIR" bash "$ROOT/bin/fm-remote-worker-control.sh" send-stdin ghost < "$TMP_ROOT/brief" >/dev/null 2>&1; then fail "remote send-stdin accepted a task the execution home does not know"; fi
 pass "remote send-stdin refuses a task the execution home does not know"
 out=$(PATH="$TMP_ROOT/fake-bin:$PATH" FM_HOME="$HOME_DIR" bash "$ROOT/bin/fm-remote-worker-control.sh" fleet) || fail "remote fleet refused: $out"
-printf '%s\n' "$out" | grep -Fx $'scout-a\tunreadable\tunknown\t-' >/dev/null || fail "fleet misreported the probe contract: $out"
-pass "remote fleet reports agent, busy, and hash for every host task"
+printf '%s\n' "$out" | grep -Ex $'scout-a\tunreadable\tunknown\t-\t001\\.msg:[0-9]+' >/dev/null || fail "fleet misreported the probe contract: $out"
+pass "remote fleet reports agent, busy, hash, and oldest unread steer for every host task"
 out=$(PATH="$TMP_ROOT/fake-bin:$PATH" FM_HOME="$HOME_DIR" bash "$ROOT/bin/fm-remote-worker-control.sh" done-gate scout-a 'done: all green') || fail "remote done gate refused a scout: $out"
 [ "$out" = ok ] || fail "remote done gate misreported its verdict: $out"
 pass "remote done gate answers from the execution home"

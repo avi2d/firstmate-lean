@@ -108,17 +108,13 @@ test_custom_time_and_zone() {
   assert_contains "$out" "day-review due" "check stayed silent at 09:30 UTC"
 }
 
-test_off_afk_and_bad_config() {
+test_off_and_bad_config() {
   local home out
   home=$(make_home quiet)
   printf 'off\n' > "$home/config/day-review"
   out=$(review "$home" "$UNTIL" check)
   assert_equals "" "$out" "off still woke the supervisor"
   rm "$home/config/day-review"
-  touch "$home/state/.afk"
-  out=$(review "$home" "$UNTIL" check)
-  assert_equals "" "$out" "a parked supervisor was woken"
-  rm "$home/state/.afk"
   printf '9pm\n' > "$home/config/day-review"
   out=$(review "$home" "$UNTIL" check)
   assert_contains "$out" "config/day-review is not" "a malformed schedule was not reported"
@@ -159,15 +155,6 @@ test_run_builds_the_board_from_the_records() {
   assert_equals "" "$out" "check fired again on the same day"
 }
 
-test_unreachable_secondmate_is_a_gap() {
-  local home out
-  home=$(make_home gap)
-  write_fixture "$home"
-  printf -- '- ghost - test mate (home: %s/missing; scope: test; projects: none; added 2026-10-10)\n' "$TMP_ROOT" > "$home/data/secondmates.md"
-  out=$(review "$home" $((UNTIL + 60)) run) || fail "run failed: $out"
-  assert_grep "The ghost second mate could not be read" "$home/data/day-review/2026-10-25/numbers.json" "a missing second mate was not stated"
-}
-
 test_force_does_not_mark_the_day() {
   local home out
   home=$(make_home force)
@@ -206,9 +193,8 @@ test_arm_and_disarm() {
 
 test_due_at_the_moscow_hour_whatever_the_host_zone
 test_custom_time_and_zone
-test_off_afk_and_bad_config
+test_off_and_bad_config
 test_run_builds_the_board_from_the_records
-test_unreachable_secondmate_is_a_gap
 test_force_does_not_mark_the_day
 test_next_review_judges_advice_per_task
 test_arm_and_disarm

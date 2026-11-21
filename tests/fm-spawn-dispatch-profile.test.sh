@@ -89,16 +89,6 @@ record_dispatch() {  # <home> <id> <status> [<harness> <model> <effort>]
     > "$home/data/$id/dispatch-resolution.json"
 }
 
-make_seeded_secondmate_home() {
-  local home=$1 id=$2
-  mkdir -p "$home/bin" "$home/data"
-  printf '# Firstmate\n' > "$home/AGENTS.md"
-  printf '%s\n' "$id" > "$home/.fm-secondmate-home"
-  printf 'charter for %s\n' "$id" > "$home/data/charter.md"
-  printf '%s\n' 'projects/' 'state/' 'data/' 'config/' '.no-mistakes/' > "$home/.gitignore"
-  git -C "$home" init -q -b main
-}
-
 task_inbox_export() {  # <home> <id>
   local state
   state=$(CDPATH='' cd -- "$1/state" && pwd -P) || fail "cannot resolve state dir $1/state"
@@ -255,7 +245,7 @@ case "${1:-}" in
     monthly_reset=${FM_FAKE_QUOTA_MONTHLY_RESET_JSON:-'"2030-01-03T03:04:05Z"'}
     limiting_ids=${FM_FAKE_QUOTA_LIMITING_IDS_JSON:-'["weekly"]'}
     limiting_id=${FM_FAKE_QUOTA_LIMITING_ID_JSON:-'"weekly"'}
-    printf '{"schemaVersion":5,"providers":[{"provider":"codex","resetsAt":%s,"windows":[{"id":"weekly","percentRemaining":%s,"resetsAt":%s},{"id":"monthly","percentRemaining":8,"resetsAt":%s}],"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":%s,"runway":{"status":"%s","limitingWindowId":%s},"limitingWindowIds":%s}]}}]}\n' "$provider_reset" "${FM_FAKE_QUOTA_REMAINING:-10}" "$weekly_reset" "$monthly_reset" "${FM_FAKE_QUOTA_REMAINING:-10}" "${FM_FAKE_QUOTA_RUNWAY:-through_reset}" "$limiting_id" "$limiting_ids" ;;
+    printf '{"schemaVersion":5,"providers":[{"provider":"pi","resetsAt":%s,"windows":[{"id":"weekly","percentRemaining":%s,"resetsAt":%s},{"id":"monthly","percentRemaining":8,"resetsAt":%s}],"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":%s,"runway":{"status":"%s","limitingWindowId":%s},"limitingWindowIds":%s}]}}]}\n' "$provider_reset" "${FM_FAKE_QUOTA_REMAINING:-10}" "$weekly_reset" "$monthly_reset" "${FM_FAKE_QUOTA_REMAINING:-10}" "${FM_FAKE_QUOTA_RUNWAY:-through_reset}" "$limiting_id" "$limiting_ids" ;;
 esac
 SH
   chmod +x "$FAKEBIN_DIR/quota-axi"
@@ -1064,65 +1054,6 @@ test_pi_signed_missing_binary_refuses_before_endpoint_or_metadata() {
   pass "pi-signed refuses safely and actionably when the selected executable is unavailable"
 }
 
-test_pi_signed_persistent_secondmate_uses_pi_extensions_and_identity() {
-  local rec id sm out status launch
-  id=profile-pi-signed-secondmate-z8d
-  rec=$(make_spawn_case profile-pi-signed-secondmate pi "$id")
-  read_case_record "$rec"
-  printf '%s\n' pi-signed > "$HOME_DIR/config/secondmate-harness"
-  sm="$CASE_DIR/secondmate-home"
-  make_seeded_secondmate_home "$sm" "$id"
-  sm=$(cd "$sm" && pwd -P)
-  cp "$ROOT/AGENTS.md" "$sm/AGENTS.md"
-  cp "$sm/data/charter.md" "$CASE_DIR/charter-before"
-
-  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$sm" --secondmate)
-  status=$?
-  expect_code 0 "$status" "pi-signed persistent secondmate spawn should succeed"
-  assert_contains "$out" "spawned $id harness=pi-signed kind=secondmate" \
-    "pi-signed secondmate spawn did not preserve its runtime identity"
-  assert_meta_profile "$HOME_DIR/state/$id.meta" pi-signed default default
-  cmp -s "$ROOT/AGENTS.md" "$sm/AGENTS.md" || fail "secondmate launch rewrote the supervisor contract"
-  cmp -s "$CASE_DIR/charter-before" "$sm/data/charter.md" || fail "secondmate launch rewrote the charter"
-  assert_absent "$HOME_DIR/data/$id/launch-brief.md" "secondmate launch received a worker overlay"
-  launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "< '$sm/data/charter.md'" "secondmate launch lost its original charter"
-  assert_contains "$launch" "FM_PI_HARNESS=pi-signed '$FAKEBIN_DIR/pi-signed' --approve -e '$sm/.pi/extensions/fm-primary-turnend-guard.ts' -e '$sm/.pi/extensions/fm-primary-pi-watch.ts'" \
-    "pi-signed secondmate did not keep Pi's default TUI with Pi's primary extension launch shape and seeded-home --approve"
-  if [ "${FM_TEST_EVIDENCE:-0}" = 1 ]; then
-    printf '# evidence begin: persistent secondmate\n%s\n' "$out"
-    printf 'launch command:\n%s\noriginal charter:\n' "$launch"
-    cat "$sm/data/charter.md"
-    printf 'supervisor AGENTS.md and charter remain byte-identical; no worker overlay created\n# evidence end\n'
-  fi
-  pass "pi-signed is a distinct persistent secondmate runtime with shared Pi supervision semantics"
-}
-
-test_pi_seeded_secondmate_preapproves_project_trust() {
-  local harness rec id sm out status launch
-  for harness in pi pi-signed; do
-    id="profile-${harness}-seeded-approve-z8e"
-    rec=$(make_spawn_case "profile-${harness}-seeded-approve" pi "$id")
-    read_case_record "$rec"
-    printf '%s\n' "$harness" > "$HOME_DIR/config/secondmate-harness"
-    sm="$CASE_DIR/secondmate-home"
-    make_seeded_secondmate_home "$sm" "$id"
-    sm=$(cd "$sm" && pwd -P)
-
-    out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$sm" --secondmate)
-    status=$?
-    expect_code 0 "$status" "$harness seeded secondmate spawn should succeed"
-    launch=$(cat "$LAUNCH_LOG")
-    assert_contains "$launch" "'$FAKEBIN_DIR/$harness'" \
-      "$harness secondmate must launch the probed executable"
-    assert_contains "$launch" "--approve" \
-      "$harness seeded secondmate must pre-approve project trust when help advertises --approve"
-    assert_contains "$launch" "-e '$sm/.pi/extensions/fm-primary-turnend-guard.ts'" \
-      "$harness secondmate lost its turn-end extension"
-  done
-  pass "seeded Pi/pi-signed secondmate launches carry session --approve when advertised"
-}
-
 test_pi_worker_launch_preapproves_project_trust() {
   local harness rec id out status launch
   for harness in pi pi-signed; do
@@ -1153,26 +1084,8 @@ test_pi_worker_launch_preapproves_project_trust() {
 }
 
 test_pi_approve_probe_omits_unsupported_flag() {
-  local harness rec id sm out status launch
+  local harness rec id out status launch
   for harness in pi pi-signed; do
-    id="profile-${harness}-no-approve-z8g"
-    rec=$(make_spawn_case "profile-${harness}-no-approve" pi "$id")
-    read_case_record "$rec"
-    printf '%s\n' "$harness" > "$HOME_DIR/config/secondmate-harness"
-    sm="$CASE_DIR/secondmate-home"
-    make_seeded_secondmate_home "$sm" "$id"
-    sm=$(cd "$sm" && pwd -P)
-
-    out=$(FM_TEST_PI_VERSION=0.50.0 \
-      run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$sm" --secondmate)
-    status=$?
-    expect_code 0 "$status" "$harness without --approve must still spawn"
-    launch=$(cat "$LAUNCH_LOG")
-    assert_contains "$launch" "'$FAKEBIN_DIR/$harness'" \
-      "$harness without --approve must still launch the probed executable"
-    assert_not_contains "$launch" "--approve" \
-      "$harness secondmate without advertised --approve must omit the flag"
-
     id="profile-${harness}-worker-no-approve-z8g"
     rec=$(make_spawn_case "profile-${harness}-worker-no-approve" pi "$id")
     read_case_record "$rec"
@@ -1182,6 +1095,8 @@ test_pi_approve_probe_omits_unsupported_flag() {
     status=$?
     expect_code 0 "$status" "$harness ship without --approve must still spawn"
     launch=$(cat "$LAUNCH_LOG")
+    assert_contains "$launch" "'$FAKEBIN_DIR/$harness'" \
+      "$harness without --approve must still launch the probed executable"
     assert_not_contains "$launch" "--approve" \
       "$harness ship without advertised --approve must omit the flag"
 
@@ -1458,8 +1373,8 @@ SH
   pass "Pi and pi-signed ship and scout launches refuse when the exclusion file disappears after its checks"
 }
 
-test_pi_exclude_tools_do_not_leak_across_homes_or_to_secondmates() {
-  local rec_a rec_b id_a id_b launch sm out status
+test_pi_exclude_tools_do_not_leak_across_homes() {
+  local rec_a rec_b id_a id_b
   id_a=excl-home-a-z9f
   id_b=excl-home-b-z9g
   rec_a=$(make_spawn_case excl-home-a pi "$id_a")
@@ -1476,22 +1391,7 @@ test_pi_exclude_tools_do_not_leak_across_homes_or_to_secondmates() {
   expect_code 0 "$?" "home B spawn should succeed"
   assert_not_contains "$(cat "$LAUNCH_LOG")" "--exclude-tools" "home B must not inherit home A's exclusions"
 
-  # A seeded secondmate agent is unaffected even in the home that has the file.
-  id_a=excl-sm-z9h
-  rec_a=$(make_spawn_case excl-sm pi "$id_a")
-  read_case_record "$rec_a"
-  printf '%s\n' pi > "$HOME_DIR/config/secondmate-harness"
-  write_exclude_file "$HOME_DIR" 'mcp__srv__writeTool'
-  sm="$CASE_DIR/secondmate-home"
-  make_seeded_secondmate_home "$sm" "$id_a"
-  sm=$(cd "$sm" && pwd -P)
-  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id_a" "$sm" --secondmate)
-  status=$?
-  expect_code 0 "$status" "Pi secondmate spawn should succeed"$'\n'"$out"
-  launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "fm-primary-turnend-guard.ts" "secondmate launch was not the Pi secondmate shape"
-  assert_not_contains "$launch" "--exclude-tools" "a secondmate's own agent must not receive the worker exclusions"
-  pass "exclusions stay in the home that configured them and skip secondmate agents"
+  pass "exclusions stay in the home that configured them"
 }
 
 test_batch_forwards_shared_profile_flags() {
@@ -1557,24 +1457,6 @@ SH
   assert_grep 'destination.example' "$seen" \
     "the worker launch did not retain the destination pane's Lavish host"
   pass "absent Lavish configuration preserves the destination environment"
-}
-
-test_active_dispatch_profile_does_not_block_secondmate_launch() {
-  local rec id sm out status
-  id=profile-secondmate-z16
-  rec=$(make_spawn_case profile-secondmate pi "$id")
-  read_case_record "$rec"
-  enable_dispatch_profile "$HOME_DIR"
-  sm="$CASE_DIR/secondmate-home"
-  make_seeded_secondmate_home "$sm" "$id"
-
-  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$sm" --secondmate)
-  status=$?
-  expect_code 0 "$status" "secondmate spawn should be exempt from the dispatch-profile explicit harness requirement"
-  assert_contains "$out" "spawned $id harness=pi kind=secondmate" "secondmate launch did not use secondmate harness resolution"
-  assert_grep "kind=secondmate" "$HOME_DIR/state/$id.meta" "secondmate meta missing kind=secondmate"
-  assert_meta_profile "$HOME_DIR/state/$id.meta" pi default default
-  pass "active crew-dispatch profile does not block secondmate launches"
 }
 
 # Execute the actual emitted command in a synthetic pane environment: the
@@ -1684,127 +1566,9 @@ test_launch_environment_inaccessible_config_refuses() {
   done
 }
 
-test_launch_environment_inherited_by_secondmate() {
-  local rec id sm out status result
-  id=env-secondmate
-  rec=$(make_spawn_case "$id" pi "$id")
-  read_case_record "$rec"
-  printf 'FM_TEST_ALLOWED\n' > "$HOME_DIR/config/launch-env-allowlist"
-  sm="$CASE_DIR/secondmate-home"
-  make_seeded_secondmate_home "$sm" "$id"
-  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$sm" --secondmate)
-  status=$?
-  expect_code 0 "$status" "secondmate with an allowlist should spawn: $out"
-  cmp -s "$HOME_DIR/config/launch-env-allowlist" "$sm/config/launch-env-allowlist" \
-    || fail "secondmate did not inherit the launch environment contract"
-  cat > "$FAKEBIN_DIR/codex" <<'SH'
-#!/bin/sh
-printf '%s\n' "${FM_TEST_AMBIENT_SENTINEL-unset}" "$FM_TEST_ALLOWED" "$FM_HOME" "${FM_STATE_OVERRIDE-unset}"
-SH
-  chmod +x "$FAKEBIN_DIR/codex"
-  result=$(env -i HOME="$HOME_DIR/user-home" PATH="$FAKEBIN_DIR:$PATH" \
-    FM_TEST_AMBIENT_SENTINEL=synthetic-unrelated FM_TEST_ALLOWED=synthetic-provider \
-    /bin/sh -c "$(cat "$LAUNCH_LOG")") || fail "secondmate's emitted command failed"
-  [ "$result" = "unset"$'\nsynthetic-provider\n'"$sm" ] \
-    || fail "secondmate's environment lost filtering or explicit home assignments: $result"
-  # Exercise the same inheritance owner used by local and remote transfers;
-  # removal must restore absence downstream as well as copying an opt-in.
-  (
-    # shellcheck source=/dev/null
-    . "$ROOT/bin/fm-config-inherit-lib.sh"
-    rm "$HOME_DIR/config/launch-env-allowlist"
-    propagate_secondmate_inheritance "$HOME_DIR" "$sm" >/dev/null
-  ) || fail "allowlist removal failed to converge"
-  [ ! -e "$sm/config/launch-env-allowlist" ] || fail "secondmate retained a removed allowlist"
-  pass "secondmate launch inherits the allowlist for subsequent worker launches"
-}
-
-run_launch_environment_inheritance() {
-  local route=$1 home=$2 dest=$3 fakebin=$4 generation=$5
-  if [ "$route" = local ]; then
-    (
-      # shellcheck source=/dev/null
-      . "$ROOT/bin/fm-config-inherit-lib.sh"
-      FM_INHERITABLE_CONFIG=launch-env-allowlist \
-        propagate_inheritable_config "$home/config" "$dest/config"
-    )
-  else
-    FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" FM_CONFIG_OVERRIDE="$home/config" \
-      FM_DATA_OVERRIDE="$home/data" FM_INHERITABLE_CONFIG=launch-env-allowlist \
-      FM_SSH_BIN="$fakebin/inherit-ssh" \
-      "$ROOT/bin/fm-remote-inherit-push.sh" inherited-env "$generation"
-  fi
-}
-
-test_launch_environment_inheritance_preserves_on_source_errors() {
-  local route rec id dest out status
-  if [ "$(id -u)" = 0 ]; then
-    printf '# skip - inaccessible inheritance sources require a non-root user\n'
-    return
-  fi
-  for route in local remote; do
-    id="env-inherit-$route"
-    rec=$(make_spawn_case "$id" pi "$id")
-    read_case_record "$rec"
-    dest="$CASE_DIR/inherited-home"
-    mkdir -p "$dest/config"
-    printf 'FM_TEST_ALLOWED\n' > "$HOME_DIR/config/launch-env-allowlist"
-    printf -- '- inherited-env - Test route (host: inherit-host; root: %s; home: %s; scope: test; projects: ; added 2026-09-05)\n' \
-      "$ROOT" "$dest" > "$HOME_DIR/data/secondmates.md"
-    cat > "$FAKEBIN_DIR/inherit-ssh" <<'SH'
-#!/usr/bin/env bash
-set -eu
-while [ "$#" -gt 0 ]; do
-  case "$1" in -o) shift 2 ;; --) shift; break ;; *) exit 90 ;; esac
-done
-[ "$#" -eq 6 ] && [ "$1" = inherit-host ] && [ "$3" = 1 ] || exit 91
-case "$2" in \'/*/bin/fm-remote-entrypoint.sh\') ;; *) exit 91 ;; esac
-remote_root=$(printf '%s' "$4" | base64 --decode)
-remote_home=$(printf '%s' "$5" | base64 --decode)
-args=()
-while IFS= read -r -d '' arg; do args+=("$arg"); done < <(printf '%s' "$6" | base64 --decode)
-[ "${args[0]}" = fm-remote-inherit.sh ] || exit 92
-FM_HOME="$remote_home" FM_STATE_OVERRIDE="$remote_home/state" \
-  exec "$remote_root/bin/${args[0]}" "${args[@]:1}"
-SH
-    chmod +x "$FAKEBIN_DIR/inherit-ssh"
-    out=$(run_launch_environment_inheritance "$route" "$HOME_DIR" "$dest" "$FAKEBIN_DIR" 1 2>&1)
-    status=$?
-    expect_code 0 "$status" "$route allowlist inheritance should succeed: $out"
-    [ "$(cat "$dest/config/launch-env-allowlist")" = FM_TEST_ALLOWED ] \
-      || fail "$route inheritance did not publish the allowlist"
-
-    chmod 600 "$HOME_DIR/config" || fail "could not remove source search permission"
-    out=$(run_launch_environment_inheritance "$route" "$HOME_DIR" "$dest" "$FAKEBIN_DIR" 2 2>&1)
-    status=$?
-    chmod 700 "$HOME_DIR/config" || fail "could not restore source search permission"
-    expect_code 1 "$status" "$route inheritance must refuse an inaccessible source: $out"
-    assert_contains "$out" launch-env-allowlist "$route inspection error must identify the allowlist"
-    [ "$(cat "$dest/config/launch-env-allowlist")" = FM_TEST_ALLOWED ] \
-      || fail "$route inheritance removed or changed the allowlist after an inspection error"
-
-    rm "$HOME_DIR/config/launch-env-allowlist"
-    ln -s missing-allowlist "$HOME_DIR/config/launch-env-allowlist"
-    out=$(run_launch_environment_inheritance "$route" "$HOME_DIR" "$dest" "$FAKEBIN_DIR" 3 2>&1)
-    status=$?
-    expect_code 1 "$status" "$route inheritance must refuse a dangling source link: $out"
-    [ "$(cat "$dest/config/launch-env-allowlist")" = FM_TEST_ALLOWED ] \
-      || fail "$route inheritance treated a dangling source link as absence"
-
-    rm "$HOME_DIR/config/launch-env-allowlist"
-    out=$(run_launch_environment_inheritance "$route" "$HOME_DIR" "$dest" "$FAKEBIN_DIR" 4 2>&1)
-    status=$?
-    expect_code 0 "$status" "$route inheritance should mirror proven absence: $out"
-    [ ! -e "$dest/config/launch-env-allowlist" ] || fail "$route inheritance retained a removed allowlist"
-    pass "$route inheritance preserves the allowlist on source errors and mirrors proven absence"
-  done
-}
-
 test_launch_environment_allowlist
 test_launch_environment_invalid_config_refuses
 test_launch_environment_inaccessible_config_refuses
-test_launch_environment_inherited_by_secondmate
-test_launch_environment_inheritance_preserves_on_source_errors
 
 test_worker_launch_delivers_role_scope() {
   local rec id out launch kind prompt envelope encoded brief_kind brief content first_line role_line task_line inbox
@@ -1832,11 +1596,11 @@ test_worker_launch_delivers_role_scope() {
       printf '%s\n' "$content" > "$brief"
     fi
     cp "$HOME_DIR/data/$id/brief.md" "$CASE_DIR/brief-before"
-    cat > "$FAKEBIN_DIR/codex" <<'SH'
+    cat > "$FAKEBIN_DIR/pi" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$@" > "$FM_ROLE_PROMPT"
 SH
-    chmod +x "$FAKEBIN_DIR/codex"
+    chmod +x "$FAKEBIN_DIR/pi"
     if [ "$kind" = scout ]; then
       out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --scout)
     else
@@ -1919,8 +1683,6 @@ test_pi_threads_model_and_max_effort
 test_pi_launch_keeps_default_tui_for_old_and_new_pi
 test_pi_signed_threads_shared_pi_profile_and_preserves_identity
 test_pi_signed_missing_binary_refuses_before_endpoint_or_metadata
-test_pi_signed_persistent_secondmate_uses_pi_extensions_and_identity
-test_pi_seeded_secondmate_preapproves_project_trust
 test_pi_worker_launch_preapproves_project_trust
 test_pi_approve_probe_omits_unsupported_flag
 test_pi_exclude_tools_reach_ship_and_scout_launches
@@ -1929,10 +1691,9 @@ test_pi_exclude_tools_absent_and_empty_lists
 test_raw_launch_cannot_bypass_excluded_tools
 test_pi_exclude_tools_malformed_entry_refuses_before_endpoint
 test_pi_exclude_tools_read_failure_refuses_before_launch
-test_pi_exclude_tools_do_not_leak_across_homes_or_to_secondmates
+test_pi_exclude_tools_do_not_leak_across_homes
 test_batch_forwards_shared_profile_flags
 test_lavish_server_address_is_exported_to_worker_launch
 test_lavish_absent_config_preserves_destination_ambient
-test_active_dispatch_profile_does_not_block_secondmate_launch
 
 echo "# all fm-spawn-dispatch-profile tests passed"

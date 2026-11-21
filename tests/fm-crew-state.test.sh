@@ -294,12 +294,18 @@ SH
 }
 
 make_no_timeout_toolbin() {  # <dir> -> echoes toolbin path
-  local dir=$1 tb="$1/notimeoutbin" tool real
+  local tb="$1/notimeoutbin" dir tool name
   mkdir -p "$tb"
-  for tool in bash git grep sed head cut tail dirname perl; do
-    real=$(command -v "$tool" || true)
-    [ -n "$real" ] || fail "missing tool for no-timeout path: $tool"
-    ln -s "$real" "$tb/$tool"
+  for dir in /usr/local/bin /usr/bin /bin; do
+    for tool in "$dir"/*; do
+      name=${tool##*/}
+      case "$name" in timeout|gtimeout) continue ;; esac
+      [ -x "$tool" ] && [ ! -e "$tb/$name" ] && ln -s "$tool" "$tb/$name"
+    done
+  done
+  for tool in bash git jq perl python3; do
+    [ -e "$tb/$tool" ] || ln -s "$(command -v "$tool")" "$tb/$tool" \
+      || fail "missing tool for no-timeout path: $tool"
   done
   printf '%s\n' "$tb"
 }
@@ -2035,11 +2041,9 @@ checks failed: 1 of 2 checks red" ;;
   [ "$failures" -eq 0 ] || fail "$failures cancellation verdict regressions"
 }
 
-# The real inventory consumer must not confuse a cancellation with a failed
-# child contradicting an In flight row. Unknown remains explicitly partial.
-test_cancelled_fleet_inventory_is_unverified_not_contradictory() {
+test_cancelled_run_reads_unknown_not_failed() {
   reset_fakes
-  local d out summary backlog_before status_before scenario=${1:-synthetic}
+  local d out backlog_before status_before scenario=${1:-synthetic}
   d=$(new_case "cancelled-inventory-$scenario")
   make_repo_on_branch "$d/wt" fm/cancelled
   make_fakebin "$d" >/dev/null
@@ -2100,22 +2104,15 @@ EOF
   assert_contains "$out" 'run cancelled: no verdict' "$scenario cancellation outweighs interrupted steps"
   assert_not_contains "$out" 'state: failed' "$scenario cancellation is not a failure"
   assert_not_contains "$out" 'held for merge' "$scenario has no positive delivery evidence"
-  summary=$(PATH="$d/fakebin:$PATH" FM_HOME="$d" FM_ROOT_OVERRIDE="$d/fixture-root" \
-    "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary)
-  printf '%s' "$summary" | jq -e '
-    .state == "unknown" and .valid == false
-    and .invalidity == {kind:"child_current_unavailable",ids:["cancelled"]}
-    and .reason == "child current state unavailable: cancelled"
-  ' >/dev/null || fail "cancellation must not report a terminal/backlog contradiction: $summary"
   assert_equals "$backlog_before" "$(cat "$d/data/backlog.md")" 'correct backlog is unchanged'
   assert_equals "$status_before" "$(cat "$d/state/cancelled.status")" 'historical event is unchanged'
-  pass "$scenario cancelled run leaves fleet inventory unverified without a failure contradiction"
+  pass "$scenario cancelled run reads unknown and leaves the backlog and status unchanged"
 }
 
 # Replay the recorded producer output through both public consumers, without
 # starting or aborting a daemon run or claiming live cancellation evidence.
 test_captured_cancelled_review_has_no_verdict() {
-  test_cancelled_fleet_inventory_is_unverified_not_contradictory captured
+  test_cancelled_run_reads_unknown_not_failed captured
 }
 
 test_terminal_failed_ci_orphan_after_green_reads_done() {
@@ -2998,27 +2995,6 @@ test_herdr_agent_task_marker_is_judged_from_its_environment() {
   pass "herdr: a readable environment without this task's marker reads blocked"
 }
 
-# A secondmate legitimately runs outside any task worktree with no task marker.
-test_herdr_secondmate_is_never_judged_for_launch_isolation() {
-  command -v jq >/dev/null 2>&1 || { pass "herdr secondmate isolation test skipped without jq"; return; }
-  reset_fakes
-  local d pid out
-  d=$(new_case herdr-secondmate-isolation)
-  mkdir -p "$d/home" "$d/elsewhere"
-  make_fakebin "$d" >/dev/null
-  fm_write_meta "$d/state/mate-a.meta" "window=default:w1:p2" "worktree=$d/home" "kind=secondmate" \
-    "backend=herdr" "harness=pi"
-  FM_FAKE_HERDR_AGENT_STATUS=idle
-  (cd "$d/elsewhere" && exec sleep 120) >/dev/null 2>&1 &
-  pid=$!
-  FM_FAKE_HERDR_AGENT_PID=$pid
-  out=$(run_crew_state "$d" mate-a)
-  kill "$pid" 2>/dev/null || true
-  assert_not_contains "$out" "unsafe worker" "a secondmate is never judged for task isolation"
-  assert_not_contains "$out" "state: blocked" "a secondmate's own home is not an unsafe launch"
-  pass "herdr: a secondmate is exempt from the task launch-isolation check"
-}
-
 # Decision follow-up (2026-09-05 review): a husk pane (pane present,
 # agent_not_found) is authoritative death evidence - it keeps the gone-class
 # text so the stale sweep may still reclaim it, never unknown/unreachable.
@@ -3158,37 +3134,16 @@ test_no_run_idle_pane_paused() {
   pass "no run + idle pane on a paused: status reports state: paused with its reason"
 }
 
-test_secondmate_open_block_survives_unrelated_append() {
-  reset_fakes
-  local d out suffix gen
-  d=$(new_case buried-block)
-  mkdir -p "$d/wt"
-  make_fakebin "$d" >/dev/null
-  fm_write_meta "$d/state/mate.meta" "window=crew-fixture:w1:p-mate" "backend=herdr" "worktree=$d/wt" "kind=secondmate" "harness=pi"
-  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" mate)
-  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" mate busy --gen "$gen" --source pi-ext --event agent-start
-  for suffix in '' 'note: unrelated progress' 'resolved [key=other]: unrelated answer' 'working: continuing another task' 'done: another task completed' 'failed: another task failed' $'done: another task completed\nnote: cleanup complete' $'failed: another task failed\nnote: cleanup complete'; do
-    printf 'blocked [key=access]: need release access\n%s\n' "$suffix" > "$d/state/mate.status"
-    out=$(run_crew_state "$d" mate)
-    assert_contains "$out" "state: blocked" "open blocker survives '$suffix' with a busy endpoint"
-    assert_contains "$out" "need release access" "the open blocker's reason remains visible"
-  done
-  printf 'resolved [key=access]: access granted\n' >> "$d/state/mate.status"
-  out=$(run_crew_state "$d" mate)
-  assert_contains "$out" "state: unknown" "matching resolution clears the blocker"
-  assert_not_contains "$out" "need release access" "closed blocker is not resurrected"
-  pass "a busy secondmate keeps its open blocker until that exact key closes"
-}
-
 test_newest_open_decision_supplies_the_reported_detail() {
   reset_fakes
-  local d out gen
+  local d out
   d=$(new_case newest-open-decision)
-  mkdir -p "$d/wt"
+  make_repo_on_branch "$d/wt" fm/mate
   make_fakebin "$d" >/dev/null
-  fm_write_meta "$d/state/mate.meta" "window=crew-fixture:w1:p-mate" "backend=herdr" "worktree=$d/wt" "kind=secondmate" "harness=pi"
-  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" mate)
-  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" mate busy --gen "$gen" --source pi-ext --event agent-start
+  fm_write_meta "$d/state/mate.meta" "window=crew-fixture:w1:p-mate" "backend=herdr" "worktree=$d/wt" "kind=ship" "harness=pi"
+  FM_FAKE_AXI_STATUS=""
+  FM_FAKE_BUSY=0
+  arm_idle_record "$d/state" mate
   printf 'blocked [key=a]: staging is down\nneeds-decision [key=b]: pick a rollout order\n' > "$d/state/mate.status"
   out=$(run_crew_state "$d" mate)
   assert_contains "$out" "state: parked" "the newer open decision is the reported state"
@@ -3321,40 +3276,6 @@ test_no_run_idle_pane_custom_paused_verb() {
   out=$(FM_CLASSIFY_PAUSED_VERB=awaiting run_crew_state "$d" feat-custom-pause)
   assert_contains "$out" "state: unknown" "custom paused verb replaces the default"
   pass "no run + idle pane honors the configured paused verb"
-}
-
-# A trailing keyed resolved: event is a decision-CLOSING event, not a run-state
-# verb. It must never become the current state or leak its resolution prose as the
-# detail: a healthy idle secondmate that just closed a keyed decision falls through
-# to the idle default (unknown/none), not `unknown` with the resolution note as its
-# `doing`. Regression for the bearings render bug where such a secondmate showed
-# state=unknown with resolution prose. The one-owner keyed fold in fm-classify-lib.sh
-# is untouched; this only stops the deriver from reading a non-state event as state.
-test_no_run_idle_secondmate_resolved_event_not_state() {
-  reset_fakes
-  local d; d=$(new_case resolved-idle)
-  mkdir -p "$d/wt"
-  make_fakebin "$d" >/dev/null
-  fm_write_meta "$d/state/mate.meta" "window=crew-fixture:w1:p-mate" "backend=herdr" "worktree=$d/wt" "kind=secondmate" "home=$d/wt"
-  printf 'needs-decision [key=race]: pick subscribe order\n' > "$d/state/mate.status"
-  printf 'resolved [key=race]: went with subscribe-before-write\n' >> "$d/state/mate.status"
-  FM_FAKE_AXI_STATUS=""
-  FM_FAKE_BUSY=0
-  local out; out=$(run_crew_state "$d" mate)
-  assert_contains "$out" "state: unknown" "resolved-then-idle secondmate is not a spurious run-state"
-  assert_contains "$out" "source: none" "a resolved event is not treated as a status-log state source"
-  assert_not_contains "$out" "subscribe-before-write" "resolution prose must not leak into the detail"
-  # A bare (non-keyed) resolved: closes the default key and behaves the same.
-  printf 'blocked: waiting on infra\nresolved: infra access granted\n' > "$d/state/mate.status"
-  out=$(run_crew_state "$d" mate)
-  assert_contains "$out" "source: none" "a bare resolved: is not a state source either"
-  assert_not_contains "$out" "infra access granted" "bare resolution prose must not leak into the detail"
-  # Control: a genuine trailing state verb still renders from the log.
-  printf 'working: reconciling routed items\n' > "$d/state/mate.status"
-  out=$(run_crew_state "$d" mate)
-  assert_contains "$out" "state: working" "a real trailing state verb still renders"
-  assert_contains "$out" "reconciling routed items" "a real state line still carries its detail"
-  pass "a trailing resolved: event does not corrupt state render (idle stays idle)"
 }
 
 test_dead_window_ignores_stale_status_log() {
@@ -3511,105 +3432,6 @@ test_torn_down_worktree() {
   assert_contains "$out" "state: unknown" "torn-down -> unknown"
   assert_contains "$out" "source: none" "torn-down -> none source"
   pass "torn-down worktree is handled gracefully"
-}
-
-# --- remote secondmate arm ---------------------------------------------------
-# A meta recording remote_host= must never be read through the local worktree
-# probe or a local backend adapter: the recorded worktree and pane live on the
-# remote host, and the old local reads misreported a healthy remote mate as
-# "worktree gone". These cases drive the real helper over the real fm-on.sh
-# route with a stubbed ssh transport (FM_SSH_BIN seam): the stub prints
-# FM_FAKE_REMOTE_STATE_OUT as the remote endpoint's recovery-grade state and
-# exits FM_FAKE_SSH_RC.
-
-setup_remote_case() {  # <name> -> echoes case dir with remote meta + registry
-  local d
-  d=$(new_case "$1")
-  mkdir -p "$d/data" "$d/fakebin"
-  fm_write_meta "$d/state/rsm.meta" \
-    "window=remote:rsm" \
-    "endpoint_task_id=rsm" \
-    "worktree=/remote/home/never-locally-present" \
-    "harness=pi" \
-    "kind=secondmate" \
-    "mode=secondmate" \
-    "remote_host=remote-mac" \
-    "remote_root=/remote/root" \
-    "remote_backend=herdr" \
-    "remote_herdr_session=fm-remote" \
-    "remote_target=fm-remote:w1:p1"
-  cat > "$d/data/secondmates.md" <<EOF
-- rsm - remote test domain (host: remote-mac; root: /remote/root; home: /remote/home; scope: remote testing; projects: alpha; added 2026-08-02)
-EOF
-  cat > "$d/fakebin/fake-ssh" <<'SH'
-#!/usr/bin/env bash
-cat > /dev/null
-[ -z "${FM_FAKE_REMOTE_STATE_OUT:-}" ] || printf '%s\n' "$FM_FAKE_REMOTE_STATE_OUT"
-exit "${FM_FAKE_SSH_RC:-0}"
-SH
-  chmod +x "$d/fakebin/fake-ssh"
-  printf '%s\n' "$d"
-}
-
-run_remote_crew_state() {  # <case-dir> <id>
-  PATH="$1/fakebin:$PATH" FM_HOME="$1" FM_STATE_OVERRIDE="$1/state" \
-    FM_SSH_BIN="$1/fakebin/fake-ssh" "$CREW_STATE" "$2"
-}
-
-test_remote_alive_with_log_uses_status_log() {
-  reset_fakes
-  local d out rc
-  d=$(setup_remote_case remote-alive-log)
-  make_fakebin "$d" >/dev/null
-  printf 'working: refactoring the quota adapter\n' > "$d/state/rsm.status"
-  out=$(FM_FAKE_REMOTE_STATE_OUT=alive FM_FAKE_SSH_RC=0 run_remote_crew_state "$d" rsm); rc=$?
-  expect_code 0 "$rc" "remote alive exits 0"
-  assert_contains "$out" "state: working" "alive remote mate with a working log reads working"
-  assert_contains "$out" "source: status-log" "alive remote mate reads current activity from the routed log"
-  assert_contains "$out" "remote endpoint alive on remote-mac" "the remote liveness read should be visible"
-  assert_not_contains "$out" "worktree gone" "a healthy remote mate must never read as torn down"
-  pass "fm-crew-state remote: alive endpoint falls through to the routed status log"
-}
-
-test_remote_alive_idle_is_healthy_not_gone() {
-  reset_fakes
-  local d out rc
-  d=$(setup_remote_case remote-alive-idle)
-  make_fakebin "$d" >/dev/null
-  out=$(FM_FAKE_REMOTE_STATE_OUT=alive FM_FAKE_SSH_RC=0 run_remote_crew_state "$d" rsm); rc=$?
-  expect_code 0 "$rc" "remote alive-idle exits 0"
-  assert_contains "$out" "source: remote-endpoint" "the remote endpoint is the reported source"
-  assert_contains "$out" "alive on remote-mac" "an idle remote mate reads alive"
-  assert_not_contains "$out" "worktree gone" "a healthy remote mate must never read as torn down"
-  assert_not_contains "$out" "backend target gone" "a healthy remote mate must never read as a dead target"
-  pass "fm-crew-state remote: an idle alive endpoint reads alive, never gone or dead"
-}
-
-test_remote_unreachable_is_unknown_remote_not_dead() {
-  reset_fakes
-  local d out rc
-  d=$(setup_remote_case remote-unreachable)
-  make_fakebin "$d" >/dev/null
-  printf 'working: refactoring the quota adapter\n' > "$d/state/rsm.status"
-  out=$(FM_FAKE_SSH_RC=255 run_remote_crew_state "$d" rsm); rc=$?
-  expect_code 0 "$rc" "unreachable remote exits 0"
-  assert_contains "$out" "unknown-remote" "an unreachable remote must be labeled unknown-remote"
-  assert_contains "$out" "not proof of death" "an unreachable remote must not read as dead"
-  assert_not_contains "$out" "worktree gone" "an unreachable remote must never read as torn down"
-  assert_not_contains "$out" "backend target gone" "an unreachable remote must never read as a dead target"
-  pass "fm-crew-state remote: an unreachable host reads unknown-remote, never gone or dead"
-}
-
-test_remote_dead_reports_remote_verdict() {
-  reset_fakes
-  local d out rc
-  d=$(setup_remote_case remote-dead)
-  make_fakebin "$d" >/dev/null
-  out=$(FM_FAKE_REMOTE_STATE_OUT=dead FM_FAKE_SSH_RC=0 run_remote_crew_state "$d" rsm); rc=$?
-  expect_code 0 "$rc" "remote dead exits 0"
-  assert_contains "$out" "remote endpoint dead on remote-mac" \
-    "a genuinely dead remote endpoint reports the remote host's own verdict"
-  pass "fm-crew-state remote: the remote host's own dead verdict is reported truthfully"
 }
 
 test_missing_meta() {
@@ -6896,7 +6718,7 @@ cancellation_failures=0
 for cancellation_test in test_captured_cancelled_review_has_no_verdict \
   test_terminal_green_delivery_disposition \
   test_cancelled_without_delivery_has_no_verdict \
-  test_cancelled_fleet_inventory_is_unverified_not_contradictory \
+  test_cancelled_run_reads_unknown_not_failed \
   test_cancelled_delivery_and_skipped_rebase; do
   ("$cancellation_test") || cancellation_failures=$((cancellation_failures + 1))
 done
@@ -6912,7 +6734,6 @@ test_socket_refusal_outranks_a_ledger_resolved_terminal_run
 test_socket_refusal_override_expires_when_the_crew_moves_on
 test_ordinary_blocked_over_live_run_keeps_plain_superseded
 test_genuine_daemon_down_reports_blocked
-test_secondmate_open_block_survives_unrelated_append
 test_newest_open_decision_supplies_the_reported_detail
 test_single_owner_terminal_declaration_supersedes_stale_decision
 test_latest_status_preserves_legacy_completions
@@ -6990,7 +6811,6 @@ test_no_run_idle_pane_uses_log
 test_no_run_idle_pane_uses_keyed_log
 test_no_run_idle_pane_paused
 test_no_run_idle_pane_custom_paused_verb
-test_no_run_idle_secondmate_resolved_event_not_state
 test_dead_window_ignores_stale_status_log
 test_missing_no_mistakes_database_is_no_run_not_an_unreadable_inventory
 test_gone_window_in_live_session_ignores_stale_status_log
@@ -6999,10 +6819,6 @@ test_dead_window_still_reports_active_run_step
 test_no_timeout_uses_perl_bound
 test_scout_skips_run_lookup
 test_torn_down_worktree
-test_remote_alive_with_log_uses_status_log
-test_remote_alive_idle_is_healthy_not_gone
-test_remote_unreachable_is_unknown_remote_not_dead
-test_remote_dead_reports_remote_verdict
 test_missing_meta
 test_mismatched_state_override_is_ignored
 test_matched_state_override_is_honoured
@@ -7056,7 +6872,6 @@ test_no_run_herdr_stale_registration_over_shell_reads_agent_gone
 test_no_run_herdr_stale_working_record_is_never_busy
 test_herdr_agent_outside_its_worktree_reads_blocked
 test_herdr_agent_task_marker_is_judged_from_its_environment
-test_herdr_secondmate_is_never_judged_for_launch_isolation
 test_capped_competing_live_runs_report_both_ids
 test_capped_overview_without_branch_rows_reports_both_ids
 test_capped_overview_with_no_branch_runs_reports_absent

@@ -85,7 +85,7 @@ EOF
     n=$((n + 1))
     write_brief "$home" "delivery-required-$n" no-mistakes
     # shellcheck disable=SC2086  # flags is an intentional word-split arg list
-    out=$(run_spawn "$home" "$fakebin" "delivery-required-$n" "$proj" claude $flags)
+    out=$(run_spawn "$home" "$fakebin" "delivery-required-$n" "$proj" pi $flags)
     status=$?
     [ "$status" -ne 0 ] || fail "$label: expected a non-zero exit"
     assert_contains "$out" "$expect" "$label: refusal did not explain the contract"
@@ -101,9 +101,7 @@ ROWS
   pass "fm-spawn: a ship spawn requires a valid explicit mode and yolo before anything is created"
 }
 
-# A scout has no merge to govern and a secondmate's posture is fixed, so the flags
-# are refused rather than accepted and quietly ignored.
-test_scout_and_secondmate_refuse_delivery_flags() {
+test_scout_refuses_delivery_flags() {
   local rec home proj fakebin out status
   rec=$(make_home refused)
   IFS='|' read -r home proj fakebin <<EOF
@@ -111,21 +109,16 @@ $rec
 EOF
   write_brief "$home" delivery-scout-a1
 
-  out=$(run_spawn "$home" "$fakebin" delivery-scout-a1 "$proj" claude --scout --mode direct-PR)
+  out=$(run_spawn "$home" "$fakebin" delivery-scout-a1 "$proj" pi --scout --mode direct-PR)
   status=$?
   [ "$status" -ne 0 ] || fail "a scout spawn carrying --mode should exit non-zero"
   assert_contains "$out" "--mode applies only to ship spawns" "scout spawn did not refuse --mode"
 
-  out=$(run_spawn "$home" "$fakebin" delivery-scout-a1 "$proj" claude --scout --yolo on)
+  out=$(run_spawn "$home" "$fakebin" delivery-scout-a1 "$proj" pi --scout --yolo on)
   status=$?
   [ "$status" -ne 0 ] || fail "a scout spawn carrying --yolo should exit non-zero"
   assert_contains "$out" "--yolo applies only to ship spawns" "scout spawn did not refuse --yolo"
-
-  out=$(run_spawn "$home" "$fakebin" delivery-sm-a2 "$home" --secondmate --mode no-mistakes --yolo off)
-  status=$?
-  [ "$status" -ne 0 ] || fail "a secondmate spawn carrying delivery flags should exit non-zero"
-  assert_contains "$out" "applies only to ship spawns" "secondmate spawn did not refuse the delivery flags"
-  pass "fm-spawn: scout and secondmate spawns refuse ship delivery flags"
+  pass "fm-spawn: scout spawns refuse ship delivery flags"
 }
 
 # The brief is what the worker actually follows, so a spawn whose explicit mode
@@ -205,7 +198,7 @@ test_scout_records_no_delivery_posture() {
 $rec
 EOF
   write_brief "$home" delivery-scoutmeta-c1
-  out=$(run_spawn "$home" "$fakebin" delivery-scoutmeta-c1 "$proj" claude --scout)
+  out=$(run_spawn "$home" "$fakebin" delivery-scoutmeta-c1 "$proj" pi --scout)
   assert_not_contains "$out" "less rigor" "a scout spawn consulted the registered delivery posture"
   assert_not_contains "$out" "delivery mismatch" "a scout spawn checked a delivery contract it does not carry"
   pass "fm-spawn: a scout spawn resolves no delivery posture from the registry"
@@ -993,7 +986,7 @@ EOF
   id=delivery-unfilled-scout
   FM_HOME="$home" "$BRIEF" "$id" proj --scout >/dev/null 2>&1 \
     || fail "unfilled scout brief should still scaffold"
-  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --scout)
+  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" pi --scout)
   status=$?
   [ "$status" -ne 0 ] || fail "spawn of an unfilled scout brief should exit non-zero"
   assert_contains "$out" "still contains {TASK} or {FIRSTMATE_SPEC}" \
@@ -1266,7 +1259,7 @@ EOF
       id="roles-$project_kind-$kind"
       write_brief "$home" "$id"
       if [ "$kind" = scout ]; then
-        out=$(run_spawn "$home" "$fakebin" "$id" "$proj" codex --scout)
+        out=$(run_spawn "$home" "$fakebin" "$id" "$proj" pi --scout)
       else
         out=$(run_spawn "$home" "$fakebin" "$id" "$proj" pi --mode "$kind" --yolo off)
       fi
@@ -1688,13 +1681,13 @@ EOF
   assert_not_contains "$out" "branch mismatch" "an agreeing brief and selection were reported as drift"
   assert_not_contains "$out" "records no ship branch" "an agreeing spawn reported the brief as legacy"
 
-  out=$(run_spawn "$home" "$fakebin" branch-agree-a5 "$proj" claude --relaunch --branch-prefix fix/)
+  out=$(run_spawn "$home" "$fakebin" branch-agree-a5 "$proj" pi --relaunch --branch-prefix fix/)
   status=$?
   [ "$status" -ne 0 ] || fail "a relaunch carrying --branch-prefix was accepted"
   assert_contains "$out" "--relaunch reuses the task's recorded ship branch; --branch-prefix cannot override it" \
     "the relaunch refusal did not name the immutability it protects"
 
-  out=$(run_spawn "$home" "$fakebin" branch-agree-a6 "$proj" claude --scout --branch-prefix fix/)
+  out=$(run_spawn "$home" "$fakebin" branch-agree-a6 "$proj" pi --scout --branch-prefix fix/)
   status=$?
   [ "$status" -ne 0 ] || fail "a scout spawn carrying --branch-prefix was accepted"
   assert_contains "$out" "--branch-prefix applies only to ship spawns" \
@@ -1977,7 +1970,7 @@ EOF
 }
 
 test_ship_spawn_requires_a_valid_delivery_contract
-test_scout_and_secondmate_refuse_delivery_flags
+test_scout_refuses_delivery_flags
 test_spawn_refuses_a_brief_mode_mismatch
 test_spawn_notices_a_rigor_downgrade_against_the_registry
 test_scout_records_no_delivery_posture

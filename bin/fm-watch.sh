@@ -470,19 +470,14 @@ window_kind() {
   echo unknown
 }
 
-# window_backend: the backend recorded in the meta whose window= matches <w>,
-# defaulting to tmux (absent backend= means tmux; the P1 compatibility
-# contract) when no matching meta carries the field, or none matches at all.
+# window_backend: the backend recorded in the meta whose window= matches <w>.
+# A record without one names no endpoint any backend can read, so it reads as
+# unknown, as fm_backend_of_meta reports it.
 window_backend() {
-  local w=$1 meta backend
+  local w=$1 meta backend=
   meta=$(fm_backend_meta_for_window "$w" "$STATE" 2>/dev/null || true)
-  if [ -n "$meta" ]; then
-    backend=$(grep '^backend=' "$meta" | cut -d= -f2- || true)
-    [ -n "$backend" ] || backend=tmux
-    echo "$backend"
-    return 0
-  fi
-  echo tmux
+  [ -z "$meta" ] || backend=$(grep '^backend=' "$meta" | cut -d= -f2- || true)
+  echo "${backend:-unknown}"
 }
 
 window_harness() {
@@ -3257,26 +3252,10 @@ if [ "${FM_WATCH_HANDLING_SUCCESSOR:-0}" = 1 ]; then
 elif [ "$FM_RECOVERY_MARKER_ACTION" = recover ]; then
   WATCHER_RECOVERY_PENDING=1
 fi
-# Side-band ledger publication, detached from the poll loop.
-#
-# The poll loop owns the liveness beacon below, and fm-guard.sh reads that
-# beacon's freshness as proof that supervision is alive. Publication is a
-# side-band nicety bounded by FM_HOME_SUMMARY_TIMEOUT, but that bound is far
-# larger than one poll and, in a home whose publication keeps failing, it is
-# paid on every poll - so running it inline puts up to a full publication
-# deadline between two beacon touches and can starve the guard's grace. Nothing
-# in the poll depends on the ledger, so start it and move on: the beacon keeps
-# advancing no matter how slow the publication is.
-#
-# The trade the detachment makes: a reader can briefly see a ledger that
-# predates the event this poll just surfaced, where the inline call published
-# first. Publication is eventually consistent by design and every reader
-# re-derives current state from the owning home anyway, while beacon freshness
-# is what the whole supervision chain rests on.
-
-# Opt-in lane capacity facts (docs/configuration.md "Lane capacity"): publish
-# state/lane-capacity.json detached for the same beacon-freshness reason as the
-# home summary above. bin/fm-capacity.sh's header owns the document.
+# Opt-in lane capacity facts (docs/configuration.md "Lane capacity"):
+# state/lane-capacity.json publishes detached, because an inline publish can
+# hold the liveness beacon fm-guard.sh reads past its grace.
+# bin/fm-capacity.sh's header owns the document.
 LANE_CAPACITY_PID=
 lane_capacity_publish_detached() {
   if [ -n "$LANE_CAPACITY_PID" ]; then
@@ -3378,7 +3357,7 @@ while :; do
   # watcher's world is gone (a torn-down temporary home or a discarded
   # disposable checkout). Exit with a logged reason rather than writing state
   # into nothing, or into a live home from a checkout that no longer exists.
-  # A detached helper this watcher started (home-summary refresh, reconcile)
+  # A detached helper this watcher started (such as reconcile)
   # can recreate a deleted state directory before the next poll, so a lock
   # with no holder at all is read as the same teardown when the state directory
   # is no longer the one this watcher holds open. A lock with no holder in the
@@ -3601,12 +3580,6 @@ EOF
   if [ -n "$pending" ]; then
     sleep "$SIGNAL_GRACE"
     pending=$(printf '%s\n%s' "$pending" "$(scan_signals)")
-    # The final coalesced signal set is the watcher-carried status-change
-    # trigger for this home's published summary. Start it before either
-    # surfacing or absorbing the signal, but never wait on it: see
-    # home_summary_refresh_detached for why publication stays off the beacon's
-    # path. Publication failure stays side-band.
-    home_summary_refresh_detached
     files=""
     while IFS=$(printf '\t') read -r sf sig f; do
       [ -n "$sf" ] || continue
