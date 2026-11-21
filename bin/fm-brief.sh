@@ -629,7 +629,7 @@ IFS= read -r -d '' MACHINE_PROOF_RULES <<'EOF' || true
 - Live behavior is proven on the machine it runs on: a change to a machine's own behavior (a test runner, a shell, an OS-specific path) is proven on that machine before merge, because a run elsewhere does not count.
 - To preview a site, serve it on a local port and inspect it there; never depend on a login-gated deployment.
 - You may run a throwaway script or command under your task's scratch directory to exercise the change; do not run the repository's own tests on this machine (see Local tests).
-- CI on your PR is proof in the real place, and a draft PR runs it too.
+- CI does not run on pull requests. It runs once a day on main and on manual dispatch, so a pull request carries no CI proof.
 - Unfinished work is not a blocker: report what is left and keep working the rest.
 EOF
 MACHINE_PROOF_BLOCK="# Machine and proof

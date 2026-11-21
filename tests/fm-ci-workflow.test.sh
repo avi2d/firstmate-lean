@@ -200,30 +200,29 @@ tier_timeout() {  # <tier> <job>...
   printf '%s\n' "$first"
 }
 
-test_triggers_are_pull_requests_one_daily_schedule_and_manual_dispatch() {
+test_triggers_are_one_daily_schedule_and_manual_dispatch() {
   ruby -ryaml - "$CI_WORKFLOW" <<'RUBY' || fail "trigger contract"
 doc = YAML.load_file(ARGV[0])
 triggers = doc.key?(true) ? doc[true] : doc.fetch("on")
-raise "triggers must be exactly pull_request, schedule, and workflow_dispatch, got #{triggers.keys}" unless triggers.keys.sort == ["pull_request", "schedule", "workflow_dispatch"]
-raise "pull_request must not filter branches or paths, got #{triggers["pull_request"]}" unless triggers["pull_request"].nil?
+raise "triggers must be exactly schedule and workflow_dispatch, got #{triggers.keys}" unless triggers.keys.sort == ["schedule", "workflow_dispatch"]
 crons = triggers.fetch("schedule").map { |entry| entry.fetch("cron") }
 raise "schedule must have one cron entry, got #{crons}" unless crons.length == 1
 minute, hour, day, month, weekday = crons.first.split
 raise "schedule must run once a day: #{crons.first}" unless minute.match?(/\A\d+\z/) && hour.match?(/\A\d+\z/) && [day, month, weekday] == ["*", "*", "*"]
 RUBY
-  pass "ci.yml runs on pull requests, one daily schedule, and manual dispatch only"
+  pass "ci.yml runs one daily schedule and manual dispatch only, never a pull request"
 }
 
-test_every_job_runs_on_pull_request_scheduled_and_manual_runs() {
+test_every_job_runs_on_scheduled_and_manual_runs() {
   local all event actual
   all=$(workflow_jobs | LC_ALL=C sort) || fail "could not list ci.yml jobs"
-  for event in pull_request schedule workflow_dispatch; do
+  for event in schedule workflow_dispatch; do
     actual=$(jobs_running_under "$event" '' | LC_ALL=C sort) \
       || fail "could not resolve the job conditions for $event"
     [ "$actual" = "$all" ] \
       || fail "$event must run every job"$'\n'"ran: $(printf '%s' "$actual" | tr '\n' ' ')"$'\n'"wanted: $(printf '%s' "$all" | tr '\n' ' ')"
   done
-  pass "a pull request run, a scheduled run, and a manual run each run every job"
+  pass "a scheduled run and a manual run each run every job"
 }
 
 # FM_CI_SKIP_MACOS=1 removes only the macOS job; no other job reads that variable.
@@ -231,7 +230,7 @@ test_fork_skip_variable_removes_only_the_macos_job() {
   local all expected event actual
   all=$(workflow_jobs | LC_ALL=C sort) || fail "could not list ci.yml jobs"
   expected=$(printf '%s\n' "$all" | grep -vx macos-stock-bash)
-  for event in pull_request schedule workflow_dispatch; do
+  for event in schedule workflow_dispatch; do
     actual=$(jobs_running_under "$event" 1 | LC_ALL=C sort) \
       || fail "could not resolve the job conditions for $event with FM_CI_SKIP_MACOS=1"
     [ "$actual" = "$expected" ] \
@@ -289,12 +288,12 @@ test_lint_and_static_keep_their_caps() {
 # The aggregate summarizes the lanes and must still run after one fails, so its summary lands.
 test_timing_aggregate_still_runs_after_a_failed_lane() {
   local event actual
-  for event in pull_request schedule workflow_dispatch; do
+  for event in schedule workflow_dispatch; do
     actual=$(job_runs_under tests-timing-aggregate "$event" '' failure) \
       || fail "could not resolve the aggregate condition for $event"
     [ "$actual" = true ] || fail "after a failed lane, the aggregate on $event must still run, got $actual"
   done
-  pass "the timing aggregate runs after a failed lane on each pull request, scheduled, and manual run"
+  pass "the timing aggregate runs after a failed lane on each scheduled and manual run"
 }
 
 test_no_ci_job_lists_a_dependency_twice() {
@@ -527,8 +526,8 @@ test_scan_version_pin_matches_the_documented_local_command() {
 }
 
 test_ci_matrices_match_executable_partitions
-test_triggers_are_pull_requests_one_daily_schedule_and_manual_dispatch
-test_every_job_runs_on_pull_request_scheduled_and_manual_runs
+test_triggers_are_one_daily_schedule_and_manual_dispatch
+test_every_job_runs_on_scheduled_and_manual_runs
 test_fork_skip_variable_removes_only_the_macos_job
 test_no_job_condition_keys_on_a_pull_request_or_push
 test_no_ci_job_lists_a_dependency_twice
