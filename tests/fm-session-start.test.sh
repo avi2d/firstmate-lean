@@ -2651,7 +2651,7 @@ EOF
   cat > "$fakebin/ssh" <<'SH'
 #!/usr/bin/env bash
 encoded=${!#}
-args=$(printf '%s' "$encoded" | base64 -d 2>/dev/null | tr '\\0' ' ')
+args=$(printf '%s' "$encoded" | base64 -d 2>/dev/null | tr '\0' ' ')
 case "$args" in
   *'fm-session-start.sh --heavy-limit'*) sleep 6; printf '%s\n' 'heavy worker limit: 4' ;;
   *'fm-remote-worker-control.sh route task-a'*) printf '%s\n' 'schema=fm-remote-worker-control.v1' 'backend=herdr' 'target=fm-remote:ws:pane' 'kind=ship' 'harness=pi' 'worktree=/tmp/task-a' 'project=/tmp/project' 'herdr_session=fm-remote' ;;
