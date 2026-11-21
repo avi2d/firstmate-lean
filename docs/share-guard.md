@@ -18,7 +18,7 @@ The `FM_LAVISH_SHARE_APPROVED` session value approves one path or site for the r
 `bin/fm-share-guard/policy.ts` owns classification and approval matching.
 `bin/fm-share-guard-pretool-check.sh` owns the `--command` transport and the deny rendering.
 The transport never executes the submitted command.
-The transport installs the policy runtime into `$FM_HOME/state/.fm-share-guard` on first use.
+`bin/fm-effect-run.sh` installs the frozen root dependencies and builds the shared guard bundle in the checkout on first use.
 A missing runtime fails open and the test suite skips instead of passing silently.
 
 ## What the policy refuses
