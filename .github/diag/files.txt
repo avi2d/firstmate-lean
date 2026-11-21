@@ -19,7 +19,6 @@ tests/fm-remote-worker-control.test.sh
 tests/fm-remote-worker-local-e2e.test.sh
 tests/fm-remote-worker-poll.test.sh
 tests/fm-session-start.test.sh
-tests/fm-spawn-compact-adviser-disable-remote.test.sh
 tests/fm-spawn-compact-adviser-disable.test.sh
 tests/fm-spawn-dispatch-profile.test.sh
 tests/fm-spawn-herdr-lease.test.sh

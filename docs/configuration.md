@@ -1284,13 +1284,14 @@ Regression coverage executes emitted launch commands with synthetic nonsecret va
 
 ### Compact adviser setting
 
-Every worker, scout, and secondmate Firstmate launches starts with `COMPACT_ADVISER_DISABLE=1` in its environment, on a fresh spawn and on a relaunch alike, so an unattended session never activates the compact adviser.
-This guarantee also covers raw launch commands, remote secondmates, and launches filtered by `config/launch-env-allowlist`; it does not depend on the destination environment already containing the variable.
+Every worker and scout Firstmate launches starts with `COMPACT_ADVISER_DISABLE=1` in its environment, on a fresh spawn and on a relaunch alike, so an unattended session never activates the compact adviser.
+This guarantee also covers raw launch commands and launches filtered by `config/launch-env-allowlist`.
+It does not depend on the destination environment already containing the variable.
 
 Firstmate provides no configuration or flag to change this value.
 This applies only to agents Firstmate launches; the user's own primary Firstmate session is never given the variable.
 
-[`fm-spawn.sh --help`](../bin/fm-spawn.sh) owns the delivery mechanics, with focused regression coverage in [`tests/fm-spawn-compact-adviser-disable.test.sh`](../tests/fm-spawn-compact-adviser-disable.test.sh) and [`tests/fm-spawn-compact-adviser-disable-remote.test.sh`](../tests/fm-spawn-compact-adviser-disable-remote.test.sh).
+[`fm-spawn.sh --help`](../bin/fm-spawn.sh) owns the delivery mechanics, with focused regression coverage in [`tests/fm-spawn-compact-adviser-disable.test.sh`](../tests/fm-spawn-compact-adviser-disable.test.sh).
 
 ### Commit attribution
 

@@ -382,7 +382,6 @@ family_for_basename() {
     fm-git-strip-ai-trailers.test.sh|fm-home-write-diff.test.sh|\
     fm-trace-context-spawn.test.sh|\
     fm-spawn-compact-adviser-disable.test.sh|\
-    fm-spawn-compact-adviser-disable-remote.test.sh|\
     fm-project-capacity.test.sh|\
     fm-teardown-endpoint-safety.test.sh)
       printf '%s\n' backend-dispatch
@@ -793,7 +792,6 @@ tests/fm-share-guard-pretool-check.test.sh 124
 tests/fm-shell-history-herdr-e2e.test.sh 12197
 tests/fm-shell-history.test.sh 2753
 tests/fm-sim-boot.test.sh 3063
-tests/fm-spawn-compact-adviser-disable-remote.test.sh 38561
 tests/fm-spawn-compact-adviser-disable.test.sh 37156
 tests/fm-spawn-dispatch-profile.test.sh 554099
 tests/fm-spawn-dispatch-proof.test.sh 15223
