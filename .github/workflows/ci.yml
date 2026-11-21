@@ -115,6 +115,12 @@ jobs:
       - run: bun run build
       - name: Compare the built command with its source
         run: bin/fm-effect-shadow.sh runtime/cli.ts bin/fm-effect-run.sh --help
+      - name: Run the share guard through its shell command
+        run: |
+          bin/fm-test-run.sh tests/fm-share-guard-pretool-check.test.sh \
+            --fail-on-gate-skip 'policy runtime unavailable' \
+            --fail-on-gate-skip 'bun absent' \
+            --fail-on-gate-skip 'jq absent'
 
   # Deterministic proof that portable parallel shards + portable serial + Herdr
   # equal the complete tests/*.test.sh inventory with no missing or duplicates,

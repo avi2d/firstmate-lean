@@ -121,11 +121,9 @@ GIT_DIR=$(git -C "$FM_ROOT" rev-parse --git-dir 2>/dev/null) || exit 0
 GIT_COMMON_DIR=$(git -C "$FM_ROOT" rev-parse --git-common-dir 2>/dev/null) || exit 0
 [ "$GIT_DIR" = "$GIT_COMMON_DIR" ] || exit 0
 
-POLICY="$FM_ROOT/bin/fm-cd-command-policy.mjs"
-command -v node >/dev/null 2>&1 || exit 0
-[ -f "$POLICY" ] || exit 0
-
-POLICY_OUTPUT=$(node "$POLICY" --home "$FM_ROOT" --command "$CMD" 2>/dev/null) || exit 0
+if ! POLICY_OUTPUT=$("$SCRIPT_DIR/fm-effect-run.sh" --ensure cd-policy --home "$FM_ROOT" --command "$CMD" 2>/dev/null); then
+  POLICY_OUTPUT=$(node "$FM_ROOT/bin/fm-cd-command-policy.mjs" --home "$FM_ROOT" --command "$CMD" 2>/dev/null) || exit 0
+fi
 [ -n "$POLICY_OUTPUT" ] || exit 0
 
 TAB=$(printf '\t')
