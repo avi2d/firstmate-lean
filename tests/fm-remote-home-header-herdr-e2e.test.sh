@@ -85,10 +85,10 @@ exit 0
 SH
 cat > "$REMOTE_ROOT/bin/pi" <<'SH'
 #!/usr/bin/env bash
-if [ "${1:-}" = --version ]; then
-  printf '%s\n' 1.5.1
-  exit 0
-fi
+case "${1:-}" in
+  --version) printf '%s\n' 1.5.1; exit 0 ;;
+  --help) printf 'usage: pi [options]\n'; exit 0 ;;
+esac
 printf 'pi (fake)\n> '
 exec sleep 100000
 SH
