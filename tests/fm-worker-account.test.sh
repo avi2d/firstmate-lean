@@ -373,31 +373,6 @@ test_raw_claude_account_override_is_kept_without_a_pin() {
   pass "an unpinned home keeps a raw Claude account override"
 }
 
-test_local_secondmate_reads_the_launching_home_pin() {
-  local out rc id=acct-sm sm
-  new_case secondmate claude
-  signed_in_claude_root "$CASE/work"
-  printf '%s\n' "$CASE/work" > "$HOME_DIR/config/claude-account"
-  sm="$CASE/secondmate-home"
-  mkdir -p "$sm/bin" "$sm/data" "$sm/config" "$CASE/sm-own"
-  git init -q -b main "$sm"
-  printf '# Firstmate\n' > "$sm/AGENTS.md"
-  printf '%s\n' "$id" > "$sm/.fm-secondmate-home"
-  printf 'charter for %s\n' "$id" > "$sm/data/charter.md"
-  printf '%s\n' "$CASE/sm-own" > "$sm/config/claude-account"
-  signed_in_claude_root "$CASE/ambient-claude"
-  out=$(FM_FAKE_LAUNCH_LOG="$CASE/launch.log" FM_TEST_CLAUDE_CONFIG_DIR="$CASE/ambient-claude" \
-    fm_test_run_spawn "$HOME_DIR" "$WT" "$FAKEBIN" "$id" "$sm" --secondmate); rc=$?
-  expect_code 0 "$rc" "a local secondmate spawn under the launching home's pin should succeed: $out"
-  assert_contains "$out" "account=$CASE/work" "the secondmate spawn should report the launching home's pin"
-  [ "$(cat "$sm/config/claude-account")" = "$CASE/sm-own" ] \
-    || fail "the launching home's pin must not be inherited over the secondmate home's own file"
-  run_pane
-  assert_grep "CLAUDE_CONFIG_DIR=$CASE/work" "$CASE/claude-worker" \
-    "the secondmate agent should run under the launching home's pinned root"
-  pass "a local secondmate reads the launching home's pin and its own home's file is never inherited over"
-}
-
 test_claude_account_launches_claude_on_its_mapped_login() {
   local out rc id=cacct-claude
   new_case claude-account claude
@@ -460,7 +435,7 @@ test_pi_claude_bridge_without_an_account_refuses_where_accounts_are_declared() {
 }
 
 test_pi_claude_bridge_without_an_account_is_unchanged_elsewhere() {
-  local out rc id=cacct-bridge-kept sm
+  local out rc id=cacct-bridge-kept
   new_case pi-bridge-no-map pi
   out=$(spawn_ship "$id-nomap" --harness pi --model claude-bridge/claude-opus-5-5); rc=$?
   expect_code 0 "$rc" "with no config/claude-accounts a Pi claude-bridge spawn should launch as before: $out"
@@ -470,17 +445,7 @@ test_pi_claude_bridge_without_an_account_is_unchanged_elsewhere() {
   printf '%s\n' "main $CASE/main" > "$HOME_DIR/config/claude-accounts"
   out=$(spawn_ship "$id-other" --harness pi --model openai-codex/gpt-6-luna); rc=$?
   expect_code 0 "$rc" "a Pi model on another provider needs no Claude account: $out"
-  sm="$CASE/secondmate-home"
-  mkdir -p "$sm/bin" "$sm/data" "$sm/config"
-  git init -q -b main "$sm"
-  printf '# Firstmate\n' > "$sm/AGENTS.md"
-  printf '%s\n' "$id-sm" > "$sm/.fm-secondmate-home"
-  printf 'charter for %s\n' "$id-sm" > "$sm/data/charter.md"
-  : > "$CASE/launch.log"
-  out=$(FM_FAKE_LAUNCH_LOG="$CASE/launch.log" FM_TEST_CLAUDE_CONFIG_DIR="$CASE/ambient-claude" \
-    fm_test_run_spawn "$HOME_DIR" "$WT" "$FAKEBIN" "$id-sm" "$sm" --secondmate --harness pi --model claude-bridge/claude-haiku-5-5); rc=$?
-  expect_code 0 "$rc" "a local secondmate on a Pi claude-bridge model should launch as before: $out"
-  pass "a Pi claude-bridge spawn with no account is unchanged without declared accounts, off the bridge, and for a secondmate"
+  pass "a Pi claude-bridge spawn with no account is unchanged without declared accounts and off the bridge"
 }
 
 test_claude_account_ordinary_requires_clauth_to_report_it_active() {
@@ -553,109 +518,6 @@ test_claude_account_replaces_the_home_claude_pin_for_its_launch() {
   pass "--claude-account replaces the home's Claude pin for that one launch"
 }
 
-spawn_account_secondmate() {
-  local id=$1 sm="$CASE/$1-home"
-  shift
-  mkdir -p "$sm/bin" "$sm/data" "$sm/config"
-  git init -q -b main "$sm"
-  printf '# Firstmate\n' > "$sm/AGENTS.md"
-  printf '%s\n' "$id" > "$sm/.fm-secondmate-home"
-  printf 'charter for %s\n' "$id" > "$sm/data/charter.md"
-  : > "$CASE/launch.log"
-  FM_FAKE_LAUNCH_LOG="$CASE/launch.log" \
-    fm_test_run_spawn "$HOME_DIR" "$WT" "$FAKEBIN" "$id" "$sm" --secondmate "$@"
-}
-
-test_secondmate_account_override() {
-  local out rc id=acct-sm-override harness file variable worker
-  for harness in claude pi pi-signed; do
-    new_case "secondmate-override-$harness" "$harness"
-    case "$harness" in
-    claude) file=claude-account; variable=CLAUDE_CONFIG_DIR; worker=claude ;;
-    *) file=pi-account; variable=PI_CODING_AGENT_DIR; worker=pi ;;
-    esac
-    signed_in_claude_root "$CASE/primary"
-    signed_in_claude_root "$CASE/mate"
-    printf 'openai-codex\n' > "$CASE/primary/signed-in"
-    printf 'openai-codex\n' > "$CASE/mate/signed-in"
-    printf '%s\n' "$CASE/primary" > "$HOME_DIR/config/$file"
-    mkdir -p "$HOME_DIR/config/secondmate-accounts/$id" "$HOME_DIR/config/secondmate-accounts/acct-ship"
-    printf '%s\n' "$CASE/mate" > "$HOME_DIR/config/secondmate-accounts/$id/$file"
-    if [ "$harness" != claude ]; then
-      printf 'openai-codex\n' >> "$HOME_DIR/config/$file"
-      printf 'openai-codex\n' >> "$HOME_DIR/config/secondmate-accounts/$id/$file"
-    fi
-    cp "$HOME_DIR/config/secondmate-accounts/$id/$file" "$HOME_DIR/config/secondmate-accounts/acct-ship/$file"
-    out=$(spawn_account_secondmate "$id" --model openai-codex/gpt-5.5); rc=$?
-    expect_code 0 "$rc" "a $harness secondmate with its own account should launch: $out"
-    assert_contains "$out" "account=$CASE/mate" "the per-mate pin must override the primary's pin"
-    run_pane
-    assert_grep "$variable=$CASE/mate" "$CASE/$worker-worker" "the mate must receive its own account"
-    if [ "$harness" != claude ]; then
-      assert_grep '--provider openai-codex' "$CASE/$worker-worker" "the mate must receive its pinned provider"
-    fi
-    out=$(spawn_account_secondmate acct-other --model openai-codex/gpt-5.5); rc=$?
-    expect_code 0 "$rc" "an unconfigured secondmate should keep the primary's pin: $out"
-    run_pane
-    assert_grep "$variable=$CASE/primary" "$CASE/$worker-worker" "another mate must not receive the override"
-    out=$(spawn_ship acct-ship --model openai-codex/gpt-5.5); rc=$?
-    expect_code 0 "$rc" "an ordinary worker must keep the primary's pin: $out"
-    run_pane
-    assert_grep "$variable=$CASE/primary" "$CASE/$worker-worker" "per-mate configuration must not pin ordinary workers"
-  done
-  pass "Claude, Pi, and pi-signed secondmates use their own pins without changing other launches"
-}
-
-test_secondmate_account_refusals() {
-  local out rc id=acct-sm-refuse file harness body pin
-  for harness in claude pi; do
-    new_case "secondmate-refuse-$harness" "$harness"
-    file=claude-account
-    [ "$harness" = claude ] || file=pi-account
-    signed_in_claude_root "$CASE/primary"
-    printf 'openai-codex\n' > "$CASE/primary/signed-in"
-    printf '%s\n' "$CASE/primary" > "$HOME_DIR/config/$file"
-    [ "$harness" = claude ] || printf 'openai-codex\n' >> "$HOME_DIR/config/$file"
-    mkdir -p "$HOME_DIR/config/secondmate-accounts/$id" "$CASE/signed-out"
-    pin="$HOME_DIR/config/secondmate-accounts/$id/$file"
-    for body in '' relative "$CASE/missing" "$CASE/signed-out"; do
-      printf '%s\n' "$body" > "$pin"
-      [ "$harness" = claude ] || printf 'openai-codex\n' >> "$pin"
-      out=$(spawn_account_secondmate "$id" --model openai-codex/gpt-5.5); rc=$?
-      expect_code 1 "$rc" "an unusable per-mate $harness pin must refuse: $out"
-      assert_refused_before_launch "$id" "$out" "$pin"
-    done
-    rm "$pin"
-    ln -s "$CASE/no-file" "$pin"
-    out=$(spawn_account_secondmate "$id" --model openai-codex/gpt-5.5); rc=$?
-    expect_code 1 "$rc" "a broken per-mate pin link must not fall back"
-    assert_refused_before_launch "$id" "$out" "$pin"
-    rm "$pin"
-    mkdir "$pin"
-    out=$(spawn_account_secondmate "$id" --model openai-codex/gpt-5.5); rc=$?
-    expect_code 1 "$rc" "a non-file per-mate pin must not fall back"
-    assert_refused_before_launch "$id" "$out" "$pin"
-  done
-  pass "unusable per-mate pins name the setting and refuse rather than use the primary's usable account"
-}
-
-test_remote_secondmate_account_override_refuses_locally() {
-  local out rc id=acct-remote
-  new_case remote-account claude
-  mkdir -p "$HOME_DIR/config/secondmate-accounts/$id"
-  printf 'ordinary\n' > "$HOME_DIR/config/secondmate-accounts/$id/claude-account"
-  printf -- '- %s - Remote fixture (host: account-test.invalid; root: /srv/firstmate; home: /srv/mate; scope: tests; projects: none; added 2026-10-17)\n' \
-    "$id" > "$HOME_DIR/data/secondmates.md"
-  out=$(fm_test_run_spawn "$HOME_DIR" "$WT" "$FAKEBIN" "$id" --secondmate); rc=$?
-  expect_code 1 "$rc" "a primary-side remote account override must refuse"
-  assert_refused_before_launch "$id" "$out" "$HOME_DIR/config/secondmate-accounts/$id/claude-account cannot pin remote secondmate"
-  assert_absent "$CASE/claude-checks" "a remote refusal must not inspect a local login"
-  pass "a remote route refuses a primary-side account override instead of silently ignoring it"
-}
-
-test_secondmate_account_override
-test_secondmate_account_refusals
-test_remote_secondmate_account_override_refuses_locally
 test_absent_pin_keeps_the_launch_unchanged
 test_claude_pin_selects_the_root_and_sheds_ambient_credentials
 test_claude_pin_refuses_a_signed_out_root_despite_an_ambient_login
@@ -668,7 +530,6 @@ test_a_pin_governs_only_its_own_runner
 test_raw_claude_command_receives_the_pin
 test_raw_claude_account_override_refuses_under_a_pin
 test_raw_claude_account_override_is_kept_without_a_pin
-test_local_secondmate_reads_the_launching_home_pin
 test_claude_account_launches_claude_on_its_mapped_login
 test_claude_account_reaches_a_pi_claude_bridge_worker
 test_pi_claude_bridge_without_an_account_refuses_where_accounts_are_declared

@@ -60,7 +60,7 @@ cleanup_remote_worker() {
 }
 trap cleanup_remote_worker EXIT
 (cd "$ROOT" && tar --exclude=.git --exclude=data --exclude=state --exclude=config --exclude=.no-mistakes -cf - .) | (cd "$REMOTE_ROOT" && tar -xf -)
-fm_test_spawn_home "$REMOTE_HOME" codex
+fm_test_spawn_home "$REMOTE_HOME" pi
 printf 'exec-one\n' > "$REMOTE_HOME/.fm-exec-home"
 printf 'manual\n' > "$REMOTE_HOME/config/backlog-backend"
 printf 'fm-lab-test\n' > "$REMOTE_HOME/config/herdr-session"
@@ -105,12 +105,11 @@ case "\${1:-} \${2:-}" in
   'pane read') printf 'reading remote brief\\n' ;;
 esac
 SH
-cat > "$REMOTE_ROOT/bin/codex" <<'SH'
+cat > "$REMOTE_ROOT/bin/pi" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
-cp "$REMOTE_ROOT/bin/codex" "$REMOTE_ROOT/bin/claude"
-chmod +x "$REMOTE_ROOT/bin/treehouse" "$REMOTE_ROOT/bin/herdr" "$REMOTE_ROOT/bin/codex" "$REMOTE_ROOT/bin/claude"
+chmod +x "$REMOTE_ROOT/bin/treehouse" "$REMOTE_ROOT/bin/herdr" "$REMOTE_ROOT/bin/pi"
 git -C "$REMOTE_ROOT" init -q -b main
 git -C "$REMOTE_ROOT" config user.name Test
 git -C "$REMOTE_ROOT" config user.email test@example.com
@@ -134,7 +133,7 @@ printf '%s\n' "- exec-one - execution (host: testhost; root: $REMOTE_ROOT; home:
 tasks-axi add e2e-scout 'Research alpha' --kind scout --file "$PARENT/data/backlog.md" >/dev/null
 mkdir -p "$PARENT/data/e2e-scout"
 printf "# Task\n## Captain's intent\nResearch the project.\n\n## Firstmate spec\nReport evidence.\n" > "$PARENT/data/e2e-scout/brief.md"
-out=$(FM_HOME="$PARENT" FM_SPAWN_NO_GUARD=1 FM_SSH_BIN="$FAKE/ssh" FM_REMOTE_JOB_STATE_ROOT="$JOB_STATE" FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux "$ROOT/bin/fm-spawn.sh" e2e-scout "$PARENT/projects/alpha" --scout --harness codex 2>&1) || fail "remote local-transport launch failed: $out"
+out=$(FM_HOME="$PARENT" FM_SPAWN_NO_GUARD=1 FM_SSH_BIN="$FAKE/ssh" FM_REMOTE_JOB_STATE_ROOT="$JOB_STATE" FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux "$ROOT/bin/fm-spawn.sh" e2e-scout "$PARENT/projects/alpha" --scout --harness pi 2>&1) || fail "remote local-transport launch failed: $out"
 assert_grep 'remote_route=exec-one' "$PARENT/state/e2e-scout.meta" "main route missing"
 assert_grep 'Research the project.' "$REMOTE_HOME/data/e2e-scout/brief.md" "remote intent missing"
 [ -f "$FAKE/launch" ] || fail "remote spawn did not deliver its brief"
@@ -199,7 +198,7 @@ remote_account_spawn() {  # <task-id> <account>
   printf '%s' "$REMOTE_HOME/projects/alpha" > "$FAKE/cwd"
   printf '%s' "$REMOTE_HOME/projects/alpha" > "$FAKE/fg"
   rm -f "$FAKE/launch" "$FAKE/live"
-  FM_HOME="$PARENT" FM_SPAWN_NO_GUARD=1 FM_SSH_BIN="$FAKE/ssh" FM_REMOTE_JOB_STATE_ROOT="$JOB_STATE" FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux "$ROOT/bin/fm-spawn.sh" "$1" "$PARENT/projects/alpha" --scout --harness claude --claude-account "$2" 2>&1
+  FM_HOME="$PARENT" FM_SPAWN_NO_GUARD=1 FM_SSH_BIN="$FAKE/ssh" FM_REMOTE_JOB_STATE_ROOT="$JOB_STATE" FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux "$ROOT/bin/fm-spawn.sh" "$1" "$PARENT/projects/alpha" --scout --harness pi --model claude-bridge/claude-opus-5-5 --claude-account "$2" 2>&1
 }
 out=$(remote_account_spawn e2e-account main) || fail "remote launch on a mapped Claude account failed: $out"
 printf '%s\n' "$out" | grep -F 'claude_account=main' >/dev/null || fail "spawned line did not print the account: $out"
@@ -226,7 +225,7 @@ remote_scout_spawn() {  # <task-id>
   printf '%s' "$REMOTE_HOME/projects/alpha" > "$FAKE/cwd"
   printf '%s' "$REMOTE_HOME/projects/alpha" > "$FAKE/fg"
   rm -f "$FAKE/launch" "$FAKE/live"
-  FM_HOME="$PARENT" FM_SPAWN_NO_GUARD=1 FM_SSH_BIN="$FAKE/ssh" FM_REMOTE_JOB_STATE_ROOT="$JOB_STATE" FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux "$ROOT/bin/fm-spawn.sh" "$1" "$PARENT/projects/alpha" --scout --harness codex 2>&1
+  FM_HOME="$PARENT" FM_SPAWN_NO_GUARD=1 FM_SSH_BIN="$FAKE/ssh" FM_REMOTE_JOB_STATE_ROOT="$JOB_STATE" FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux "$ROOT/bin/fm-spawn.sh" "$1" "$PARENT/projects/alpha" --scout --harness pi 2>&1
 }
 assert_deferred_untouched() {  # <task-id> <rc> <output> <deferring-step-line-prefix>
   [ "$2" -eq 75 ] || fail "a host at its heavy limit answered exit $2 instead of 75: $3"
@@ -252,7 +251,7 @@ pass "remote_launch_at_host_heavy_limit_exits_75_and_leaves_nothing_instead_of_a
 printf '@heavy-limit 50\n' > "$REMOTE_HOME/config/project-capacity"
 mkdir -p "$FAKE/race"
 for n in $(seq 1 50); do
-  printf 'kind=scout\nharness=codex\nproject=%s/projects/alpha\n' "$REMOTE_HOME" > "$FAKE/race/race-$n.meta"
+  printf 'kind=scout\nharness=pi\nproject=%s/projects/alpha\n' "$REMOTE_HOME" > "$FAKE/race/race-$n.meta"
 done
 rc=0
 out=$(remote_scout_spawn e2e-heavy-race) || rc=$?

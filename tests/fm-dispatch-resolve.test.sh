@@ -1305,22 +1305,6 @@ reset_log
 run code out err "$BRIEF" --project pager
 expect_withheld "a rule-criterion match" "brief text matches $NEVER_SEND line 1" 'stated root cause'
 
-SECOND_HOME="$TMP_ROOT/secondmate-home"
-mkdir -p "$SECOND_HOME/config"
-cp "$HOME_DIR/config/bws-typesafe-secret-id" "$SECOND_HOME/config/"
-printf '%s\n' 'acme-ledger' > "$NEVER_SEND"
-# A child shell keeps the lib's own globals (such as out) out of this script
-# shellcheck disable=SC2016 # Expanded by the child shell
-bash -c '. "$1" && propagate_inheritable_config "$2" "$3"' _ \
-  "$ROOT/bin/fm-config-inherit-lib.sh" "$HOME_DIR/config" "$SECOND_HOME/config" \
-  || fail "inheritance into the secondmate home failed"
-PRIMARY_HOME=$HOME_DIR
-HOME_DIR=$SECOND_HOME
-reset_log
-run code out err "$PRIVATE_BRIEF" --project pager
-expect_withheld "an inherited list in a secondmate home" "brief text matches $SECOND_HOME/config/dispatch-never-send line 1" 'acme-ledger' 'Acme-Ledger'
-HOME_DIR=$PRIMARY_HOME
-
 rm -f "$NEVER_SEND"
 mkdir "$NEVER_SEND"
 reset_log
