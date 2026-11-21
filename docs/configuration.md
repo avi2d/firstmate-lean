@@ -628,7 +628,8 @@ The flag is a home-local preference.
 
 ## No local tests
 
-The optional local, gitignored `config/no-local-tests` presence flag makes CI on the pull request the only test run for this home's workers.
+The optional local, gitignored `config/no-local-tests` presence flag makes CI the only test run for this home's workers.
+CI runs the tests once a day on `main` and on manual dispatch, not on pull requests.
 With it present, every ship and scout brief gains a `# Local tests` section saying that the repository's own tests never run on the worker machine, in any repository, including any `package.json` test script and any test runner.
 The section allows a throwaway check: a small script written in the worker's temporary folder outside the repository, run once to see one behavior, never committed, and finishing in about a minute without a browser, simulator, or App.
 Build, lint, and typecheck commands may still run.
