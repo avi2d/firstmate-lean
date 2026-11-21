@@ -3901,6 +3901,14 @@ EOF
   hb=$(( HEARTBEAT * (1 << streak) ))
   [ "$hb" -gt "$HEARTBEAT_MAX" ] && hb=$HEARTBEAT_MAX
   if [ "$(age_of "$STATE/.last-heartbeat")" -ge "$hb" ]; then
+    finished_cleanup=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+      "$SCRIPT_DIR/fm-finished-cleanup.sh" sweep 2>&1) || finished_cleanup="finished cleanup failed: $finished_cleanup"
+    if [ -n "$finished_cleanup" ]; then
+      reason="check: finished-cleanup: $(printf '%s' "$finished_cleanup" | fm_wake_clean_field)"
+      fm_wake_append check finished-cleanup "$reason" || exit 1
+      touch "$STATE/.last-heartbeat"
+      wake "$reason"
+    fi
     # A deferred pane close is time passing, not news: retry it on every tick,
     # absorbed or not, before triage decides what the tick means.
     if command -v herdr >/dev/null 2>&1; then
