@@ -89,29 +89,45 @@ new_home() { mkdir -p "$1/state"; }
 # spawn leaves behind.
 new_task_endpoint() {  # <home> <task-id>
   mkdir -p "$1/state"
-  printf 'window=fmtest:fm-%s\nworktree=%s/worktree-%s\nproject=fmtest\n' "$2" "$1" "$2" \
-    > "$1/state/$2.meta"
+  fm_write_herdr_meta "$1/state/$2.meta" "fmtest:w1:p-$2" \
+    "worktree=$1/worktree-$2" "project=fmtest"
 }
 # A board answer for an owner whose agent is not running also wakes firstmate,
-# so every fixture worker runs a live agent unless its test stubs tmux itself.
-LIVE_TMUX_BIN=$(fm_fakebin "$TMP_ROOT/live-tmux-stub")
-cat > "$LIVE_TMUX_BIN/tmux" <<'SH'
+# so every fixture worker runs a live agent unless its test stubs Herdr itself.
+write_herdr_fake() {  # <fakebin> <foreground-command>
+  cat > "$1/herdr" <<SH
 #!/usr/bin/env bash
 set -u
-case "${1:-}" in
-  list-windows)
-    for meta in "${FM_HOME:-/nonexistent}"/state/*.meta; do
-      [ -f "$meta" ] && sed -n 's/^window=[^:]*://p' "$meta"
-    done
-    exit 0 ;;
-  display-message)
-    case "$*" in *pane_current_command*) printf 'claude\n' ;; esac
-    exit 0 ;;
-esac
-exit 0
+foreground=$2
+shell_pid=$$
 SH
-chmod +x "$LIVE_TMUX_BIN/tmux"
-export PATH="$LIVE_TMUX_BIN:$PATH"
+  cat >> "$1/herdr" <<'SH'
+case "${1:-} ${2:-}" in
+  'status --json')
+    printf '%s\n' '{"client":{"version":"0.9.5","protocol":22},"server":{"running":true}}' ;;
+  'pane get') printf '{"result":{"pane":{"pane_id":"%s"}}}\n' "${3:-}" ;;
+  'pane read') printf '%s\n' '╭────╮' '│    │' '╰────╯' ;;
+  'agent get') printf '%s\n' '{"error":{"code":"agent_not_found"}}'; exit 1 ;;
+  'pane process-info')
+    pane=""; args=("$@")
+    for ((i = 0; i < ${#args[@]}; i++)); do
+      [ "${args[$i]}" = --pane ] && pane=${args[$((i + 1))]:-}
+    done
+    if [ "$foreground" = pi ]; then
+      printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":%s,"foreground_process_group_id":4194305,"foreground_processes":[{"pid":4194305,"name":"pi","argv0":"pi"}]}}}\n' "$pane" "$shell_pid"
+    else
+      printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":%s,"foreground_process_group_id":%s,"foreground_processes":[{"pid":%s,"name":"zsh","argv0":"zsh","argv":["-zsh"]}]}}}\n' "$pane" "$shell_pid" "$shell_pid" "$shell_pid"
+    fi ;;
+  'pane send-text') printf '%s\n' "${4:-}" >> "${FM_SEND_LOG:-/dev/null}" ;;
+  'pane send-keys') : ;;
+  *) exit 1 ;;
+esac
+SH
+  chmod +x "$1/herdr"
+}
+LIVE_HERDR_BIN=$(fm_fakebin "$TMP_ROOT/live-herdr-stub")
+write_herdr_fake "$LIVE_HERDR_BIN" pi
+export PATH="$LIVE_HERDR_BIN:$PATH"
 wake_payloads() { awk -F '\t' '{print $5}' "$1/state/.wake-queue" 2>/dev/null; }
 
 # The wake queue is a durable tab-separated record firstmate consumes:
@@ -1259,38 +1275,8 @@ pass "a worker-owned board is only armed for an owner its feedback can reach"
 # only a write that actually creates a fresh record rings, and re-delivery of
 # a still-open round is left to the inbox's own re-ring ladder.
 HREDELIVER="$TMP_ROOT/hredeliver"; new_home "$HREDELIVER"
-RING_BIN=$(fm_fakebin "$TMP_ROOT/ring-tmux-stub")
-cat > "$RING_BIN/tmux" <<'SH'
-#!/usr/bin/env bash
-set -u
-case "${1:-}" in
-  send-keys)
-    shift
-    literal=0
-    while [ $# -gt 0 ]; do
-      case "$1" in
-        -t) shift 2 ;;
-        -l) literal=1; shift ;;
-        *) break ;;
-      esac
-    done
-    [ "$literal" = 1 ] && printf '%s\n' "${1:-}" >> "${FM_SEND_LOG:-/dev/null}"
-    exit 0 ;;
-  display-message)
-    for a in "$@"; do
-      case "$a" in
-        *cursor_y*) printf '1\n'; exit 0 ;;
-      esac
-    done
-    printf 'fakepane\n'; exit 0 ;;
-  capture-pane)
-    printf '╭────╮\n│    │\n╰────╯\n'
-    exit 0 ;;
-  list-windows) printf 'fm-worker-6\n'; exit 0 ;;
-esac
-exit 0
-SH
-chmod +x "$RING_BIN/tmux"
+RING_BIN=$(fm_fakebin "$TMP_ROOT/ring-herdr-stub")
+write_herdr_fake "$RING_BIN" pi
 REDELIVER_ART="$TMP_ROOT/redeliver-board.html"
 printf '<h1>redeliver</h1>\n' > "$REDELIVER_ART"
 lavish_session "$REDELIVER_ART"
@@ -1340,20 +1326,8 @@ pass "an acknowledged note is never resurrected and stops ringing across repeate
 # agent's inbox, so the answer must wake firstmate as the capture lands rather
 # than once the watcher's re-ring ladder later notices the unread note.
 HEXITED="$TMP_ROOT/hexited"; new_home "$HEXITED"
-EXITED_BIN=$(fm_fakebin "$TMP_ROOT/exited-tmux-stub")
-cat > "$EXITED_BIN/tmux" <<'SH'
-#!/usr/bin/env bash
-set -u
-case "${1:-}" in
-  send-keys) printf '%s\n' "$*" >> "${FM_SEND_LOG:-/dev/null}"; exit 0 ;;
-  list-windows) printf 'fm-worker-exited\n'; exit 0 ;;
-  display-message)
-    case "$*" in *pane_current_command*) printf 'zsh\n' ;; esac
-    exit 0 ;;
-esac
-exit 0
-SH
-chmod +x "$EXITED_BIN/tmux"
+EXITED_BIN=$(fm_fakebin "$TMP_ROOT/exited-herdr-stub")
+write_herdr_fake "$EXITED_BIN" zsh
 EXITED_ART="$TMP_ROOT/exited-board.html"
 printf '<h1>exited owner</h1>\n' > "$EXITED_ART"
 lavish_session "$EXITED_ART"

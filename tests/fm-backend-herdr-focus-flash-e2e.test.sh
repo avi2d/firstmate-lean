@@ -340,8 +340,10 @@ if [ "$STEAL_LIVE" = 1 ]; then
   # explicitly accepted here, but only as a BOUNDED one: the restore backstop
   # must have put the anchor back exactly, and the whole exposure must end with
   # the operation rather than parking the captain somewhere else.
-  [ "$C_WRONG" -ge 1 ] \
-    || fail 'Part C reached the fallback on a defective release but observed no wrong-focus sample at all, so the sampler proved nothing'
+  # The restore can land between two samples, so the corrective focus call is
+  # the evidence of the steal when no sample caught it.
+  [ "$C_WRONG" -ge 1 ] || grep -q '^tab focus' "$C_CALL_LOG" \
+    || fail 'Part C reached the fallback on a defective release but neither sampled a wrong focus nor issued a corrective tab focus'
   pass "fallback on a defective release: a bounded wrong-focus window of $C_WRONG samples was fully restored to the anchor"
 else
   [ "$C_WRONG" -eq 0 ] \

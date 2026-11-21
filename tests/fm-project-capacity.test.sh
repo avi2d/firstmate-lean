@@ -5,19 +5,18 @@
 # contract; bin/fm-spawn.sh runs the check).
 #
 # Every case drives the real bin/fm-spawn.sh against a real project clone with
-# an origin, fake tmux and treehouse binaries that log every call, and a real
+# an origin, fake Herdr and treehouse binaries that log every call, and a real
 # markdown backlog when tasks-axi is installed. A deferred spawn is judged by
 # what it left behind - no task record, no rendered launch brief, no endpoint,
 # no worktree allocation, and a backlog item still queued - never by wording
 # alone.
 set -u
 
-# shellcheck source=tests/lib.sh
-. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=tests/fixtures.sh
+. "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 
 unset TASKS_AXI_BACKEND || :
 
-SPAWN="$ROOT/bin/fm-spawn.sh"
 TEARDOWN="$ROOT/bin/fm-teardown.sh"
 TMP_ROOT=$(fm_test_tmproot fm-project-capacity)
 DEFER_EXIT=75
@@ -48,7 +47,7 @@ make_home() {  # <home> [task-id...]
   shift
   mkdir -p "$home/state" "$home/config" "$home/data" "$home/projects"
   touch "$home/state/.last-watcher-beat"
-  printf '%s\n' codex > "$home/config/crew-harness"
+  printf '%s\n' pi > "$home/config/crew-harness"
   if [ "$HAVE_TASKS_AXI" = 1 ]; then
     printf '%s\n' '# Backlog' '' '## In flight' '' '## Queued' '' '## Done' \
       > "$home/data/backlog.md"
@@ -65,70 +64,32 @@ EOF
   done
 }
 
-# A case: one home, a project clone with an origin, and fake tmux/treehouse
+# A case: one home, a project clone with an origin, and fake Herdr/treehouse
 # that record every call so a deferral can be proved to have created nothing.
 make_case() {  # <name> [task-id...]
   local name=$1 case_dir fakebin
   shift
   case_dir="$TMP_ROOT/$name"
   mkdir -p "$case_dir"
-  fakebin=$(fm_fakebin "$case_dir")
   : > "$case_dir/calls.log"
-  cat > "$fakebin/tmux" <<'SH'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >> "$FM_FAKE_CALL_LOG"
-window_file="$FM_FAKE_CALL_LOG.window"
-case "$*" in
-  *"#{pane_current_path}"*)
-    # A spawn that is told to hold waits here, after its capacity check and
-    # while it still holds the project lock, until the test releases it.
-    if [ -n "${FM_FAKE_HOLD:-}" ]; then
-      : > "$FM_FAKE_HOLD.reached"
-      i=0
-      while [ ! -f "$FM_FAKE_HOLD.release" ]; do
-        i=$((i + 1))
-        [ "$i" -lt 400 ] || exit 1
-        sleep 0.05
-      done
-    fi
-    printf '%s\n' "${FM_FAKE_PANE_PATH:-}"
-    exit 0
-    ;;
-esac
-case "${1:-}" in
-  display-message) printf 'firstmate\n' ;;
-  list-windows) [ ! -s "$window_file" ] || cat "$window_file" ;;
-  new-window)
-    name=
-    previous=
-    for arg in "$@"; do
-      [ "$previous" = -n ] && name=$arg
-      previous=$arg
-    done
-    grep -Fqx -- "$name" "$window_file" 2>/dev/null || printf '%s\n' "$name" >> "$window_file"
-    ;;
-  kill-window)
-    target=
-    previous=
-    for arg in "$@"; do
-      [ "$previous" = -t ] && target=$arg
-      previous=$arg
-    done
-    target=${target##*:}
-    target=${target#=}
-    grep -Fvx -- "$target" "$window_file" 2>/dev/null > "$window_file.tmp" || true
-    mv "$window_file.tmp" "$window_file"
-    ;;
-esac
-exit 0
-SH
+  fakebin=$(fm_test_make_spawn_fakebin "$case_dir" gh gh-axi no-mistakes)
+  mv "$fakebin/treehouse" "$fakebin/treehouse-fixture"
   cat > "$fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
-printf 'treehouse %s\n' "$*" >> "$FM_FAKE_CALL_LOG"
-exit 0
+# A spawn told to hold waits here, after its capacity check and while it still
+# holds the project lock, until the test releases it.
+if [ "${1:-} ${2:-}" = 'get --lease' ] && [ -n "${FM_FAKE_HOLD:-}" ]; then
+  : > "$FM_FAKE_HOLD.reached"
+  i=0
+  while [ ! -f "$FM_FAKE_HOLD.release" ]; do
+    i=$((i + 1))
+    [ "$i" -lt 400 ] || exit 1
+    sleep 0.05
+  done
+fi
+exec "$(dirname "$0")/treehouse-fixture" "$@"
 SH
-  chmod +x "$fakebin/tmux" "$fakebin/treehouse"
-  fm_fake_exit0 "$fakebin" gh gh-axi no-mistakes claude codex opencode grok gemini
+  chmod +x "$fakebin/treehouse"
   fm_git_init_commit "$case_dir/project"
   fm_git_add_origin "$case_dir/project" "$case_dir/project.origin.git"
   fm_git_init_commit "$case_dir/other-project"
@@ -158,12 +119,10 @@ declare_capacity() {  # <home> <line>...
 write_live() {  # <home> <id> <project-dir> [extra-line...]
   local home=$1 id=$2 project=$3
   shift 3
-  fm_write_meta "$home/state/$id.meta" \
-    "window=firstmate:fm-$id" \
-    "endpoint_task_id=$id" \
+  fm_write_herdr_meta "$home/state/$id.meta" "spawn-fixture:w1:p-$id" \
     "worktree=$home/absent-worktree-$id" \
     "project=$project" \
-    "harness=codex" \
+    "harness=pi" \
     "kind=ship" \
     "mode=no-mistakes" \
     "yolo=off" \
@@ -184,12 +143,8 @@ new_worktree() {  # <case-dir> <name>
 run_spawn() {  # <case-dir> <home> <pane-path> <args...>
   local case_dir=$1 home=$2 pane=$3
   shift 3
-  FM_ROOT_OVERRIDE='' FM_HOME="$home" \
-    FM_STATE_OVERRIDE='' FM_DATA_OVERRIDE='' FM_PROJECTS_OVERRIDE='' FM_CONFIG_OVERRIDE='' \
-    FM_SPAWN_NO_GUARD=1 TMUX="fake,1,0" FM_BACKEND=tmux \
-    FM_FAKE_PANE_PATH="$pane" FM_FAKE_CALL_LOG="$case_dir/calls.log" \
-    PATH="$case_dir/fakebin:$PATH" \
-    "$SPAWN" "$@" 2>&1
+  FM_FAKE_CALL_LOG="$case_dir/calls.log" \
+    fm_test_run_spawn "$home" "$pane" "$case_dir/fakebin" "$@"
 }
 
 spawn_ship() {  # <case-dir> <id> [pane-path]
@@ -343,8 +298,7 @@ test_restart_does_not_count_its_own_record() {
   case_dir=$(make_case restart task-c task-d)
   home="$case_dir/home"
   declare_capacity "$home" "project 1"
-  fm_write_meta "$home/state/task-c.meta" \
-    "window=firstmate:fm-task-c" \
+  fm_write_herdr_meta "$home/state/task-c.meta" "spawn-fixture:w1:p-task-c" \
     "project=$case_dir/project" \
     "kind=ship"
   out=$(spawn_ship "$case_dir" task-c) || rc=$?
@@ -381,8 +335,10 @@ test_release_frees_a_place() {
 
   # Cleanup: the real teardown removes the record, which frees its place.
   rc=0
+  mkdir -p "$case_dir/teardown-bin"
+  fm_test_fake_herdr_teardown "$case_dir/teardown-bin"
   out=$(FM_ROOT_OVERRIDE='' FM_HOME="$home" FM_STATE_OVERRIDE='' FM_DATA_OVERRIDE='' FM_CONFIG_OVERRIDE='' \
-    FM_FAKE_CALL_LOG="$case_dir/calls.log" PATH="$case_dir/fakebin:$PATH" \
+    FM_FAKE_CALL_LOG="$case_dir/calls.log" PATH="$case_dir/teardown-bin:$case_dir/fakebin:$PATH" \
     "$TEARDOWN" live-b 2>&1) || rc=$?
   expect_code 0 "$rc" "cleanup of a live worker failed: $out"
   assert_absent "$home/state/live-b.meta" "cleanup left the worker's record"
@@ -392,9 +348,8 @@ test_release_frees_a_place() {
   pass "a recorded PR handoff or a cleanup each frees exactly one place"
 }
 
-# Only workers on the same project identity hold places: a secondmate record, a
-# record for another project, and a scout on another project are ignored, while
-# a scout and a legacy record without kind= on this project count.
+# A scout and a legacy record without kind= on this project hold places; a
+# record for another project does not.
 test_occupancy_counts_only_this_projects_workers() {
   local case_dir home out rc=0
   case_dir=$(make_case occupancy task-c)
@@ -402,9 +357,8 @@ test_occupancy_counts_only_this_projects_workers() {
   declare_capacity "$home" "project 3"
   write_live "$home" scout-a "$case_dir/project"
   sed -i.bak 's/^kind=ship$/kind=scout/' "$home/state/scout-a.meta" && rm -f "$home/state/scout-a.meta.bak"
-  fm_write_meta "$home/state/legacy-b.meta" "window=firstmate:fm-legacy-b" "project=$case_dir/project"
+  fm_write_herdr_meta "$home/state/legacy-b.meta" "spawn-fixture:w1:p-legacy-b" "project=$case_dir/project"
   write_live "$home" other-c "$case_dir/other-project"
-  fm_write_meta "$home/state/mate-d.meta" "window=remote:mate-d" "project=$case_dir/project" "kind=secondmate"
   out=$(spawn_ship "$case_dir" task-c) || rc=$?
   expect_code 0 "$rc" "records outside this project's workers took a place: $out"
   rc=0
@@ -417,54 +371,15 @@ test_occupancy_counts_only_this_projects_workers() {
   pass "only this project's ship and scout records hold places"
 }
 
-# Capacity belongs to the machine: a local secondmate home's workers on a
-# separate clone of the same origin count, the declaration comes from the root
-# home even when the secondmate spawns, and a remote home's workers never count.
-test_capacity_is_shared_by_every_local_home() {
-  local case_dir root mate out rc=0 mate_project
-  case_dir=$(make_case machine)
-  root="$case_dir/home"
-  mate="$case_dir/mate"
-  make_home "$mate" task-m
-  mate_project="$mate/projects/project"
-  git clone -q "$(git -C "$case_dir/project" remote get-url origin)" "$mate_project"
-  printf '%s\n' schema=fm-secondmate-parent.v1 route=local "parent_home=$root" > "$mate/.fm-secondmate-parent"
-  printf -- '- mate - a local mate (home: %s; scope: project work; projects: project; added 2026-09-01)\n' "$mate" \
-    > "$root/data/secondmates.md"
-  printf -- '- far - a remote mate (host: far.example; root: /srv/fm; home: %s/remote-home; scope: other; projects: project; added 2026-09-01)\n' "$case_dir" \
-    >> "$root/data/secondmates.md"
-  mkdir -p "$case_dir/remote-home/state"
-  fm_write_meta "$case_dir/remote-home/state/far-x.meta" "window=w" "project=$case_dir/project" "kind=ship"
-  declare_capacity "$root" "project 1"
-  write_live "$root" live-a "$case_dir/project"
-  git -C "$mate_project" worktree add --quiet -b wt-m "$case_dir/wt-m"
-  out=$(run_spawn "$case_dir" "$mate" "$case_dir/wt-m" task-m "$mate_project" --mode no-mistakes --yolo off) || rc=$?
-  expect_code "$DEFER_EXIT" "$rc" "a local secondmate launched past the machine's capacity: $out"
-  assert_contains "$out" "admits 1 worker(s) at once on this machine ($root/config/project-capacity) and 1 already hold a place (live-a in $root)" \
-    "the secondmate did not count the root home's worker against the root's declaration"
-  assert_absent "$mate/state/task-m.meta" "the deferred secondmate spawn published a record"
-  printf 'pr=%s\n' "https://github.com/o/r/pull/8" >> "$root/state/live-a.meta"
-  rc=0
-  out=$(run_spawn "$case_dir" "$mate" "$case_dir/wt-m" task-m "$mate_project" --mode no-mistakes --yolo off) || rc=$?
-  expect_code 0 "$rc" "the remote home's worker, or a handed-off one, took the machine's place: $out"
-  pass "every local home shares one declared capacity per project origin, and remote homes do not count"
-}
-
-# A local home's state directory or task record that cannot be read could hide a
-# holder, so admission refuses instead of counting without it.
+# A task record that cannot be read could hide a holder, so admission refuses instead of counting without it.
 test_unreadable_holders_refuse_admission() {
-  local case_dir root mate out rc=0
+  local case_dir root out rc=0
   if [ "$(id -u)" = 0 ]; then
     printf 'ok - skipped the unreadable-holder case (root reads files regardless of mode)\n'
     return 0
   fi
   case_dir=$(make_case unreadable-holders task-c)
   root="$case_dir/home"
-  mate="$case_dir/mate"
-  make_home "$mate"
-  printf '%s\n' schema=fm-secondmate-parent.v1 route=local "parent_home=$root" > "$mate/.fm-secondmate-parent"
-  printf -- '- mate - a local mate (home: %s; scope: project work; projects: project; added 2026-09-01)\n' "$mate" \
-    > "$root/data/secondmates.md"
   declare_capacity "$root" "project 2"
 
   write_live "$root" live-a "$case_dir/project"
@@ -476,19 +391,10 @@ test_unreadable_holders_refuse_admission() {
     "the refusal did not name the unreadable task record"
   assert_absent "$root/state/task-c.meta" "a spawn published past an unreadable task record"
 
-  chmod 000 "$mate/state"
-  rc=0
-  out=$(spawn_ship "$case_dir" task-c "$case_dir/unused") || rc=$?
-  chmod 755 "$mate/state"
-  expect_code 1 "$rc" "an unreadable local state directory did not refuse admission: $out"
-  assert_contains "$out" "local Firstmate state directory $mate/state cannot be read" \
-    "the refusal did not name the unreadable state directory"
-  assert_absent "$root/state/task-c.meta" "a spawn published past an unreadable state directory"
-
   rc=0
   out=$(spawn_ship "$case_dir" task-c) || rc=$?
   expect_code 0 "$rc" "a readable machine did not admit the worker: $out"
-  pass "an unreadable state directory or task record refuses admission rather than undercounting"
+  pass "an unreadable task record refuses admission rather than undercounting"
 }
 
 # Two spawns racing for the last place: the one holding the project lock
@@ -581,74 +487,6 @@ test_batch_reports_a_deferred_pair() {
   pass "a batch reports a capacity deferral as deferred, not failed"
 }
 
-# Orca owns its own worktrees and never takes the Treehouse allocation lock, so
-# a declared capacity is what makes an Orca spawn take the shared project lock,
-# even from an uncapped clone of a capped origin whose worker would still hold a
-# place: it refuses while another holder has it, and defers at capacity before
-# asking Orca for anything but its runtime status.
-test_orca_spawn_is_admitted_under_the_shared_project_lock() {
-  local case_dir home out out2 rc=0 rc2 holder i
-  command -v node >/dev/null 2>&1 || {
-    printf 'ok - skipped the Orca capacity case (node, which the Orca status check needs, is not installed)\n'
-    return 0
-  }
-  case_dir=$(make_case orca task-o)
-  home="$case_dir/home"
-  cat > "$case_dir/fakebin/orca" <<'SH'
-#!/usr/bin/env bash
-if [ "${1:-}" = status ]; then
-  printf '{"ok":true,"result":{"runtime":{"reachable":true,"state":"ready"}}}\n'
-  exit 0
-fi
-printf 'orca %s\n' "$*" >> "$FM_FAKE_CALL_LOG"
-exit 1
-SH
-  chmod +x "$case_dir/fakebin/orca"
-  git clone -q "$(git -C "$case_dir/project" remote get-url origin)" "$case_dir/project-2"
-  declare_capacity "$home" "project 1"
-
-  # shellcheck disable=SC2016 # expanded by the holder's own shell
-  FM_HOME="$home" FM_STATE_OVERRIDE='' bash -c '
-    . "$1/bin/fm-wake-lib.sh"
-    lock=$(fm_treehouse_project_lock_path "$2") || exit 1
-    fm_lock_try_acquire "$lock" || exit 1
-    : > "$3.held"
-    while [ ! -f "$3.release" ]; do sleep 0.05; done
-    fm_lock_release "$lock"
-  ' _ "$ROOT" "$case_dir/project" "$case_dir/holder" &
-  holder=$!
-  i=0
-  while [ ! -f "$case_dir/holder.held" ]; do
-    i=$((i + 1))
-    [ "$i" -lt 200 ] || fail "the lock holder never took the project lock"
-    sleep 0.05
-  done
-  out=$(run_spawn "$case_dir" "$home" "$case_dir/unused" task-o "$case_dir/project" \
-    --backend orca --mode no-mistakes --yolo off) || rc=$?
-  rc2=0
-  out2=$(run_spawn "$case_dir" "$home" "$case_dir/unused" task-o "$case_dir/project-2" \
-    --backend orca --mode no-mistakes --yolo off) || rc2=$?
-  : > "$case_dir/holder.release"
-  wait "$holder" || true
-  expect_code 1 "$rc" "an Orca spawn ignored a held project lock: $out"
-  assert_contains "$out" "another spawn or cleanup holds the shared project lock for $case_dir/project; refusing to race its capacity admission" \
-    "the Orca spawn did not refuse on the shared project lock"
-  expect_code 1 "$rc2" "an Orca spawn from an uncapped same-origin clone ignored the held project lock: $out2"
-  assert_contains "$out2" "another spawn or cleanup holds the shared project lock for $case_dir/project-2" \
-    "the uncapped same-origin clone's Orca spawn did not refuse on the shared project lock"
-  assert_absent "$home/state/task-o.meta" "the uncapped clone's Orca spawn published a record while the lock was held"
-  assert_no_grep "orca " "$case_dir/calls.log" "the Orca spawn asked Orca for more than its runtime status"
-
-  write_live "$home" live-a "$case_dir/project"
-  rc=0
-  out=$(run_spawn "$case_dir" "$home" "$case_dir/unused" task-o "$case_dir/project" \
-    --backend orca --mode no-mistakes --yolo off) || rc=$?
-  expect_code "$DEFER_EXIT" "$rc" "an Orca spawn beyond capacity was not deferred: $out"
-  assert_absent "$home/state/task-o.meta" "the deferred Orca spawn published a record"
-  assert_no_grep "orca " "$case_dir/calls.log" "the deferred Orca spawn created an Orca worktree"
-  pass "an Orca spawn takes the shared project lock whenever a same-origin clone is capped and defers before creating anything"
-}
-
 test_undeclared_capacity_keeps_dispatch_uncapped
 test_available_capacity_admits_the_worker
 test_exhausted_capacity_defers_without_leaving_anything_behind
@@ -658,10 +496,8 @@ test_symlinked_home_counts_each_worker_once
 test_release_frees_a_place
 test_restart_does_not_count_its_own_record
 test_occupancy_counts_only_this_projects_workers
-test_capacity_is_shared_by_every_local_home
 test_unreadable_holders_refuse_admission
 test_concurrent_spawns_cannot_both_take_the_last_place
 test_failed_spawn_after_admission_holds_no_place
 test_unreadable_declaration_refuses_every_spawn
 test_batch_reports_a_deferred_pair
-test_orca_spawn_is_admitted_under_the_shared_project_lock

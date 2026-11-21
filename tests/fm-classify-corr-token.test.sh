@@ -1,22 +1,6 @@
 #!/usr/bin/env bash
-# tests/fm-classify-corr-token.test.sh - a status line may carry the correlation
-# token bin/fm-pending-reply-lib.sh embeds in a marked request and a secondmate
-# echoes back (bin/fm-brief.sh), between the verb and the rest of the line. Every
-# verb-driven classification must read straight through that token, in BOTH
-# directions: a verb parse that keeps the token glued on matches no arm of the
-# decision fold, so the opener never opens, the closer never closes, and a
-# decision the captain is owed never reaches him.
-#
-# The parse is deliberately strict, and these tests defend that strictness as
-# hard as they defend the fix: only the exact token a firstmate library writes is
-# read through. Prose, a malformed or wrong-length token, and an arbitrary
-# name=value word all keep their extra words and therefore stay non-transitions.
-#
-# Coverage is split by the interface each claim lives behind: the fold is driven
-# through the REAL bin/fm-wake-drain.sh, the classifier predicates through the
-# library's own sourced entry points (as tests/fm-watch-triage.test.sh does), and
-# the token grammar itself is pinned against the REAL writers so this library's
-# second statement of the shape cannot drift from the one that owns it.
+# Verb-driven status classification reads through the exact correlation token
+# between a status verb and its note, and through nothing looser.
 set -u
 
 # shellcheck source=tests/wake-helpers.sh
@@ -25,7 +9,6 @@ set -u
 . "$ROOT/bin/fm-classify-lib.sh"
 
 DRAIN="$ROOT/bin/fm-wake-drain.sh"
-REPORT="$ROOT/bin/fm-secondmate-report.sh"
 
 TMP_ROOT=$(fm_test_tmproot fm-classify-corr-token-tests)
 
@@ -93,9 +76,8 @@ test_token_is_read_through_in_every_position_it_is_written_in() {
   state="$dir/state"
   out="$dir/drain.out"
 
-  # Before the key, after the key, with no key at all, twice on one line (a
-  # recovery turn re-embedding), and in the bracketed shape the optional
-  # bin/fm-secondmate-report.sh helper writes. Every one is a real observed shape.
+  # Before the key, after the key, with no key at all, twice on one line, and in
+  # the bracketed shape.
   printf 'needs-decision corr=%s [key=before]: token ahead of the key\n' "$CORR" > "$state/t1.status"
   printf 'needs-decision [key=after] corr=%s: token behind the key\n' "$CORR" > "$state/t2.status"
   printf 'blocked corr=%s: token and no key at all\n' "$CORR" > "$state/t3.status"
@@ -328,23 +310,13 @@ test_consumer_verdicts_read_through_the_token() {
   pass "captain-relevance, terminal-verb, pause and captain-held all read through the token"
 }
 
-test_daemon_and_crew_state_case_arms_read_through_the_token() {
-  # Two consumers switch on the verb STRING rather than on a helper, so they
-  # cannot be proven through status_is_*: bin/fm-supervise-daemon.sh matches
-  # working|resolved|captain-held to take the transient-stale path instead of
-  # the terminal one, and bin/fm-crew-state.sh's map_log_state maps each verb to
-  # a run state, falling through to "unknown" on anything else.
-  #
-  # Before this fix a correlated line matched no arm of either: a correlated
-  # working line was escalated as terminally stale, and every correlated line
-  # read as run state "unknown". Pin the exact strings those arms compare
-  # against, for both the tokened and untokened spellings.
+test_crew_state_case_arms_read_through_the_token() {
   local verb
   for verb in working resolved captain-held; do
     [ "$(status_line_verb "$verb corr=$CORR [key=k]: note")" = "$verb" ] \
-      || fail "the daemon transient-stale arm no longer matches a correlated $verb"
+      || fail "a keyed correlated $verb no longer reduces to its verb"
     [ "$(status_line_verb "$verb [key=k]: note")" = "$verb" ] \
-      || fail "the daemon transient-stale arm regressed for an untokened $verb"
+      || fail "a keyed untokened $verb no longer reduces to its verb"
   done
   for verb in working needs-decision blocked 'done' failed; do
     [ "$(status_line_verb "$verb corr=$CORR: note")" = "$verb" ] \
@@ -360,15 +332,14 @@ test_daemon_and_crew_state_case_arms_read_through_the_token() {
   [ "$(status_line_verb "working corr=deadbeef [key=k]: malformed")" = working ] \
     && fail "a malformed token reduced to a bare working verb"
 
-  pass "the daemon and crew-state verb case arms read through the token"
+  pass "the crew-state verb case arms read through the token"
 }
 
 test_pending_reply_escalation_matching_is_unaffected() {
-  # bin/fm-pending-reply-lib.sh filters a status file by verb when looking for
-  # the escalation IT published, then whole-line matches its own exact payload.
-  # Reading through the token widens the verb filter, so this pins that the exact
-  # match behind it still refuses everything that is not that library's own line.
+  # The reserved pending-reply key namespace stays closed to a correlated line.
+  # No namespace is reserved by default, so this opts one in.
   local dir state out view
+  local -x FM_CLASSIFY_RESERVED_KEY_PREFIXES=pending-reply-
   dir=$(make_case pending-reply-namespace)
   state="$dir/state"
   out="$dir/drain.out"
@@ -488,65 +459,9 @@ test_a_cursor_written_before_this_change_is_rebuilt() {
 
 # --- the grammar pin ---------------------------------------------------------
 
-test_the_real_writers_produce_tokens_this_library_reads() {
-  # This library states the token SHAPE a second time because the library that
-  # OWNS the grammar sources this one and cannot be sourced back. That second
-  # statement is only safe while it is pinned to the real writers, so this drives
-  # both of them for real and asserts the classifier reads their output.
-  local dir state token line verb helper_line
-  dir=$(make_case writer-pin)
-  state="$dir/state"
-
-  # Writer 1: the correlation library's own token builder, over ids it generates.
-  local i=0 corr
-  while [ "$i" -lt 5 ]; do
-    corr=$(bash -c '. "$1"; fm_pending_reply_new_id' _ "$ROOT/bin/fm-pending-reply-lib.sh")
-    [ -n "$corr" ] || fail "the correlation library produced an empty id"
-    token=$(bash -c '. "$1"; fm_pending_reply_corr_token "$2"' _ \
-      "$ROOT/bin/fm-pending-reply-lib.sh" "$corr")
-    line="needs-decision $token [key=pinned]: a decision"
-    verb=$(status_line_verb "$line")
-    [ "$verb" = needs-decision ] \
-      || fail "the classifier did not read through a real correlation token '$token' (verb=[$verb])"
-    i=$((i + 1))
-  done
-
-  # Writer 2: the optional secondmate report helper, whose bracketed shape must
-  # be read through just as completely. Drive the real script from a seeded
-  # mate home so it resolves the parent channel itself.
-  local parent mate
-  parent="$dir"
-  mate="$dir/mate"
-  mkdir -p "$mate/state"
-  printf 'pinned\n' > "$mate/.fm-secondmate-home"
-  cat > "$mate/.fm-secondmate-parent" <<EOF
-schema=fm-secondmate-parent.v1
-route=local
-parent_home=$parent
-EOF
-  FM_HOME="$mate" "$REPORT" "done" "$corr" "audit clean" \
-    || fail "$REPORT failed writing a correlated report"
-  helper_line=$(tail -1 "$state/pinned.status")
-  status_line_at_epoch "$helper_line" >/dev/null || fail "report helper emitted no time"
-  verb=$(status_line_verb "$helper_line")
-  [ "$verb" = "done" ] \
-    || fail "the classifier did not read through the helper's own line '$helper_line' (verb=[$verb])"
-  status_is_terminal_verb "$helper_line" \
-    || fail "the helper's own line is not seen as a terminal captain verb"
-
-  FM_HOME="$mate" "$REPORT" --doc needs-decision "$corr" data/x/report.md "see the report" \
-    || fail "$REPORT failed writing a correlated doc-pointer report"
-  helper_line=$(tail -1 "$state/pinned.status")
-  status_line_at_epoch "$helper_line" >/dev/null || fail "doc report helper emitted no time"
-  verb=$(status_line_verb "$helper_line")
-  [ "$verb" = needs-decision ] \
-    || fail "the classifier did not read through the helper's doc line '$helper_line' (verb=[$verb])"
-
-  pass "both real correlation-token writers produce lines this classifier reads through"
-}
-
 test_optional_event_time() {
   local line stamped epoch before after dir
+  dir=$(make_case event-time)
   before=$(date +%s)
   line="needs-decision corr=$CORR [key=timed]: choose: A or B"
   stamped=$(status_stamp_line "$line") || fail "status writer could not stamp an event"
@@ -587,86 +502,17 @@ test_optional_event_time() {
     "done[at=1700000000] [corr=$CORR]: finished"; do
     [ "$(status_line_at_epoch "$line")" = 1700000000 ] || fail "metadata order changed time"
   done
-  dir=$(make_case event-time)
-  # The real parent publisher deduplicates a retry against both timed and
-  # legacy records without rewriting the first event's time.
-  . "$ROOT/bin/fm-parent-channel-lib.sh"
-  line="done [corr=$CORR]: path: C:\\notes"
-  printf '%s\n' "$(status_stamp_line "$line")" > "$dir/state/retry.status"
-  stamped=$(cat "$dir/state/retry.status")
-  fm_parent_channel_append_once "$dir/state/retry.status" "$line" || fail "parent retry failed"
-  [ "$(cat "$dir/state/retry.status")" = "$stamped" ] || fail "retry duplicated or restamped event"
-  printf '%s\n' "$line" > "$dir/state/legacy.status"
-  fm_parent_channel_append_once "$dir/state/legacy.status" "$line" || fail "legacy retry failed"
-  [ "$(cat "$dir/state/legacy.status")" = "$line" ] || fail "legacy retry acquired an invented time"
-  fm_parent_channel_append_once "$dir/state/retry.status" "done [corr=$CORR2]: path: C:\\notes"
-  [ "$(wc -l < "$dir/state/retry.status")" -eq 2 ] || fail "dedup discarded different correlation"
-  fm_parent_channel_append_once "$dir/state/retry.status" 'done: prose [at=1]'
-  fm_parent_channel_append_once "$dir/state/retry.status" 'done: prose [at=2]'
-  [ "$(wc -l < "$dir/state/retry.status")" -eq 4 ] || fail "dedup stripped a time mention from prose"
-  # A malformed time tag is ordinary event bytes, so it identifies the event:
-  # the unstamped line is a DIFFERENT event, while re-appending the same bytes
-  # is still a retry.
-  for line in 'done [at=17:00]: shipped' 'done [at=]: shipped' 'done [at=bad]: shipped' \
-    'done [at=1] [at=2]: shipped' 'done [at=01700000000]: shipped' \
-    'done [at=99999999999999999999]: shipped'; do
-    printf '%s\n' "$line" > "$dir/state/malformed.status"
-    fm_parent_channel_append_once "$dir/state/malformed.status" 'done: shipped' \
-      || fail "append after a malformed time failed"
-    [ "$(wc -l < "$dir/state/malformed.status")" -eq 2 ] \
-      || fail "dedup stripped a malformed time tag: $line"
-    fm_parent_channel_append_once "$dir/state/malformed.status" "$line" \
-      || fail "malformed time retry failed"
-    [ "$(head -1 "$dir/state/malformed.status")" = "$line" ] \
-      && [ "$(wc -l < "$dir/state/malformed.status")" -eq 2 ] \
-      || fail "retry duplicated or rewrote malformed time: $line"
-  done
-  # A well-formed numeric tag still strips, in either metadata order.
-  for line in "done [at=1700000000] [corr=$CORR2]: stamped" \
-    "done [corr=$CORR2] [at=1700000000]: stamped" \
-    "done[at=1700000000] [corr=$CORR2]: stamped"; do
-    printf '%s\n' "$line" > "$dir/state/timed.status"
-    fm_parent_channel_append_once "$dir/state/timed.status" "done [corr=$CORR2]: stamped" \
-      || fail "numeric time retry failed"
-    [ "$(cat "$dir/state/timed.status")" = "$line" ] \
-      || fail "dedup did not ignore a well-formed numeric time: $line"
-  done
   stamped=$(status_stamp_line "needs-decision corr=$CORR [key=timed]: choose: A or B")
   printf '%s\n' "$stamped" 'working [at=1700000000]: unrelated progress' > "$dir/state/task.status"
   [ -n "$(status_open_decisions "$dir/state/task.status")" ] || fail "time cleared an open decision"
   printf '%s\n' 'resolved [at=1700000001] [key=timed]: answered' >> "$dir/state/task.status"
   [ -z "$(status_open_decisions "$dir/state/task.status")" ] || fail "timed resolution did not close decision"
-  # The parent publisher uses the same retry check, and a resolve does not
-  # make a published line new: a keyed blocker and a note each stay once.
-  line='blocked [key=remote-reply-continuity-ios]: remote reply continuity broke for ios (truncated)'
-  : > "$dir/state/episode.status"
-  fm_parent_channel_append_once "$dir/state/episode.status" "$line" \
-    || fail "first continuity append failed"
-  fm_parent_channel_append_once "$dir/state/episode.status" "$line" \
-    || fail "open continuity retry failed"
-  [ "$(wc -l < "$dir/state/episode.status")" -eq 1 ] \
-    || fail "an open continuity blocker was duplicated"
-  printf '%s\n' 'resolved [key=remote-reply-continuity-ios]: operator rebased the mirror' \
-    >> "$dir/state/episode.status"
-  fm_parent_channel_append_once "$dir/state/episode.status" "$line" \
-    || fail "continuity retry after the resolve failed"
-  [ "$(wc -l < "$dir/state/episode.status")" -eq 2 ] \
-    || fail "a resolve made a recorded continuity blocker append again"
-  [ -z "$(status_open_decisions "$dir/state/episode.status")" ] \
-    || fail "a continuity retry reopened the resolved decision"
-  line='note: remote document did not transfer for ios: data/reply/missing.md - absent'
-  printf '%s\n' "$line" > "$dir/state/note.status"
-  printf '%s\n' 'resolved: closed the default decision' >> "$dir/state/note.status"
-  fm_parent_channel_append_once "$dir/state/note.status" "$line" \
-    || fail "note retry failed"
-  [ "$(wc -l < "$dir/state/note.status")" -eq 2 ] \
-    || fail "a resolve duplicated a note"
   pass "optional event time preserves parsing and legacy unknown time"
 }
 
 test_captain_override_ignores_event_time() {
   local dir verb line event
-  local FM_CAPTAIN_RE='done:|needs-decision:|blocked:|failed:'
+  local -x FM_CAPTAIN_RE='done:|needs-decision:|blocked:|failed:'
   dir=$(make_case captain-override-time)
   for verb in 'done' needs-decision blocked failed; do
     for line in "$verb: audit complete" "$verb [at=1700000000]: audit complete" \
@@ -699,11 +545,10 @@ test_captain_override_ignores_event_time() {
     [ "$(last_status_line "$dir/state/task.status")" = "$line" ] \
       || fail "event scan skipped the stamped custom-verb event: $line"
   done
-  FM_CAPTAIN_RE="^done \\[corr=$CORR\\]: literal \\[at=1700000000\\]$"
   for line in "done [corr=$CORR]: literal [at=1700000000]" \
     "done [at=1700000000] [corr=$CORR]: literal [at=1700000000]" \
     "done [corr=$CORR] [at=1700000000]: literal [at=1700000000]"; do
-    status_is_captain_relevant "$line" || fail "normalization changed correlation metadata or note: $line"
+    FM_CAPTAIN_RE="^done \\[corr=$CORR\\]: literal \\[at=1700000000\\]$" status_is_captain_relevant "$line" || fail "normalization changed correlation metadata or note: $line"
   done
   pass "captain regex overrides preserve timed and legacy relevance and event bytes"
 }
@@ -739,17 +584,11 @@ test_malformed_event_time_is_ordinary_bytes() {
       # A tag the worker spelled wrong is still a tag, so it must not decide
       # whether the supervisor sees a terminal event - including a readable
       # timestamp whose colons would otherwise swallow the head/note separator.
-      (
-        FM_CAPTAIN_RE='done:|needs-decision:|blocked:|failed:'
-        status_is_captain_relevant "$line" || exit 1
-        exit 0
-      ) || fail "override lost a terminal event to a malformed tag: $line"
+      FM_CAPTAIN_RE='done:|needs-decision:|blocked:|failed:' status_is_captain_relevant "$line" \
+        || fail "override lost a terminal event to a malformed tag: $line"
       printf '%s\n' "$line" > "$dir/state/scan.status"
-      (
-        FM_CAPTAIN_RE='done:|needs-decision:|blocked:|failed:'
-        event=$(last_status_line "$dir/state/scan.status")
-        [ "$event" = "$line" ] || exit 1
-      ) || fail "event scan lost a terminal event to a malformed tag: $line"
+      event=$(FM_CAPTAIN_RE='done:|needs-decision:|blocked:|failed:' last_status_line "$dir/state/scan.status")
+      [ "$event" = "$line" ] || fail "event scan lost a terminal event to a malformed tag: $line"
     done
   done
   pass "malformed event times stay ordinary line bytes without hiding the event"
@@ -799,8 +638,7 @@ test_prose_and_malformed_tokens_never_become_transitions
 test_token_first_word_never_impersonates_a_transition
 test_captain_relevance_and_pause_are_unchanged_without_a_token
 test_consumer_verdicts_read_through_the_token
-test_daemon_and_crew_state_case_arms_read_through_the_token
+test_crew_state_case_arms_read_through_the_token
 test_pending_reply_escalation_matching_is_unaffected
 test_incremental_and_whole_file_folds_agree_over_correlated_lines
 test_a_cursor_written_before_this_change_is_rebuilt
-test_the_real_writers_produce_tokens_this_library_reads

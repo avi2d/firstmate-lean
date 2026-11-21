@@ -35,7 +35,7 @@ run_control() {  # <case-dir> <args...>
     PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
     HOME="$dir/user-home" \
     FM_SPAWN_NO_GUARD=1 \
-    FM_CONTROL_POLL=0.01 FM_CONTROL_EXIT_WAIT=0.05 FM_CONTROL_LAUNCH_WAIT=0.05 FM_CONTROL_SECONDMATE_SETTLE_WAIT=0.05 \
+    FM_CONTROL_POLL=0.01 FM_CONTROL_EXIT_WAIT=0.05 FM_CONTROL_LAUNCH_WAIT=0.05 \
     "$CONTROL" "$@" 2>&1
 }
 
@@ -457,23 +457,6 @@ test_herdr_rebind_failure_from_a_plain_shell_names_the_real_cause() {
   pass "reclaim: a rebind refused from a plain shell reports the real cause, not a fabricated session mismatch"
 }
 
-test_herdr_reclaim_of_a_secondmate_names_its_own_owner() {
-  local dir out rc
-  herdr_case_or_skip gone-herdr-secondmate rl76 fmlab '%none' || {
-    echo "skip - herdr reclaim needs jq (the herdr adapter parses JSON with it)"
-    return 0
-  }
-  dir=$HERDR_CASE_DIR
-  printf '%s\n' "kind=secondmate" "home=$dir/wt" >> "$dir/home/state/rl76.meta"
-
-  out=$(run_spawn "$dir" rl76 --relaunch --harness pi); rc=$?
-  expect_code 1 "$rc" "a secondmate reclaim belongs to the secondmate respawn path"
-  assert_contains "$out" "--secondmate" "the refusal should name the path that owns this recovery"
-  assert_not_contains "$(cat "$dir/fake/herdr-log")" "tab create" \
-    "the refusal must happen before any endpoint is created"
-  pass "reclaim: a herdr secondmate whose endpoint is gone is sent to its own respawn owner"
-}
-
 test_relaunch_refuses_a_recorded_worktree_that_is_the_primary_home() {
   local dir out rc
   herdr_case_or_skip homewt rl11 || return 0
@@ -611,7 +594,6 @@ test_herdr_rebind_stays_in_the_recorded_session
 test_herdr_reclaim_refuses_an_agent_that_came_back
 test_herdr_reclaim_keeps_the_task_whole
 test_herdr_rebind_failure_from_a_plain_shell_names_the_real_cause
-test_herdr_reclaim_of_a_secondmate_names_its_own_owner
 test_relaunch_refuses_a_recorded_worktree_that_is_the_primary_home
 test_relaunch_refuses_a_recorded_worktree_that_is_the_project_primary_checkout
 test_relaunch_refuses_the_primary_checkout_under_inherited_git_overrides

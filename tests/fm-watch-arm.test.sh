@@ -80,39 +80,6 @@ start_attached_arm() {  # <state> <fakebin> <arm-out> <confirm-timeout>
     || fail "arm did not attach to the live watcher: $(cat "$armout")"
 }
 
-sha256_file() {  # <path>
-  if command -v shasum >/dev/null 2>&1; then
-    shasum -a 256 "$1" | awk '{print $1}'
-  else
-    sha256sum "$1" | awk '{print $1}'
-  fi
-}
-
-write_remote_delta() {  # <result-path> <status-line>
-  local result=$1 line=$2 payload empty payload_bytes payload_hash empty_hash
-  payload="$result.payload"
-  empty="$result.empty"
-  printf '%s\n' "$line" > "$payload"
-  : > "$empty"
-  payload_bytes=$(LC_ALL=C wc -c < "$payload" | tr -d '[:space:]')
-  payload_hash=$(sha256_file "$payload") || fail "could not hash remote delta payload"
-  empty_hash=$(sha256_file "$empty") || fail "could not hash empty remote delta prefix"
-  {
-    printf 'schema=fm-remote-delta.v1\n'
-    printf 'status=delta\n'
-    printf 'path=state/parent-replies.status\n'
-    printf 'from_offset=0\n'
-    printf 'to_offset=%s\n' "$payload_bytes"
-    printf 'from_prefix_sha256=%s\n' "$empty_hash"
-    printf 'to_prefix_sha256=%s\n' "$payload_hash"
-    printf 'payload_sha256=%s\n' "$payload_hash"
-    printf 'payload_bytes=%s\n' "$payload_bytes"
-    printf 'reason=fixture\n\n'
-    cat "$payload"
-  } > "$result"
-  rm -f "$payload" "$empty"
-}
-
 status_signature() {  # <status-path>
   bash -c '
     . "$1"
@@ -390,24 +357,19 @@ test_attached_arm_hands_a_stalled_holder_to_its_replacement() {
   pass "watch-arm: an attached arm hands a holder stalled past the bound to its owner's replacement"
 }
 
-test_rearm_resurfaces_durable_queue_and_remote_open_decision() {
-  local dir home state fakebin result armout drainout status watcher_pid sequence generation decision_recovery_arm decision_successor
+test_rearm_resurfaces_durable_queue_and_open_decision() {
+  local dir home state fakebin armout drainout status watcher_pid sequence generation decision_recovery_arm decision_successor
   dir=$(make_case rearm-resurface)
   home="$dir/home"
   state="$dir/state"
   fakebin="$dir/fakebin"
-  result="$dir/remote.result"
   armout="$dir/arm.out"
   drainout="$dir/drain.out"
   mkdir -p "$home/data"
 
-  # This is the real remote parent-reply ingest boundary. It writes the remote
-  # secondmate's decision onto the parent status surface the shared fold owns.
-  write_remote_delta "$result" \
-    'needs-decision [key=remote-signoff]: remote secondmate is held for captain sign-off'
-  FM_HOME="$home" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$home/data" \
-    "$ROOT/bin/fm-procevent-remote-reply.sh" ingest ios "$result" >/dev/null \
-    || fail "remote parent-reply ingest failed"
+  mkdir -p "$state"
+  printf 'needs-decision [key=signoff] [at=%s]: ios is held for captain sign-off\n' "$(date +%s)" \
+    >> "$state/ios.status"
 
   # Drain once before the outage to establish the incremental cursor and the
   # signal suppressor that a watcher had already observed. The decision remains
@@ -415,8 +377,8 @@ test_rearm_resurfaces_durable_queue_and_remote_open_decision() {
   FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/baseline-drain.out" \
     || fail "baseline drain failed"
   ack_wakes "$state" || fail "baseline handling acknowledgement failed"
-  grep -F 'remote secondmate is held for captain sign-off' "$dir/baseline-drain.out" >/dev/null \
-    || fail "baseline fold did not expose the remote decision"
+  grep -F 'ios is held for captain sign-off' "$dir/baseline-drain.out" >/dev/null \
+    || fail "baseline fold did not expose the open decision"
   printf '%s' "$(status_signature "$state/ios.status")" > "$state/.seen-ios_status"
 
   # A real watcher is then interrupted before the next two durable updates.
@@ -430,30 +392,30 @@ test_rearm_resurfaces_durable_queue_and_remote_open_decision() {
 
   # Two independent durable wakes arrive while no watcher exists. Neither gets
   # a later status change to rescue it, which is the down-window loss shape.
-  append_wake "$state" check remote-reply-ios \
-    'check: process-event result captured: remote-reply-ios:7'
+  append_wake "$state" check lavish-ios \
+    'check: process-event result captured: lavish-ios:7'
   append_wake "$state" check startup-network 'check: startup-network'
 
   start_rearm_arm "$home" "$state" "$fakebin" "$armout"
   wait_for_exit "$ARM_PID" "$REARM_EXIT_POLLS"
   status=$?
   [ "$status" -ne 124 ] \
-    || fail "re-arm stayed live instead of surfacing durable wakes and the still-open remote decision"
+    || fail "re-arm stayed live instead of surfacing durable wakes and the still-open decision"
   expect_code 0 "$status" "re-arm re-surface wake must close successfully"
   grep -F 'check: rearm-resurface' "$armout" >/dev/null \
     || fail "re-arm did not report the durable recovery wake: $(cat "$armout")"
 
   # The normal wake-handling drain is the one owner of both queue consumption
   # and the cursor-backed fold. It must expose every queued record and the
-  # already-open remote decision without relying on another user message.
+  # already-open decision without relying on another user message.
   FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drainout" \
     || fail "drain after re-arm recovery failed"
-  grep "$(printf '\tcheck\tremote-reply-ios\t')" "$drainout" >/dev/null \
-    || fail "remote-reply wake queued during downtime was not drained"
+  grep "$(printf '\tcheck\tlavish-ios\t')" "$drainout" >/dev/null \
+    || fail "process-event wake queued during downtime was not drained"
   grep "$(printf '\tcheck\tstartup-network\t')" "$drainout" >/dev/null \
     || fail "second durable wake queued during downtime was not drained"
-  grep -F 'ios [key=remote-signoff] needs-decision: remote secondmate is held for captain sign-off' "$drainout" >/dev/null \
-    || fail "remote parent-reply decision was not re-folded after watcher re-arm"
+  grep -F 'ios [key=signoff] needs-decision: ios is held for captain sign-off' "$drainout" >/dev/null \
+    || fail "open decision was not re-folded after watcher re-arm"
   ack_wakes "$state" || fail "recovery handling acknowledgement failed"
   [ ! -s "$state/.wake-queue" ] || fail "re-arm recovery acknowledgement left durable wakes behind"
 
@@ -464,7 +426,7 @@ test_rearm_resurfaces_durable_queue_and_remote_open_decision() {
   is_live_non_zombie "$ARM_PID" || fail "recovery successor did not stay live after the drain"
 
   # A later down interval can have no new queue rows at all. The unchanged
-  # remote decision must still trigger a recovery wake and be folded again.
+  # decision must still trigger a recovery wake and be folded again.
   kill "$ARM_PID" 2>/dev/null || true
   wait "$ARM_PID" 2>/dev/null || true
   start_rearm_arm "$home" "$state" "$fakebin" "$dir/decision-only-arm.out"
@@ -475,9 +437,9 @@ test_rearm_resurfaces_durable_queue_and_remote_open_decision() {
   decision_successor=$ARM_PID
   FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/decision-only-drain.out" \
     2> "$dir/decision-only-drain.err" || fail "decision-only drain after re-arm recovery failed"
-  grep -F 'ios [key=remote-signoff] needs-decision: remote secondmate is held for captain sign-off' \
+  grep -F 'ios [key=signoff] needs-decision: ios is held for captain sign-off' \
     "$dir/decision-only-drain.out" >/dev/null \
-    || fail "unchanged remote decision was not re-folded after a later down interval"
+    || fail "unchanged decision was not re-folded after a later down interval"
   sequence=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation [A-Za-z0-9._-][A-Za-z0-9._-]*$/\1/p' "$dir/decision-only-drain.err")
   generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through [0-9][0-9]* --recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$dir/decision-only-drain.err")
   [ "$sequence" = 0 ] && [ -n "$generation" ] \
@@ -495,7 +457,7 @@ test_rearm_resurfaces_durable_queue_and_remote_open_decision() {
     || fail "successor did not re-surface the unacknowledged decision recovery"
   FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/replayed-decision-drain.out" \
     2> "$dir/replayed-decision-drain.err" || fail "replayed decision recovery drain failed"
-  grep -F 'ios [key=remote-signoff] needs-decision: remote secondmate is held for captain sign-off' \
+  grep -F 'ios [key=signoff] needs-decision: ios is held for captain sign-off' \
     "$dir/replayed-decision-drain.out" >/dev/null \
     || fail "interrupted decision recovery did not re-fold the open decision"
   sequence=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation [A-Za-z0-9._-][A-Za-z0-9._-]*$/\1/p' "$dir/replayed-decision-drain.err")
@@ -508,7 +470,7 @@ test_rearm_resurfaces_durable_queue_and_remote_open_decision() {
   is_live_non_zombie "$ARM_PID" || fail "acknowledged decision recovery did not leave a live successor"
   kill "$ARM_PID" 2>/dev/null || true
   wait "$ARM_PID" 2>/dev/null || true
-  pass "watch-arm: re-arm surfaces every queued wake and an open remote decision after downtime"
+  pass "watch-arm: re-arm surfaces every queued wake and an open decision after downtime"
 }
 
 # A contended host starves the short-lived processes a recovery cycle runs while
@@ -1392,74 +1354,6 @@ test_take_over_confirms_a_watcher_stopped_inside_its_event_wait() {
   pass "watch-arm: --take-over of a watcher inside its herdr event wait confirms the stop and resurfaces nothing"
 }
 
-# Pause just after handover releases its snapshot locks, then fail the old
-# watcher's secondmate tick write so it exits through cleanup before TERM lands.
-# The ledger and recovery wake are public output contracts, not source probes.
-test_take_over_preserves_downtime_from_watcher_self_exit() {
-  local dir home state fakebin owner watcher armout acknowledged real_rm real_touch status i
-  dir=$(make_case take-over-self-exit)
-  home="$dir/home"
-  mkdir -p "$home"
-  state="$dir/state"
-  fakebin="$dir/fakebin"
-  armout="$dir/arm.out"
-  real_touch=$(command -v touch)
-  printf '#!/usr/bin/env bash\nif [ "$*" = "%s/.secondmate-liveness-tick" ] && [ -e "%s/fail-tick" ]; then exit 1; fi\nexec "%s" "$@"\n' \
-    "$state" "$dir" "$real_touch" > "$fakebin/touch"
-  chmod +x "$fakebin/touch"
-  FM_SECONDMATE_LIVENESS_SECS=1 start_rearm_arm "$home" "$state" "$fakebin" "$dir/owner.out" "$$"
-  owner=$ARM_PID
-  watcher=$(cat "$state/.watch.lock/pid")
-  append_wake "$state" signal take-over "signal: fixture handled by main"
-  ack_wakes "$state" >/dev/null || fail "fixture: could not acknowledge wake"
-  acknowledged=$(cat "$state/.watcher-down")
-  real_rm=$(command -v rm)
-  # Only the taking arm gets this shim. Release the real queue lock before
-  # exposing the barrier: the self-exiting watcher needs it for cleanup.
-  mkdir -p "$dir/barrier-bin"
-  printf '#!/usr/bin/env bash\n"%s" "$@"\n' "$real_rm" > "$dir/barrier-bin/rm"
-  printf 'if [ "$*" = "-f %s/.wake-queue.lock" ]; then\n' "$state" >> "$dir/barrier-bin/rm"
-  printf '  touch "%s/snapshot-read"\n  for ((i=0; i<700; i++)); do\n    [ -e "%s/release" ] && break\n    sleep 0.05\n  done\nfi\n' "$dir" "$dir" >> "$dir/barrier-bin/rm"
-  chmod +x "$dir/barrier-bin/rm"
-  PATH="$dir/barrier-bin:$fakebin:$PATH" FM_HOME="$home" FM_STATE_OVERRIDE="$state" \
-    FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    FM_ARM_CONFIRM_TIMEOUT="$REARM_CONFIRM_SECONDS" \
-    "$WATCH_ARM" --take-over "$owner" > "$armout" &
-  ARM_PID=$!
-  i=0
-  while [ "$i" -lt 200 ] && [ ! -e "$dir/snapshot-read" ]; do
-    sleep 0.05
-    i=$((i + 1))
-  done
-  [ -e "$dir/snapshot-read" ] || fail "takeover never reached its snapshot"
-  touch "$dir/fail-tick"
-  wait_for_exit "$owner" "$REARM_EXIT_POLLS"
-  status=$?
-  expect_code 1 "$status" "old watcher must fail through its own cleanup"
-  ! is_live_non_zombie "$watcher" || fail "old watcher did not self-exit"
-  grep -q "arm_pid=$owner	watcher_pid=$watcher.*exit_code=1	signal=none" "$state/.watch-cycle-exits.log" \
-    || fail "owner did not record its watcher's non-signal failure"
-  [ ! -s "$state/.wake-queue" ] || fail "self-exit unexpectedly queued a wake"
-  ! grep -q "^$watcher	" "$state/.watch-deliveries.log" 2>/dev/null \
-    || fail "self-exit unexpectedly delivered a wake"
-  case "$(cat "$state/.watcher-down")" in pending:downtime:*) ;; *) fail "self-exit did not publish downtime" ;; esac
-  rm -f "$dir/fail-tick"
-  touch "$dir/release"
-  i=0
-  while [ "$i" -lt "$REARM_REPORT_POLLS" ]; do
-    grep -qE '^watcher: started pid=|^check: rearm-resurface' "$armout" && break
-    is_live_non_zombie "$ARM_PID" || break
-    sleep 0.05
-    i=$((i + 1))
-  done
-  [ "$(cat "$state/.watcher-down")" != "$acknowledged" ] || fail "takeover restored the old acknowledgement"
-  wait_for_exit "$ARM_PID" "$REARM_EXIT_POLLS"
-  status=$?
-  expect_code 0 "$status" "fresh takeover must surface recovery cleanly"
-  assert_contains "$(cat "$armout")" 'check: rearm-resurface' "self-exit downtime must surface as recovery"
-  pass "watch-arm: takeover preserves self-exit downtime and surfaces a recovery wake"
-}
-
 test_downtime_marker_does_not_follow_symlink() {
   local dir home state fakebin armout watcher_pid sentinel
   dir=$(make_case downtime-marker-symlink)
@@ -1843,7 +1737,7 @@ test_reaper_stops_a_tracked_watcher
 test_attached_arm_still_fails_on_a_wake_it_did_not_deliver
 test_attached_arm_follows_a_slow_live_holder
 test_attached_arm_hands_a_stalled_holder_to_its_replacement
-test_rearm_resurfaces_durable_queue_and_remote_open_decision
+test_rearm_resurfaces_durable_queue_and_open_decision
 test_slow_rearm_recovery_is_still_surfaced
 test_marker_publish_failure_retains_recovery_evidence
 test_delivery_gap_wake_is_recovered_once
@@ -1862,5 +1756,4 @@ test_handling_delivered_accepts_already_acked_generation
 test_handling_delivered_rejects_a_superseded_generation
 test_take_over_attaches_to_a_cycle_the_named_arm_does_not_own
 test_take_over_owns_a_fresh_cycle_and_keeps_queued_work_surfacing
-test_take_over_preserves_downtime_from_watcher_self_exit
 test_take_over_confirms_a_watcher_stopped_inside_its_event_wait

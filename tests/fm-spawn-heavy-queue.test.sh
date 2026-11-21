@@ -117,25 +117,6 @@ SH
   pass "a folder orc printed but that does not exist stays off the worker PATH"
 }
 
-test_secondmate_launch_does_not_ask_orc() {
-  local sm out status
-  make_case secondmate sm-heavy
-  install_heavy_orc
-  sm="$CASE_DIR/secondmate-home"
-  mkdir -p "$sm/bin" "$sm/data"
-  printf '# Firstmate\n' > "$sm/AGENTS.md"
-  printf '%s\n' sm-heavy > "$sm/.fm-secondmate-home"
-  printf 'charter for sm-heavy\n' > "$sm/data/charter.md"
-  printf '%s\n' 'projects/' 'state/' 'data/' 'config/' '.no-mistakes/' > "$sm/.gitignore"
-  git -C "$sm" init -q -b main
-  out=$(run_case_spawn sm-heavy "$sm" --secondmate)
-  status=$?
-  expect_code 0 "$status" "secondmate spawn should succeed: $out"
-  assert_absent "$ORC_LOG" "a secondmate spawn must not ask orc for the heavy path"
-  pass "a secondmate launch leaves its PATH alone"
-}
-
 test_ship_and_scout_resolve_bun_to_the_standin_not_the_ambient_path
 test_failing_orc_launches_unchanged_with_one_note_instead_of_refusing
 test_folder_that_does_not_exist_is_not_put_on_the_path
-test_secondmate_launch_does_not_ask_orc

@@ -117,9 +117,16 @@ Fresh stale panes use the same current-state read before trusting the status log
 No-change heartbeats are also benign.
 Separately from heartbeat backoff and wedge handling, the watcher poll runs `bin/fm-inactive-reconcile.sh` on its own bounded cadence, while locked session start sends the same bounded local scan through `bin/fm-startup-network.sh`'s deferred worker so current-state reads never block the digest.
 In each home the scan considers only that home's long-inactive direct ordinary workers, excludes captain-held work, and accepts only `done` or `failed` from `bin/fm-crew-state.sh`.
-It withholds that verdict while the task's endpoint carries a live busy agent or a newer incarnation than the last status line (the script header owns the exact rule).
+The scan runs at most once per `FM_INACTIVE_RECONCILE_SECS` per home, and `--startup` runs it at once.
+Each scan shares one `FM_INACTIVE_RECONCILE_BUDGET_SECS` deadline, always visits its first due child with at least a one-second state-read bound, and resumes after its last visited child on the next scan.
+A child is due when its newest meta, status, or turn-ended mtime is older than the cadence.
+The scan withholds the verdict while the task's endpoint carries a live busy agent, or an agent whose `spawn_gen` epoch is later than the last status line's `[at=]` epoch.
+An unreadable endpoint read leaves the verdict unchanged.
 Because a terminal outcome is a captain-facing claim, two rules bound what may be built from that read, and which one applies depends on where the reader sourced the state. A state sourced from the pipeline's own RUN STEP is authoritative: the crew's last self-declared word never vetoes it, so a run that failed after the crew wrote `done:` still reaches the user instead of reaching nobody. A state sourced from the STATUS LOG is built only when that same self-declared word does not contradict it, because there the two records are genuinely comparable and a disagreement is left to ordinary supervision. Either way its pull-request identity comes from the same record as the state rather than from a separately recorded task PR, and a scout, which delivers no pull request, carries none on either path.
-A secondmate retains a durable receipt for its idempotent report through the established parent route, and main-home user presentation retains a separate receipt; neither path performs a forge or PR check.
+A done or failed verdict writes a `state/terminal-outcomes/<fingerprint>.pending` receipt and queues an `inactive-outcome` check wake.
+The fingerprint binds the spawn incarnation, task id, terminal state, and PR text, never the last status line.
+`bin/fm-wake-drain.sh` runs `acknowledge` once that wake is handled, and the receipt becomes presented.
+The scan performs no forge or PR check.
 Absorbed wakes advance their suppression markers, log to `state/.watch-triage.log`, and keep the watcher blocking without a queue record or LLM turn.
 Each `fm-wake-drain.sh` presentation runs the same liveness guard as the supervision scripts, so a lapsed watcher chain surfaces even on a turn that only handles queued wakes.
 Routine watcher polling, supervision no-ops, and absorbed benign wakes stay silent.

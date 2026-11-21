@@ -19,40 +19,27 @@ make_fakebin() {  # <dir>
 #!/usr/bin/env bash
 exit 0
 SH
-  cat > "$fb/tmux" <<'SH'
+  cat > "$fb/herdr" <<'SH'
 #!/usr/bin/env bash
 set -u
-target=""
-prev=""
-for arg in "$@"; do
-  if [ "$prev" = "-t" ]; then target=$arg; fi
-  prev=$arg
-done
-case "${1:-}" in
-  list-windows)
-    sed -n 's/^window=[^:]*://p' "${FM_HOME:?}"/state/*.meta
+case "${1:-} ${2:-}" in
+  'status --json')
+    printf '%s\n' '{"client":{"version":"0.9.5","protocol":22},"server":{"running":true}}'
     ;;
-  display-message)
-    case "$*" in
-      *pane_current_command*)
-        case "$target" in
-          *dead-secondmate*) printf 'zsh\n' ;;
-          *) printf 'codex\n' ;;
-        esac
-        ;;
-      *) printf '%%1\n' ;;
+  'pane get')
+    case "${3:-}" in
+      *-gone) printf '%s\n' '{"error":{"code":"pane_not_found"}}'; exit 1 ;;
     esac
+    printf '{"result":{"pane":{"pane_id":"%s"}}}\n' "${3:-}"
     ;;
-  capture-pane)
-    case "$target" in
-      *ship-task*|*active-secondmate*) printf 'work in progress\nesc to interrupt\n' ;;
-      *) printf 'all quiet\n> \n' ;;
-    esac
+  'pane read') printf 'all quiet\n> \n' ;;
+  'pane process-info')
+    printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":%s,"foreground_process_group_id":4194305,"foreground_processes":[{"pid":4194305,"name":"pi","argv0":"pi"}]}}}\n' "${4:-}" "$PPID"
     ;;
+  *) exit 1 ;;
 esac
-exit 0
 SH
-  chmod +x "$fb/no-mistakes" "$fb/tmux"
+  chmod +x "$fb/no-mistakes" "$fb/herdr"
   printf '%s\n' "$fb"
 }
 
@@ -62,16 +49,25 @@ make_home() {  # <name>
   printf '%s\n' "$home"
 }
 
-record_claude_idle() {  # <state-dir> <id>
-  local state=$1 id=$2 gen
+record_pi_busy() {  # <state-dir> <id> <busy|idle>
+  local state=$1 id=$2 gen event=agent-settled
+  [ "$3" = busy ] && event=agent-start
   gen=$("$ROOT/bin/fm-busy-event.sh" arm "$state" "$id")
-  "$ROOT/bin/fm-busy-event.sh" apply "$state" "$id" idle --gen "$gen" \
-    --source claude-hook --event stop
+  "$ROOT/bin/fm-busy-event.sh" apply "$state" "$id" "$3" --gen "$gen" \
+    --source pi-ext --event "$event"
+}
+
+# write_task <home> <id> <kind> <worktree> [key=val...]: a Pi task on a live Herdr pane.
+write_task() {
+  local home=$1 id=$2 kind=$3 worktree=$4
+  shift 4
+  fm_write_herdr_meta "$home/state/$id.meta" "firstmate:w1:p-$id" \
+    "worktree=$worktree" "harness=pi" "kind=$kind" "mode=$kind" "$@"
 }
 
 write_fixture() {  # <home>
-  local home=$1 fixture_gen
-  mkdir -p "$home/projects/alpha-worktree" "$home/projects/scout-worktree" "$home/secondmate-home"
+  local home=$1
+  mkdir -p "$home/projects/alpha-worktree" "$home/projects/scout-worktree"
   cat > "$home/data/backlog.md" <<EOF
 ## In flight
 - [ ] scout-task - Scout Task data/scout-task/report.md (repo: alpha) (kind: scout) (since 2026-07-07)
@@ -87,49 +83,15 @@ handoff note without canonical syntax
 EOF
   mkdir -p "$home/data/scout-task"
   printf '# Scout\n' > "$home/data/scout-task/report.md"
-  fm_write_meta "$home/state/ship-task.meta" \
-    "window=firstmate:fm-ship-task" \
-    "worktree=$home/projects/alpha-worktree" \
-    "project=alpha" \
-    "harness=claude" \
-    "kind=ship" \
-    "mode=ship" \
-    "yolo=off" \
-    "pr=https://github.com/kunchenguid/firstmate/pull/9"
+  write_task "$home" ship-task ship "$home/projects/alpha-worktree" \
+    "project=alpha" "yolo=off" "pr=https://github.com/kunchenguid/firstmate/pull/9"
   printf 'needs-decision: choose an API shape\n' > "$home/state/ship-task.status"
-  # A working ship task proves it through its own semantic busy-state record
-  # (bin/fm-busy-lib.sh), which is what the snapshot's current-state read
-  # consults; rendered pane text is no longer a state source.
-  fixture_gen=$("$ROOT/bin/fm-busy-event.sh" arm "$home/state" ship-task)
-  "$ROOT/bin/fm-busy-event.sh" apply "$home/state" ship-task busy --gen "$fixture_gen" \
-    --source claude-hook --event user-prompt-submit
-  fm_write_meta "$home/state/scout-task.meta" \
-    "window=firstmate:fm-scout-task" \
-    "worktree=$home/projects/scout-worktree" \
-    "project=alpha" \
-    "harness=codex" \
-    "kind=scout" \
-    "mode=scout" \
-    "yolo=off"
+  record_pi_busy "$home/state" ship-task busy
+  write_task "$home" scout-task scout "$home/projects/scout-worktree" "project=alpha" "yolo=off"
   printf 'done: report ready\n' > "$home/state/scout-task.status"
-  fm_write_meta "$home/state/secondmate-task.meta" \
-    "window=firstmate:fm-secondmate-task" \
-    "worktree=$home/secondmate-home" \
-    "project=$home/secondmate-home" \
-    "harness=codex" \
-    "kind=secondmate" \
-    "mode=secondmate" \
-    "home=$home/secondmate-home" \
-    "projects=alpha, beta, gamma, "
-  printf 'working: watching delegated scope\n' > "$home/state/secondmate-task.status"
-  fm_write_meta "$home/state/cmux-task.meta" \
-    "backend=cmux" \
-    "window=workspace:surface" \
-    "worktree=$home/projects/missing-cmux" \
-    "project=alpha" \
-    "harness=codex" \
-    "kind=ship" \
-    "mode=ship"
+  fm_write_herdr_meta "$home/state/gone-task.meta" "firstmate:w1:p-gone" \
+    "worktree=$home/projects/missing-worktree" "project=alpha" "harness=pi" "kind=ship" "mode=ship"
+  printf 'working: started\n' > "$home/state/gone-task.status"
 }
 
 test_empty_fleet_json() {
@@ -159,7 +121,7 @@ test_fixture_snapshot_json() {
   out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --json)
   printf '%s' "$out" | jq -e . >/dev/null || fail "snapshot must be valid JSON"
   ids=$(printf '%s' "$out" | jq -r '.tasks | map(.id) | join(",")')
-  [ "$ids" = "cmux-task,scout-task,secondmate-task,ship-task" ] \
+  [ "$ids" = "gone-task,scout-task,ship-task" ] \
     || fail "task ordering must be stable by id, got $ids"
   printf '%s' "$out" | jq -e '
     .tasks[] | select(.id == "ship-task")
@@ -176,22 +138,13 @@ test_fixture_snapshot_json() {
       and .hints.scout_report_present == true
   ' >/dev/null || fail "scout report pointer missing"
   printf '%s' "$out" | jq -e '
-    .tasks[] | select(.id == "secondmate-task")
-    | .secondmate_projects == ["alpha","beta","gamma"]
-      and .endpoint.agent_alive == "alive"
-      and (.actions.watch | contains("do not routinely fm-peek"))
-  ' >/dev/null || fail "secondmate return-channel guidance missing"
-  printf '%s' "$out" | jq -e '
-    .tasks[] | select(.id == "secondmate-task")
-    | .paths.status_log.last_event
-    | has("age_seconds") and .age_seconds == null
-  ' >/dev/null || fail "legacy event must have an explicit unknown age"
-  printf '%s' "$out" | jq -e '
-    .tasks[] | select(.id == "cmux-task")
-    | .backend == "cmux"
+    .tasks[] | select(.id == "gone-task")
+    | .backend == "herdr"
+      and .endpoint.exists == false
+      and .endpoint.status == "absent"
       and .paths.worktree.present == false
       and .current_state.state == "unknown"
-  ' >/dev/null || fail "cmux missing-file row missing"
+  ' >/dev/null || fail "missing-endpoint, missing-worktree row missing"
   printf '%s' "$out" | jq -e '
     [.backlog.records[] | select(.state == "queued")] | length == 2
   ' >/dev/null || fail "queued canonical and unstructured backlog records missing"
@@ -200,57 +153,23 @@ test_fixture_snapshot_json() {
     | .state == "done" and .pr_url == "https://github.com/kunchenguid/firstmate/pull/7"
   ' >/dev/null || fail "done backlog PR row missing"
 
-  local line expected_age before after emitted epoch observed
-  printf 'secondmate-task\n' > "$home/secondmate-home/.fm-secondmate-home"
-  printf 'schema=fm-secondmate-parent.v1\nroute=local\nparent_home=%s\n' "$home" \
-    > "$home/secondmate-home/.fm-secondmate-parent"
-  before=$(date +%s)
-  FM_HOME="$home/secondmate-home" "$ROOT/bin/fm-secondmate-report.sh" \
-    'done' 0123456789abcdef 'audit complete' || fail "parent report failed"
-  after=$(date +%s)
-  emitted=$(tail -1 "$home/state/secondmate-task.status")
-  # shellcheck source=bin/fm-classify-lib.sh
-  . "$ROOT/bin/fm-classify-lib.sh"
-  epoch=$(status_line_at_epoch "$emitted") || fail "new parent report has unknown time"
-  [ "$epoch" -ge "$before" ] && [ "$epoch" -le "$after" ] \
-    || fail "parent report did not record emission time"
-  for line in "$emitted" 'working: legacy' 'working [at=1700000000]: timed' \
+  local line expected_age observed
+  for line in 'working: legacy' 'working [at=1700000000]: timed' \
     'working [at=1700000200]: future' 'working [at=oops]: malformed'; do
-    printf '%s\n\n' "$line" > "$home/state/secondmate-task.status"
+    printf '%s\n\n' "$line" > "$home/state/gone-task.status"
     # Deliberately unrelated file age must never substitute for event age.
-    touch -t 202001010000 "$home/state/secondmate-task.status"
+    touch -t 202001010000 "$home/state/gone-task.status"
     expected_age=null; observed=1700000100
     case "$line" in
-      "$emitted") expected_age=100; observed=$((epoch + 100)) ;;
       *1700000000*) expected_age=100 ;;
     esac
     out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_NOW_EPOCH=$observed "$SNAPSHOT" --json)
     printf '%s' "$out" | jq -e --argjson age "$expected_age" '
-      .tasks[] | select(.id == "secondmate-task")
+      .tasks[] | select(.id == "gone-task")
       | .paths.status_log.last_event
       | has("age_seconds") and .age_seconds == $age
         and (has("emitted_at_epoch") | not)
     ' >/dev/null || fail "event age came from something other than the record: $line"
-    # parent_event age is the emission age; freshness is how old this snapshot's
-    # own observation of the file is, so the 2020 mtime must show up there and
-    # only there.
-    printf '%s' "$out" | jq -e --argjson age "$expected_age" '
-      .secondmate_current.records[] | select(.id == "secondmate-task")
-      | .current.state == "unknown"
-        and .parent_event.age_seconds == $age
-        and (.parent_event | has("emitted_at_epoch") | not)
-        and (.freshness.age_seconds | type) == "number"
-        and .freshness.age_seconds > 100000000
-    ' >/dev/null || fail "fallback confused event age, observation freshness, and current state: $line"
-    if [ "${FM_TEST_EVIDENCE:-0}" = 1 ]; then
-      printf '$ touch -t 202001010000 %s\n' "$home/state/secondmate-task.status"
-      printf '$ FM_HOME=%s FM_SNAPSHOT_NOW_EPOCH=%s bin/fm-fleet-snapshot.sh --json\n' "$home" "$observed"
-      printf '%s' "$out" | jq '{
-        last_event: (.tasks[] | select(.id == "secondmate-task") | .paths.status_log.last_event),
-        secondmate: (.secondmate_current.records[] | select(.id == "secondmate-task")
-          | {current, parent_event, freshness})
-      }'
-    fi
   done
   pass "fixture snapshot covers task rows, backlog rows, pointers, stable ordering, and emission-time event age"
 }
@@ -334,7 +253,7 @@ EOF
     "window=firstmate:fm-visible-ship" \
     "worktree=$home/projects/visible" \
     "project=alpha" \
-    "harness=codex" \
+    "harness=pi" \
     "kind=ship" \
     "mode=ship"
   printf 'working: visible\n' > "$home/state/visible-ship.status"
@@ -362,7 +281,7 @@ EOF
     "window=firstmate:fm-orphan-ship" \
     "worktree=$home/projects/visible" \
     "project=alpha" \
-    "harness=codex" \
+    "harness=pi" \
     "kind=ship" \
     "mode=ship"
   printf 'working: orphan now live\n' > "$home/state/orphan-ship.status"
@@ -396,7 +315,7 @@ test_normalized_roles_and_plural_blocker_readiness() {
 EOF
   fm_write_meta "$home/state/worker.meta" \
     "window=firstmate:fm-worker" "worktree=$home/projects/worker" "project=alpha" \
-    "harness=codex" "kind=ship" "mode=ship"
+    "harness=pi" "kind=ship" "mode=ship"
   printf 'working: preparing canary\n' > "$home/state/worker.status"
   fakebin=$(make_fakebin "$home")
   out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --json)
@@ -471,52 +390,24 @@ EOF
 }
 
 test_event_hints_follow_reconciled_current_state() {
-  local home fakebin out hint_gen
+  local home fakebin out
   home=$(make_home event-hints)
   mkdir -p \
     "$home/projects/active-decision" \
     "$home/projects/active-blocked" \
     "$home/projects/stale-decision" \
     "$home/projects/stale-blocked"
-  fm_write_meta "$home/state/active-decision.meta" \
-    "window=firstmate:fm-active-decision" \
-    "worktree=$home/projects/active-decision" \
-    "project=alpha" \
-    "harness=claude" \
-    "kind=ship" \
-    "mode=ship"
-  record_claude_idle "$home/state" active-decision
+  write_task "$home" active-decision ship "$home/projects/active-decision" "project=alpha"
+  record_pi_busy "$home/state" active-decision idle
   printf 'needs-decision: choose an API shape\n' > "$home/state/active-decision.status"
-  fm_write_meta "$home/state/active-blocked.meta" \
-    "window=firstmate:fm-active-blocked" \
-    "worktree=$home/projects/active-blocked" \
-    "project=alpha" \
-    "harness=claude" \
-    "kind=ship" \
-    "mode=ship"
-  record_claude_idle "$home/state" active-blocked
+  write_task "$home" active-blocked ship "$home/projects/active-blocked" "project=alpha"
+  record_pi_busy "$home/state" active-blocked idle
   printf 'blocked: waiting on access\n' > "$home/state/active-blocked.status"
-  fm_write_meta "$home/state/stale-decision.meta" \
-    "window=firstmate:fm-stale-decision-ship-task" \
-    "worktree=$home/projects/stale-decision" \
-    "project=alpha" \
-    "harness=claude" \
-    "kind=ship" \
-    "mode=ship"
-  hint_gen=$("$ROOT/bin/fm-busy-event.sh" arm "$home/state" stale-decision)
-  "$ROOT/bin/fm-busy-event.sh" apply "$home/state" stale-decision busy --gen "$hint_gen" \
-    --source claude-hook --event user-prompt-submit
+  write_task "$home" stale-decision ship "$home/projects/stale-decision" "project=alpha"
+  record_pi_busy "$home/state" stale-decision busy
   printf 'needs-decision: already answered\n' > "$home/state/stale-decision.status"
-  fm_write_meta "$home/state/stale-blocked.meta" \
-    "window=firstmate:fm-stale-blocked-ship-task" \
-    "worktree=$home/projects/stale-blocked" \
-    "project=alpha" \
-    "harness=claude" \
-    "kind=ship" \
-    "mode=ship"
-  hint_gen=$("$ROOT/bin/fm-busy-event.sh" arm "$home/state" stale-blocked)
-  "$ROOT/bin/fm-busy-event.sh" apply "$home/state" stale-blocked busy --gen "$hint_gen" \
-    --source claude-hook --event user-prompt-submit
+  write_task "$home" stale-blocked ship "$home/projects/stale-blocked" "project=alpha"
+  record_pi_busy "$home/state" stale-blocked busy
   printf 'blocked: old failure\n' > "$home/state/stale-blocked.status"
   fakebin=$(make_fakebin "$home")
   out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --json)
@@ -582,14 +473,8 @@ test_backlog_tasks_axi_forms_and_overrides() {
 - [x] done-note - Done Note local main (repo: delta, done 2026-07-11) (kind: ship)
 EOF
   printf '# Bold Scout\n' > "$data/bold-task/report.md"
-  fm_write_meta "$home/state/bold-task.meta" \
-    "window=firstmate:fm-bold-task" \
-    "worktree=$projects/bold-worktree" \
-    "project=alpha" \
-    "harness=claude" \
-    "kind=scout" \
-    "mode=scout"
-  record_claude_idle "$home/state" bold-task
+  write_task "$home" bold-task scout "$projects/bold-worktree" "project=alpha"
+  record_pi_busy "$home/state" bold-task idle
   printf 'done: report ready\n' > "$home/state/bold-task.status"
   fakebin=$(make_fakebin "$home")
   out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_DATA_OVERRIDE="$data" FM_PROJECTS_OVERRIDE="$projects" \
@@ -686,7 +571,7 @@ EOF
       and .paths.report.present == true
   ' >/dev/null || fail "bold task did not join to override-backed backlog and report"
   view=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_DATA_OVERRIDE="$data" FM_PROJECTS_OVERRIDE="$projects" "$VIEW")
-  assert_contains "$view" "| bold-task | done / status-log | scout | alpha | tmux | present | $data/bold-task/report.md" \
+  assert_contains "$view" "| bold-task | done / status-log | scout | alpha | herdr | present | $data/bold-task/report.md" \
     "view should render bold in-flight row from snapshot"
   assert_contains "$view" "| blocked-reason | Blocked Reason | beta | ship | queued-comma - waits on queued-comma | - |" \
     "view should render blocked reason without title metadata"
@@ -795,63 +680,26 @@ test_view_renders_snapshot() {
   write_fixture "$home"
   fakebin=$(make_fakebin "$home")
   view=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$VIEW")
-  assert_contains "$view" "| ship-task | working / pane | ship | alpha | tmux | present | https://github.com/kunchenguid/firstmate/pull/9" \
+  assert_contains "$view" "| ship-task | working / pane | ship | alpha | herdr | present | https://github.com/kunchenguid/firstmate/pull/9" \
     "view should render ship row from snapshot"
   assert_contains "$view" "| queued-task | Queued Task | alpha | ship | ship-task | -" \
     "view should render queued backlog row"
   assert_contains "$view" "| done-task | Done Task | alpha | ship | - | https://github.com/kunchenguid/firstmate/pull/7 |" \
     "view should render done backlog row"
-  assert_contains "$view" "bin/fm-send.sh fm-secondmate-task" \
-    "view should show secondmate send guidance"
-  assert_contains "$view" "| secondmate-task | working / status-log | secondmate | $home/secondmate-home | tmux | present / alive |" \
-    "view should show secondmate endpoint agent liveness"
-  assert_not_contains "$view" "fm-peek.sh fm-secondmate-task" \
-    "view must not tell firstmate to routinely peek secondmates"
-  pass "fleet view renders the snapshot without secondmate peek guidance"
+  assert_contains "$view" "| gone-task | unknown / none | ship | alpha | herdr | absent | - | $home/projects/missing-worktree (absent) | bin/fm-peek.sh fm-gone-task |" \
+    "view should show an absent endpoint and a missing worktree path"
+  pass "fleet view renders task, queued, and done rows from the snapshot"
 }
 
-test_view_renders_dead_secondmate_agent_status() {
-  local home fakebin view
-  home=$(make_home dead-secondmate)
-  fm_write_meta "$home/state/dead-secondmate.meta" \
-    "window=firstmate:fm-dead-secondmate" \
-    "project=$home/secondmate-home" \
-    "harness=codex" \
-    "kind=secondmate" \
-    "mode=secondmate" \
-    "home=$home/secondmate-home" \
-    "projects=alpha, beta"
-  printf 'working: watching delegated scope\n' > "$home/state/dead-secondmate.status"
-  fakebin=$(make_fakebin "$home")
-  view=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$VIEW")
-  assert_contains "$view" "| dead-secondmate | unknown / none | secondmate | $home/secondmate-home | tmux | present / dead |" \
-    "view should distinguish a present secondmate endpoint from a dead agent"
-  assert_contains "$view" "| dead-secondmate | unknown / none | secondmate | $home/secondmate-home | tmux | present / dead | - | $home/secondmate-home (absent) |" \
-    "view should show a recorded missing secondmate home path"
-  pass "fleet view renders secondmate agent liveness"
-}
-
-# A still-open decision must survive a LATER, UNRELATED terminal event on the same
-# append-only stream. This is the fmdev masking bug: last-event-wins read the trailing
-# `done` and reported pending_decision=false while a needs-decision was still open. The
-# durable keyed fold (fm-classify-lib.sh) keeps it open until an explicit resolution.
 test_open_decision_survives_later_unrelated_event() {
   local home fakebin out
   home=$(make_home masking)
-  mkdir -p "$home/secondmate-home"
+  mkdir -p "$home/projects/masked-decision"
   fm_write_meta "$home/state/masked-decision.meta" \
-    "window=firstmate:fm-masked-decision" \
-    "worktree=$home/secondmate-home" \
-    "project=$home/secondmate-home" \
-    "harness=codex" \
-    "kind=secondmate" \
-    "mode=secondmate" \
-    "home=$home/secondmate-home" \
-    "projects=alpha"
-  # needs-decision opened, then two LATER unrelated events (no resolution).
+    "worktree=$home/projects/masked-decision" "project=alpha" "harness=pi" "kind=ship" "mode=ship"
   printf 'needs-decision [key=race]: fix the reconcile-before-subscribe race\n' > "$home/state/masked-decision.status"
   printf 'working: implementing an unrelated subsystem\n' >> "$home/state/masked-decision.status"
-  printf 'done: an unrelated subtask finished\n' >> "$home/state/masked-decision.status"
+  printf 'paused: an unrelated subtask is waiting\n' >> "$home/state/masked-decision.status"
   fakebin=$(make_fakebin "$home")
   out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --json)
   printf '%s' "$out" | jq -e '
@@ -860,33 +708,8 @@ test_open_decision_survives_later_unrelated_event() {
       and (.hints.open_decisions | length) == 1
       and .hints.open_decisions[0].key == "race"
       and .hints.open_decisions[0].verb == "needs-decision"
-  ' >/dev/null || fail "later unrelated done must not mask an open needs-decision: $out"
+  ' >/dev/null || fail "later unrelated events must not mask an open needs-decision: $out"
   pass "durable fold keeps an open decision past a later unrelated event"
-}
-
-test_secondmate_open_decision_survives_live_endpoint() {
-  local home fakebin out
-  home=$(make_home active-secondmate)
-  mkdir -p "$home/secondmate-home"
-  fm_write_meta "$home/state/active-secondmate.meta" \
-    "window=firstmate:fm-active-secondmate" \
-    "worktree=$home/secondmate-home" \
-    "project=$home/secondmate-home" \
-    "harness=codex" \
-    "kind=secondmate" \
-    "mode=secondmate" \
-    "home=$home/secondmate-home" \
-    "projects=alpha"
-  printf 'needs-decision [key=race]: choose ordering\n' > "$home/state/active-secondmate.status"
-  fakebin=$(make_fakebin "$home")
-  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --json)
-  printf '%s' "$out" | jq -e '
-    .tasks[] | select(.id == "active-secondmate")
-    | .endpoint.agent_alive == "alive"
-      and .hints.pending_decision == true
-      and (.hints.open_decisions | length) == 1
-  ' >/dev/null || fail "a live secondmate endpoint must not clear an unrelated keyed decision: $out"
-  pass "a live secondmate endpoint preserves unrelated open decisions"
 }
 
 # An open decision clears ONLY on an explicit resolution referencing its key, never
@@ -894,16 +717,9 @@ test_secondmate_open_decision_survives_live_endpoint() {
 test_open_decision_transfers_to_captain_hold() {
   local home fakebin out
   home=$(make_home captain-held-transfer)
-  mkdir -p "$home/secondmate-home"
+  mkdir -p "$home/projects/transferred-decision"
   fm_write_meta "$home/state/transferred-decision.meta" \
-    "window=firstmate:fm-transferred-decision" \
-    "worktree=$home/secondmate-home" \
-    "project=$home/secondmate-home" \
-    "harness=codex" \
-    "kind=secondmate" \
-    "mode=secondmate" \
-    "home=$home/secondmate-home" \
-    "projects=sample"
+    "worktree=$home/projects/transferred-decision" "project=sample" "harness=pi" "kind=ship" "mode=ship"
   printf 'needs-decision [key=route]: choose a sample route\n' > "$home/state/transferred-decision.status"
   printf 'captain-held [key=route]: tracked by transferred-decision-route\n' >> "$home/state/transferred-decision.status"
   fakebin=$(make_fakebin "$home")
@@ -919,18 +735,11 @@ test_open_decision_transfers_to_captain_hold() {
 test_open_decision_clears_on_keyed_resolution() {
   local home fakebin out
   home=$(make_home resolution)
-  mkdir -p "$home/secondmate-home"
+  mkdir -p "$home/projects/resolved-decision"
   fm_write_meta "$home/state/resolved-decision.meta" \
-    "window=firstmate:fm-resolved-decision" \
-    "worktree=$home/secondmate-home" \
-    "project=$home/secondmate-home" \
-    "harness=codex" \
-    "kind=secondmate" \
-    "mode=secondmate" \
-    "home=$home/secondmate-home" \
-    "projects=alpha"
+    "worktree=$home/projects/resolved-decision" "project=alpha" "harness=pi" "kind=ship" "mode=ship"
   printf 'needs-decision [key=race]: fix the reconcile-before-subscribe race\n' > "$home/state/resolved-decision.status"
-  printf 'done: an unrelated subtask finished\n' >> "$home/state/resolved-decision.status"
+  printf 'working: an unrelated subtask finished\n' >> "$home/state/resolved-decision.status"
   printf 'resolved [key=race]: captain chose subscribe-then-reconcile\n' >> "$home/state/resolved-decision.status"
   fakebin=$(make_fakebin "$home")
   out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --json)
@@ -951,17 +760,11 @@ test_open_decision_clears_on_keyed_resolution() {
 # must not linger as pending. Decisions come purely from the keyed fold reconciled
 # against the crew lifecycle; report prose never opens or reopens a decision.
 test_completed_scout_report_is_pointer_not_pending() {
-  local home fakebin out kind terminal id phase single mate single_state mate_state
+  local home fakebin out kind terminal id phase open state
   home=$(make_home completed-scout)
   mkdir -p "$home/projects/scout-wt" "$home/data/lavish-103"
-  fm_write_meta "$home/state/lavish-103.meta" \
-    "window=firstmate:fm-lavish-103" \
-    "worktree=$home/projects/scout-wt" \
-    "project=firstmate" \
-    "harness=claude" \
-    "kind=scout" \
-    "mode=scout"
-  record_claude_idle "$home/state" lavish-103
+  write_task "$home" lavish-103 scout "$home/projects/scout-wt" "project=firstmate"
+  record_pi_busy "$home/state" lavish-103 idle
   # Stale needs-decision, then the scout finished (done). No keyed resolution.
   printf 'needs-decision: adopt approach A or B for Lavish issue 103\n' > "$home/state/lavish-103.status"
   printf 'done: report ready at data/lavish-103/report.md\n' >> "$home/state/lavish-103.status"
@@ -977,29 +780,25 @@ test_completed_scout_report_is_pointer_not_pending() {
       and .hints.scout_report_present == true
   ' >/dev/null || fail "a completed scout report must be a pointer, not a pending decision: $out"
 
-  # Same terminal-supersession contract across ship/scout/secondmate, both snapshot
-  # modes, and reopen/resolve after cleanup.
   home=$(make_home terminal-cleanup)
   mkdir -p "$home/projects/task"
   fakebin=$(make_fakebin "$home")
-  for kind in ship scout secondmate; do
+  for kind in ship scout; do
     for terminal in 'done' failed; do
       id="$kind-$terminal"
-      fm_write_meta "$home/state/$id.meta" \
-        "window=firstmate:fm-$id" "worktree=$home/projects/task" \
-        "kind=$kind" "harness=claude"
-      record_claude_idle "$home/state" "$id"
+      write_task "$home" "$id" "$kind" "$home/projects/task"
+      record_pi_busy "$home/state" "$id" idle
       printf 'blocked [key=access]: waiting\nneeds-decision [key=choice]: choose a route\n%s: final outcome\nnote: cleanup complete\n' \
         "$terminal" > "$home/state/$id.status"
     done
   done
   for phase in terminal reopened resolved; do
     case "$phase" in
-      terminal) single='[]'; mate='["access","choice"]'; single_state=unknown; mate_state=parked ;;
-      reopened) single='["access","new-choice"]'; mate='["access","choice","new-choice"]'; single_state=parked; mate_state=parked ;;
-      resolved) single='[]'; mate='["choice"]'; single_state=unknown; mate_state=parked ;;
+      terminal) open='[]'; state=unknown ;;
+      reopened) open='["access","new-choice"]'; state=parked ;;
+      resolved) open='[]'; state=unknown ;;
     esac
-    for kind in ship scout secondmate; do
+    for kind in ship scout; do
       for terminal in 'done' failed; do
         id="$kind-$terminal"
         case "$phase" in
@@ -1009,21 +808,13 @@ test_completed_scout_report_is_pointer_not_pending() {
       done
     done
     out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --json)
-    printf '%s' "$out" | jq -e --argjson single "$single" --argjson mate "$mate" \
-      --arg single_state "$single_state" --arg mate_state "$mate_state" '
-      .tasks | length == 6 and all(.[];
-        (.kind == "secondmate") as $persistent
-        | (.hints.open_decisions | map(.key) | sort) == (if $persistent then $mate else $single end)
-          and .current_state.state == (if $persistent then $mate_state else $single_state end)
-          and .hints.blocked_event == (if $persistent then $mate else $single end | index("access") != null)
-          and .hints.pending_decision == (if $persistent then $mate else $single end | any(. != "access")))
+    printf '%s' "$out" | jq -e --argjson open "$open" --arg state "$state" '
+      .tasks | length == 4 and all(.[];
+        (.hints.open_decisions | map(.key) | sort) == $open
+          and .current_state.state == $state
+          and .hints.blocked_event == ($open | index("access") != null)
+          and .hints.pending_decision == ($open | any(. != "access")))
     ' >/dev/null || fail "$phase snapshot revived a completed decision or lost a current one: $out"
-    out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --secondmate-home-summary)
-    printf '%s' "$out" | jq -e --argjson single "$single" --argjson mate "$mate" '
-      (.decisions_open | map({id,key}) | sort_by(.id,.key)) ==
-        (([ ("ship-done","ship-failed","scout-done","scout-failed") as $id | $single[] | {id:$id,key:.} ]
-          + [ ("secondmate-done","secondmate-failed") as $id | $mate[] | {id:$id,key:.} ]) | sort_by(.id,.key))
-    ' >/dev/null || fail "$phase home summary revived a completed decision or lost a current one: $out"
   done
   pass "a completed scout's stale decision surfaces as a report pointer, not pending"
 }
@@ -1035,14 +826,8 @@ test_parked_scout_decision_stays_pending() {
   local home fakebin out
   home=$(make_home parked-scout)
   mkdir -p "$home/projects/scout-wt2"
-  fm_write_meta "$home/state/parked-scout.meta" \
-    "window=firstmate:fm-parked-scout" \
-    "worktree=$home/projects/scout-wt2" \
-    "project=firstmate" \
-    "harness=claude" \
-    "kind=scout" \
-    "mode=scout"
-  record_claude_idle "$home/state" parked-scout
+  write_task "$home" parked-scout scout "$home/projects/scout-wt2" "project=firstmate"
+  record_pi_busy "$home/state" parked-scout idle
   printf 'needs-decision [key=q1]: adopt approach A or B\n' > "$home/state/parked-scout.status"
   fakebin=$(make_fakebin "$home")
   out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --json)
@@ -1055,117 +840,13 @@ test_parked_scout_decision_stays_pending() {
   pass "a scout still parked at a decision stays pending (terminal clear does not over-fire)"
 }
 
-# Home-summary validity treats persistent secondmates as registered homes, not
-# in-flight children. They have no backlog rows, so they must not produce
-# unowned_current or terminal_in_flight. Ordinary crew/ship metas still do.
-test_home_summary_excludes_secondmate_from_child_inventory() {
-  local home fakebin out
-  home=$(make_home summary-secondmate-only)
-  mkdir -p "$home/secondmate-home" "$home/projects/unowned" "$home/projects/terminal"
-  cat > "$home/data/backlog.md" <<'EOF'
-## In flight
-
-## Queued
-
-## Done
-EOF
-  fm_write_meta "$home/state/mate.meta" \
-    "window=firstmate:fm-mate" \
-    "worktree=$home/secondmate-home" \
-    "project=$home/secondmate-home" \
-    "harness=codex" \
-    "kind=secondmate" \
-    "mode=secondmate" \
-    "home=$home/secondmate-home" \
-    "projects=alpha"
-  printf 'working: watching delegated scope\n' > "$home/state/mate.status"
-  fakebin=$(make_fakebin "$home")
-  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --secondmate-home-summary)
-  printf '%s' "$out" | jq -e '
-    .schema == "fm-secondmate-home-summary.v1"
-      and .valid == true
-      and .reason == null
-      and .invalidity == {kind:null,ids:[]}
-      and (.invalidity.kind != "unowned_current")
-      and (.invalidity.kind != "terminal_in_flight")
-  ' >/dev/null || fail "secondmate-only home with a clean backlog must be VALID: $out"
-
-  cat > "$home/data/backlog.md" <<'EOF'
-## In flight
-- [ ] mate - Registered secondmate home (repo: alpha) (kind: secondmate) (since 2026-07-11)
-
-## Queued
-
-## Done
-EOF
-  printf 'done: delegated scope complete\n' > "$home/state/mate.status"
-  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --secondmate-home-summary)
-  printf '%s' "$out" | jq -e '
-    .valid == true
-      and .reason == null
-      and .invalidity == {kind:null,ids:[]}
-      and (.invalidity.kind != "terminal_in_flight")
-  ' >/dev/null || fail "terminal secondmate with a matching in-flight row must not produce terminal_in_flight: $out"
-
-  fm_write_meta "$home/state/unowned-ship.meta" \
-    "window=firstmate:fm-unowned-ship" \
-    "worktree=$home/projects/unowned" \
-    "project=alpha" \
-    "harness=claude" \
-    "kind=ship" \
-    "mode=no-mistakes"
-  record_claude_idle "$home/state" unowned-ship
-  printf 'needs-decision [key=unowned-ship]: choose a route\n' > "$home/state/unowned-ship.status"
-  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --secondmate-home-summary)
-  printf '%s' "$out" | jq -e '
-    .valid == false
-      and .invalidity == {kind:"unowned_current",ids:["unowned-ship"]}
-      and (.reason | contains("unowned-ship=parked"))
-      and (.reason | contains("mate=") | not)
-  ' >/dev/null || fail "ordinary unowned ship must still produce unowned_current without listing the secondmate: $out"
-
-  rm -f "$home/state/unowned-ship.meta" "$home/state/unowned-ship.status"
-  cat > "$home/data/backlog.md" <<'EOF'
-## In flight
-- [ ] terminal-ship - Done child still in flight (repo: alpha) (kind: ship) (since 2026-07-11)
-
-## Queued
-
-## Done
-EOF
-  fm_write_meta "$home/state/terminal-ship.meta" \
-    "window=firstmate:fm-terminal-ship" \
-    "worktree=$home/projects/terminal" \
-    "project=alpha" \
-    "harness=claude" \
-    "kind=ship" \
-    "mode=no-mistakes"
-  record_claude_idle "$home/state" terminal-ship
-  printf 'done: complete\n' > "$home/state/terminal-ship.status"
-  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --secondmate-home-summary)
-  printf '%s' "$out" | jq -e '
-    .valid == false
-      and .invalidity == {kind:"terminal_in_flight",ids:["terminal-ship"]}
-      and (.reason | contains("terminal-ship=done"))
-      and (.reason | contains("mate=") | not)
-  ' >/dev/null || fail "ordinary terminal in-flight ship must still produce terminal_in_flight without listing the secondmate: $out"
-  pass "home-summary excludes kind=secondmate from unowned_current and terminal_in_flight"
-}
-
-# A secondmate task whose open decisions the real drain has already folded into
-# its cursor, so the snapshot reads a log that may have moved past that cursor.
-write_drained_secondmate() {  # <home> <id> <status-text>
+# A task whose open decisions the real drain has already folded into its
+# cursor, so the snapshot reads a log that may have moved past that cursor.
+write_drained_task() {  # <home> <id> <status-text>
   local home=$1 id=$2
-  mkdir -p "$home/secondmate-home"
+  mkdir -p "$home/projects/$id"
   fm_write_meta "$home/state/$id.meta" \
-    "window=firstmate:fm-$id" \
-    "worktree=$home/secondmate-home" \
-    "project=$home/secondmate-home" \
-    "harness=codex" \
-    "kind=secondmate" \
-    "mode=secondmate" \
-    "home=$home/secondmate-home" \
-    "projects=alpha"
+    "worktree=$home/projects/$id" "project=alpha" "harness=pi" "kind=ship" "mode=ship"
   printf '%s' "$3" > "$home/state/$id.status"
   FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$ROOT/bin/fm-wake-drain.sh" >/dev/null 2>&1 \
     || fail "drain over $id failed"
@@ -1182,7 +863,7 @@ snapshot_open_decisions() {  # <home> <id>
 test_decision_resolved_after_drain_is_not_reported_open() {
   local home out
   home=$(make_home drained-then-resolved)
-  write_drained_secondmate "$home" mate 'needs-decision [key=early]: pick a schema
+  write_drained_task "$home" mate 'needs-decision [key=early]: pick a schema
 blocked [key=keep]: waiting on access
 '
   printf 'resolved [key=early]: schema picked\nneeds-decision [key=late]: pick a port\n' >> "$home/state/mate.status"
@@ -1195,7 +876,7 @@ blocked [key=keep]: waiting on access
 test_replaced_log_does_not_resurrect_drained_decision() {
   local home out
   home=$(make_home drained-then-replaced)
-  write_drained_secondmate "$home" mate 'needs-decision [key=old]: same width
+  write_drained_task "$home" mate 'needs-decision [key=old]: same width
 '
   printf 'needs-decision [key=new]: same width\nworking: the replacement outgrows the old log\n' > "$home/state/mate.status.next"
   mv -f "$home/state/mate.status.next" "$home/state/mate.status"
@@ -1208,7 +889,7 @@ test_replaced_log_does_not_resurrect_drained_decision() {
 test_snapshot_reads_only_bytes_appended_after_the_drain() {
   local home fakebin probe appended reads
   home=$(make_home drained-read-bound)
-  write_drained_secondmate "$home" mate "$(printf 'working: filler line %04d\n' $(seq 1 400))
+  write_drained_task "$home" mate "$(printf 'working: filler line %04d\n' $(seq 1 400))
 needs-decision [key=buried]: still open
 "
   printf 'blocked [key=fresh]: new blocker\n' >> "$home/state/mate.status"
@@ -1234,7 +915,7 @@ SH
 test_cursor_ending_mid_line_does_not_split_the_decision() {
   local home out
   home=$(make_home drained-mid-line)
-  write_drained_secondmate "$home" mate 'needs-decision [key=split]: first ha'
+  write_drained_task "$home" mate 'needs-decision [key=split]: first ha'
   printf 'lf of the note\n' >> "$home/state/mate.status"
   out=$(snapshot_open_decisions "$home" mate)
   assert_equals '[["split","needs-decision","first half of the note"]]' "$out" \
@@ -1245,14 +926,12 @@ test_cursor_ending_mid_line_does_not_split_the_decision() {
 fm_test_run \
   test_empty_fleet_json \
   test_fixture_snapshot_json \
-  test_home_summary_excludes_secondmate_from_child_inventory \
   test_undated_captain_hold_phrasing_and_aging \
   test_hold_buckets_are_total_and_text_blind \
   test_main_inventory_orphan_and_unstructured_disclosure \
   test_normalized_roles_and_plural_blocker_readiness \
   test_event_hints_follow_reconciled_current_state \
   test_open_decision_survives_later_unrelated_event \
-  test_secondmate_open_decision_survives_live_endpoint \
   test_open_decision_transfers_to_captain_hold \
   test_open_decision_clears_on_keyed_resolution \
   test_decision_resolved_after_drain_is_not_reported_open \
@@ -1263,5 +942,4 @@ fm_test_run \
   test_parked_scout_decision_stays_pending \
   test_scout_reports_include_teardown_reports \
   test_backlog_tasks_axi_forms_and_overrides \
-  test_view_renders_snapshot \
-  test_view_renders_dead_secondmate_agent_status
+  test_view_renders_snapshot

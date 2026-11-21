@@ -65,41 +65,6 @@ run_spawn() {
     "$id" "$PROJECT_DIR" "$@"
 }
 
-test_remote_seeded_home_spawns_from_treehouse_pool() {
-  local rec id out status lock
-  id='pool-remote-seeded-r13'
-  rec=$(make_case remote-seeded "$id")
-  read_case_record "$rec"
-  cat > "$HOME_DIR/.fm-secondmate-parent" <<'REC'
-schema=fm-secondmate-parent.v1
-route=remote
-parent_host=parent-machine
-REC
-
-  out=$(run_spawn "$id" --scout)
-  status=$?
-  expect_code 0 "$status" \
-    "a remote-seeded secondmate home should allocate and launch from its Treehouse pool"$'\n'"$out"
-  assert_contains "$out" "spawned $id" \
-    "the remote-seeded spawn did not report success"
-  assert_grep "worktree=$POOL_DIR" "$HOME_DIR/state/$id.meta" \
-    "the remote-seeded spawn did not publish its allocated pool worktree"
-  lock=$(FM_HOME="$HOME_DIR" bash -c '. "$1"; fm_treehouse_project_lock_path "$2"' _ \
-    "$ROOT/bin/fm-wake-lib.sh" "$PROJECT_DIR") \
-    || fail "the launched remote-seeded home could not resolve its Treehouse project lock"
-  case "$lock" in
-    "$HOME_DIR/state/"*) ;;
-    *) fail "the remote-seeded spawn anchored its lock outside its local root: $lock" ;;
-  esac
-  if [ "${FM_TEST_EVIDENCE:-0}" = 1 ]; then
-    printf '# remote-seeded Treehouse spawn command\n'
-    printf '$ FM_HOME=%s bin/fm-spawn.sh %s %s --scout\n%s\nexit=%s\n' \
-      "$HOME_DIR" "$id" "$PROJECT_DIR" "$out" "$status"
-    printf 'published worktree=%s\nresolved project lock=%s\n' "$POOL_DIR" "$lock"
-  fi
-  pass "a remote-seeded secondmate home allocates and launches from its Treehouse pool"
-}
-
 test_linked_spawning_home_rejects_primary_before_refresh() {
   local rec id out status returned primary spawning before_reflog
   for returned in primary primary-alias spawning scout; do
@@ -107,7 +72,7 @@ test_linked_spawning_home_rejects_primary_before_refresh() {
     rec=$(make_case "linked-$returned" "$id")
     read_case_record "$rec"
     primary=$PROJECT_DIR
-    spawning="$CASE_DIR/secondmate"
+    spawning="$CASE_DIR/linked-home"
     git -C "$primary" worktree add --quiet --detach "$spawning" HEAD
     PROJECT_DIR=$spawning
     case "$returned" in
@@ -119,7 +84,6 @@ test_linked_spawning_home_rejects_primary_before_refresh() {
       spawning) POOL_DIR=$spawning ;;
     esac
     before_reflog=$(git -C "$primary" reflog)
-    # The assertion concerns identity, not how long an unchanged cwd is polled.
     fm_test_fake_sleep_noop "$FAKEBIN_DIR"
 
     out=$(run_spawn "$id" --scout)
@@ -150,14 +114,9 @@ test_linked_spawning_home_rejects_primary_before_refresh() {
         || fail "spawn did not refresh the genuine scout copy"
     else
       [ "$status" -ne 0 ] || fail "linked spawning home accepted $returned as a disposable copy"
-      # None of these is an isolated copy, so the worktree poll never adopts one
-      # and the wait runs out instead: the spawning directory fails the poll's
-      # own project comparison, and the repository primary (named directly or
-      # through a symlink) fails the isolation screen the poll shares with the
-      # guard. The refusal names the last path the pane reported.
-      assert_contains "$out" "did not enter an isolated worktree" \
+      assert_contains "$out" "did not yield an isolated worktree" \
         "spawn did not explain its isolation refusal"
-      assert_contains "$out" "last seen" "refusal did not name the path the pane reported"
+      assert_contains "$out" "resolved '" "refusal did not name the path the lease returned"
       [ ! -e "$HOME_DIR/state/$id.meta" ] || fail "refused spawn published task metadata"
       [ ! -e "$primary/.git/FETCH_HEAD" ] || fail "refused spawn fetched before proving isolation"
     fi
@@ -733,9 +692,7 @@ test_pool_slot_claim_follows_the_spawn_outcome() {
   assert_contains "$out" "could not claim Treehouse pool slot" \
     "spawn did not name the unclaimable slot as the reason"
   assert_contains "$out" "inspect window" \
-    "a non-polytoken unclaimable-slot refusal must keep its window pointer"
-  assert_not_contains "$out" "is closed on exit" \
-    "a non-polytoken refusal must not claim its window was closed"
+    "the unclaimable-slot refusal must keep its window pointer"
   [ -d "$SLOT_CLAIM" ] || fail "spawn replaced the directory blocking its slot claim"
   [ ! -e "$HOME_DIR/state/$id.meta" ] || fail "spawn published a record for an unclaimable slot"
   [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$before" ] \
@@ -757,8 +714,8 @@ test_pool_slot_claim_follows_the_spawn_outcome() {
   pass "a Treehouse slot claim names the launched task, refuses when unclaimable, and is dropped by a locked abort"
 }
 
-# A Treehouse whose only slot is free in its own eyes: `get` lands in that slot
-# (the fake pane path), `status` lists it unleased, and `lease` is recorded.
+# A Treehouse whose only slot is free in its own eyes: `get --lease` hands out
+# that slot, `status` lists it unleased, and `lease` is recorded.
 # The lease help line is real treehouse v3.1.2 output.
 make_leasing_treehouse() {
   cat > "$FAKEBIN_DIR/treehouse" <<SH
@@ -766,6 +723,7 @@ make_leasing_treehouse() {
 printf '%s\n' "\$*" >> "$CASE_DIR/treehouse.log"
 case "\$1 \${2:-}" in
   'lease --help') printf 'Usage:\n  treehouse lease <name> [flags]\n' ;;
+  'get --lease') printf '%s' "$POOL_DIR" > "$FAKEBIN_DIR/lease"; printf '%s\n' "$POOL_DIR" ;;
   'status --json') printf '[{"name":"1","path":"%s","status":"available","lease_id":""}]\n' "$POOL_DIR" ;;
 esac
 exit 0
@@ -807,79 +765,9 @@ test_stopped_task_keeps_its_recorded_worktree() {
   out=$(run_spawn "$id" --mode no-mistakes --yolo off)
   status=$?
   expect_code 0 "$status" "a spawn into a copy no record names should launch"$'\n'"$out"
-  assert_grep "lease 1 --lease-holder $id" "$CASE_DIR/treehouse.log" \
+  assert_grep "get --lease --lease-holder $id" "$CASE_DIR/treehouse.log" \
     "a launched task did not lease its own slot"
   pass "a second spawn never receives the worktree a stopped task's record names, and a launched task leases its own"
-}
-# install_isolation_flip_git <fakebin> <worktree>: a git that answers every
-# command truthfully except `rev-parse --show-toplevel` on <worktree>, which
-# reports a foreign root from its third read on - after the discovery poll's
-# two agreeing reads adopted the slot, so only the post-poll isolation check
-# sees the worktree stop being isolated.
-install_isolation_flip_git() {  # <fakebin> <worktree>
-  local fakebin=$1 wt=$2 real_git
-  real_git=$(command -v git)
-  cat > "$fakebin/git" <<SH
-#!/usr/bin/env bash
-if [ "\$1" = -C ] && [ "\$2" = '$wt' ] && [ "\$3" = rev-parse ] && [ "\$4" = --show-toplevel ]; then
-  n=\$(cat '$fakebin/.toplevel-reads' 2>/dev/null || echo 0)
-  n=\$((n + 1))
-  printf '%s\n' "\$n" > '$fakebin/.toplevel-reads'
-  if [ "\$n" -gt 2 ]; then
-    printf '%s\n' '$fakebin'
-    exit 0
-  fi
-fi
-exec '$real_git' "\$@"
-SH
-  chmod +x "$fakebin/git"
-}
-
-# The post-poll treehouse-get isolation refusal points the operator at the
-# window only when that window survives the abort: every harness but polytoken
-# keeps main's `Inspect target <window>`, and a fresh polytoken spawn, whose
-# window is closed on exit, names the worktree and says so instead.
-test_treehouse_isolation_refusal_points_at_what_survives() {
-  local rec id out status
-  id='pool-isolation-pi-r1'
-  rec=$(make_case isolation-pi "$id")
-  read_case_record "$rec"
-  fm_test_fake_sleep_noop "$FAKEBIN_DIR"
-  install_isolation_flip_git "$FAKEBIN_DIR" "$POOL_DIR"
-  out=$(run_spawn "$id" --harness pi --mode no-mistakes --yolo off)
-  status=$?
-  [ "$status" -ne 0 ] || fail "a pi spawn whose slot stopped being isolated should refuse"
-  assert_contains "$out" "treehouse get did not yield an isolated worktree" \
-    "the pi spawn did not refuse on the post-poll isolation check"$'\n'"$out"
-  assert_contains "$out" "refusing to launch to avoid tangling the primary checkout. Inspect target firstmate:fm-$id" \
-    "a non-polytoken isolation refusal must keep main's window pointer"$'\n'"$out"
-  assert_not_contains "$out" "is closed on exit" \
-    "a non-polytoken isolation refusal must not claim its window was closed"
-
-  id='pool-isolation-polytoken-r1'
-  rec=$(make_case isolation-polytoken "$id")
-  read_case_record "$rec"
-  fm_test_fake_sleep_noop "$FAKEBIN_DIR"
-  install_isolation_flip_git "$FAKEBIN_DIR" "$POOL_DIR"
-  cat > "$FAKEBIN_DIR/polytoken" <<'SH'
-#!/usr/bin/env bash
-case "$*" in
-  *"print models"*) printf 'zai/glm-5.3-flash\nzai/glm-5.3-flash(low)\n' ;;
-esac
-exit 0
-SH
-  chmod +x "$FAKEBIN_DIR/polytoken"
-  out=$(run_spawn "$id" --harness polytoken --model zai/glm-5.3-flash --effort low --mode no-mistakes --yolo off)
-  status=$?
-  [ "$status" -ne 0 ] || fail "a polytoken spawn whose slot stopped being isolated should refuse"
-  assert_contains "$out" "treehouse get did not yield an isolated worktree" \
-    "the polytoken spawn did not refuse on the post-poll isolation check"$'\n'"$out"
-  assert_contains "$out" "pool (window firstmate:fm-$id is closed on exit" \
-    "a fresh polytoken isolation refusal must name the worktree and the closed window"$'\n'"$out"
-  assert_not_contains "$out" "Inspect target firstmate:fm-$id" \
-    "a fresh polytoken isolation refusal must not point at its closed window"
-  rm -rf "/tmp/fm-$id" "/tmp/fm-$id+"*
-  pass "the treehouse-get isolation refusal points only at what survives the abort"
 }
 
 publish_feature_branch() { # <branch>
@@ -1211,10 +1099,8 @@ test_opt_in_still_refuses_an_unclean_slot_first() {
   pass "with the opt-in an unclean slot is still refused, untouched, before any base is chosen"
 }
 
-test_remote_seeded_home_spawns_from_treehouse_pool
 test_pool_slot_claim_follows_the_spawn_outcome
 test_stopped_task_keeps_its_recorded_worktree
-test_treehouse_isolation_refusal_points_at_what_survives
 test_linked_spawning_home_rejects_primary_before_refresh
 test_stale_pool_base_refreshes_before_branching
 test_named_base_branch_starts_from_that_branch

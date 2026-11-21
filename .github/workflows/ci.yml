@@ -1,12 +1,17 @@
 name: CI
 
 on:
+  pull_request:
   schedule:
     - cron: '17 6 * * *'
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Single owner of the CI npm-tool pins. Every cache key below embeds its pin
 # with no restore-keys fallback, so a bump installs fresh instead of reusing a stale tree.
@@ -17,8 +22,8 @@ env:
   FM_CI_BUN_VERSION: '1.4.3'
 
 # Timeout policy: paired lint shards are capped at 15 minutes and the static gate
-# at 10 minutes. Scheduled and manual dispatch jobs keep the tiers that
-# tests/fm-ci-workflow.test.sh holds against this file.
+# at 10 minutes. Pull request, scheduled, and manual dispatch jobs keep the
+# tiers that tests/fm-ci-workflow.test.sh holds against this file.
 # Each job comment identifies the tier implemented by its executable value.
 
 # Fork opt-out: the repository variable FM_CI_SKIP_MACOS=1 skips the macOS job.
