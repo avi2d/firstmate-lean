@@ -1467,13 +1467,13 @@ start_owned_watcher() {  # <home> <state> <fakebin> <arm-out>
   local home=$1 state=$2 fakebin=$3 armout=$4 i
   PATH="$fakebin:$PATH" FM_HOME="$home" FM_STATE_OVERRIDE="$state" \
     FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    FM_ARM_CONFIRM_TIMEOUT=2 "$WATCH_ARM" > "$armout" 2>&1 &
+    FM_ARM_CONFIRM_TIMEOUT="$REARM_CONFIRM_SECONDS" "$WATCH_ARM" > "$armout" 2>&1 &
   ARM_PID=$!
   i=0
-  while [ "$i" -lt 100 ]; do
+  while [ "$i" -lt "$REARM_REPORT_POLLS" ]; do
     grep -q '^watcher: started pid=' "$armout" 2>/dev/null && break
     is_live_non_zombie "$ARM_PID" || break
-    sleep 0.1
+    sleep 0.05
     i=$((i + 1))
   done
   WATCH_PID=$(sed -n 's/^watcher: started pid=\([0-9][0-9]*\).*/\1/p' "$armout" | head -1)
