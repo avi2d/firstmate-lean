@@ -137,7 +137,10 @@ test_ci_run_completion_does_not_wake_for_in_progress() {
   git -C "$dir" init -q
   git -C "$dir" remote add origin https://github.com/example/repo.git
   printf 'project=%s\n' "$dir" > "$state/t.meta"
-  printf '%s\n' '#!/usr/bin/env bash' 'printf "api_response:\\n  body: %s\\n" '"'$CI_STATUS'" > "$dir/fakebin/gh-axi"
+  cat > "$dir/fakebin/gh-axi" <<'SCRIPT'
+#!/usr/bin/env bash
+printf 'api_response:\n  body: %s\n' "$CI_STATUS"
+SCRIPT
   chmod +x "$dir/fakebin/gh-axi"
   for form in 'CI run 123' 'ci_run=123' 'https://github.com/example/repo/actions/runs/123'; do
     printf 'paused: %s | owner=GitHub CI | recheck=2030-01-01\n' "$form" > "$state/t.status"
