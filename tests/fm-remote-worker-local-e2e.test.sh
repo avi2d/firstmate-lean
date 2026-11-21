@@ -109,7 +109,8 @@ cat > "$REMOTE_ROOT/bin/pi" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
-chmod +x "$REMOTE_ROOT/bin/treehouse" "$REMOTE_ROOT/bin/herdr" "$REMOTE_ROOT/bin/pi"
+cp "$REMOTE_ROOT/bin/pi" "$REMOTE_ROOT/bin/claude"
+chmod +x "$REMOTE_ROOT/bin/treehouse" "$REMOTE_ROOT/bin/herdr" "$REMOTE_ROOT/bin/pi" "$REMOTE_ROOT/bin/claude"
 git -C "$REMOTE_ROOT" init -q -b main
 git -C "$REMOTE_ROOT" config user.name Test
 git -C "$REMOTE_ROOT" config user.email test@example.com

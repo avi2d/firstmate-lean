@@ -470,19 +470,14 @@ window_kind() {
   echo unknown
 }
 
-# window_backend: the backend recorded in the meta whose window= matches <w>,
-# defaulting to tmux (absent backend= means tmux; the P1 compatibility
-# contract) when no matching meta carries the field, or none matches at all.
+# window_backend: the backend recorded in the meta whose window= matches <w>.
+# A record without one names no endpoint any backend can read, so it reads as
+# unknown, as fm_backend_of_meta reports it.
 window_backend() {
-  local w=$1 meta backend
+  local w=$1 meta backend=
   meta=$(fm_backend_meta_for_window "$w" "$STATE" 2>/dev/null || true)
-  if [ -n "$meta" ]; then
-    backend=$(grep '^backend=' "$meta" | cut -d= -f2- || true)
-    [ -n "$backend" ] || backend=tmux
-    echo "$backend"
-    return 0
-  fi
-  echo tmux
+  [ -z "$meta" ] || backend=$(grep '^backend=' "$meta" | cut -d= -f2- || true)
+  echo "${backend:-unknown}"
 }
 
 window_harness() {

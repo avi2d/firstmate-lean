@@ -36,3 +36,5 @@ tests/fm-watch-triage.test.sh
 tests/fm-watch-wedge-cap-unconfigured-parity.test.sh
 tests/fm-watch-wedge-cap.test.sh
 tests/fm-worker-account.test.sh
+tests/fm-test-run.test.sh
+tests/fm-documentation-audiences.test.sh
