@@ -12,9 +12,14 @@ COMPLETION_FILE="$STATE/.session-start-complete"
 AGENTS_BASELINE_FILE="$STATE/.session-start-agents-baseline"
 
 REEMIT=0
+HEAVY_LIMIT_ONLY=0
 SESSION_SOURCE=
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --heavy-limit)
+      HEAVY_LIMIT_ONLY=1
+      shift
+      ;;
     --reemit)
       REEMIT=1
       shift
@@ -38,6 +43,22 @@ while [ "$#" -gt 0 ]; do
       ;;
   esac
 done
+
+if [ "$HEAVY_LIMIT_ONLY" -eq 1 ]; then
+  # shellcheck source=bin/fm-wake-lib.sh
+  . "$SCRIPT_DIR/fm-wake-lib.sh"
+  # shellcheck source=bin/fm-project-capacity-lib.sh
+  . "$SCRIPT_DIR/fm-project-capacity-lib.sh"
+  # shellcheck source=bin/fm-mac-load-lib.sh
+  . "$SCRIPT_DIR/fm-mac-load-lib.sh"
+  capacity_config=$(fm_project_capacity_config_dir "$FM_HOME" "$CONFIG") || exit 1
+  if ! fm_mac_load_config "$capacity_config"; then
+    printf 'heavy worker limit unavailable: %s\n' "$FM_MAC_LOAD_ERROR" >&2
+    exit 1
+  fi
+  printf 'heavy worker limit: %s\n' "$FM_MAC_HEAVY_LIMIT"
+  exit 0
+fi
 
 # --- 0. runtime bound ---------------------------------------------------------
 # The ordered stage list is the contract behind the truncation banner: the child
@@ -785,6 +806,29 @@ fi
 # fleet identity is what that cut must never take.
 stage fleet-state
 section "FLEET STATE"
+subsection "Machine worker limits"
+if capacity_out=$("$SCRIPT_DIR/fm-session-start.sh" --heavy-limit 2>&1); then
+  printf 'local: %s\n' "$capacity_out"
+else
+  printf 'local: %s\n' "${capacity_out:-heavy worker limit unavailable}"
+fi
+if [ "$READ_ONLY" -eq 0 ] && [ -f "$DATA/remote-homes.md" ] && [ ! -L "$DATA/remote-homes.md" ]; then
+  # shellcheck source=bin/fm-remote-registry-lib.sh
+  . "$SCRIPT_DIR/fm-remote-registry-lib.sh"
+  while IFS= read -r route_line || [ -n "$route_line" ]; do
+    case "$route_line" in '- '*) ;; *) continue ;; esac
+    if ! fm_remote_registry_parse_line "$route_line"; then
+      printf 'remote: invalid execution-home route\n'
+      continue
+    fi
+    route=$FM_REMOTE_REGISTRY_ID
+    if capacity_out=$(fm_run_timed 5 "$SCRIPT_DIR/fm-on.sh" "$route" fm-session-start.sh --heavy-limit 2>&1); then
+      printf '%s: %s\n' "$route" "$capacity_out"
+    else
+      printf '%s: heavy worker limit unavailable\n' "$route"
+    fi
+  done < "$DATA/remote-homes.md"
+fi
 print_backlog_compact "$DATA/backlog.md" "data/backlog.md"
 
 subsection "Work under way (state/*.meta; one line per task with its latest status line, an event rather than current state)"

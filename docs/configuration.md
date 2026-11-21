@@ -1302,12 +1302,14 @@ The name is the project's registered name, which is its clone directory name and
 A line that is only `#`, or that begins with `#` followed by whitespace, is a comment, as is a `#` line whose last field is not an integer.
 A project name may begin with `#` when that `#` is written immediately against the rest of the name and the line ends with the project's capacity.
 A name that is `#`, or that begins with `#` and a space, cannot be declared, because that line is a comment.
-A line whose name starts with `@` is a machine-wide setting rather than a project: `@heavy-limit` caps heavy workers across every project with a standing 3 from 06:00 up to but not including 21:00 UTC and 4 at other hours, and `@load-limit` caps the five-minute load average a heavy start tolerates with a standing 10.
+A line whose name starts with `@` is a machine-wide setting rather than a project: `@heavy-limit` caps heavy workers across every project at all hours, and `@load-limit` caps the five-minute load average a heavy start tolerates.
 A worker whose latest status is done or failed, or that is only waiting on the user or on a set time, holds no heavy worker place.
 It counts again once its status shows it resumed.
-On Linux the standing caps are 4 from 06:00 up to but not including 21:00 UTC and 6 at other hours with a load cap of 16.
+When no heavy limit is configured, the default is 4 on macOS and 6 on Linux.
+The default load limit is 10 on macOS and 16 on Linux.
+Session start reports the effective heavy limit for the local machine and each configured execution route, or reports when it cannot read one.
 `@core-budget` caps trailing-hour core hours on the Mac with a standing 6, so a heavy start waits while the hour already burned that budget and resumes on its own once use drops back under, while a light start never waits.
-On a Linux host that two Firstmate homes share without a common local root, each home lists the other in `config/linux-load-siblings`, and the same two lines cap heavy starts across both homes with a standing 4 from 06:00 up to but not including 21:00 UTC and 6 at other hours, while the load average cap stays 16.
+On a Linux host that two Firstmate homes share without a common local root, each home lists the other in `config/linux-load-siblings`, and the same two lines cap heavy starts across both homes.
 Where `config/linux-load-siblings` lists sibling homes, a place is also held by every ship or scout in those homes.
 The declaration is matched by the spawning clone's directory name, so clones of the same origin share the cap only when they use that same directory name.
 A clone of that origin under a different directory name finds no declaration and is not capped, though its workers are still counted as holders for a same-origin clone that is capped.
