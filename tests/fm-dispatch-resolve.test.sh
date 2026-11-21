@@ -1445,7 +1445,7 @@ assert_contains "$out" "  profile: --harness 'pi' --model 'google/gemini-3.8-fla
 
 cp "$ROOT/docs/examples/crew-dispatch.json" "$RULES"
 cat > "$RESPONSE" <<'JSON'
-{"model":"jev-1.13.0","answers":{"rule":{"type":"choice","choice":"default","confidence":0.9,"probabilities":{"rule_1":0.02,"rule_2":0.02,"rule_3":0.02,"default":0.94}}},"usage":{"input_tokens":812,"output_tokens":60}}
+{"model":"jev-1.13.0","answers":{"rule":{"type":"choice","choice":"default","confidence":0.9,"probabilities":{"rule_1":0.03,"rule_2":0.03,"default":0.94}}},"usage":{"input_tokens":812,"output_tokens":60}}
 JSON
 reset_log
 run code out err "$BRIEF"
@@ -1476,7 +1476,7 @@ reset_log
 write_response "$RESPONSE" rule_4 0.9
 TYPESAFE_API_KEY=$KEY run code out err "$TASK_BRIEF" --project pager
 assert_contains "$out" "  profile: --harness 'pi' --model 'cursor/cursor-grok-4.6-medium'" "the task brief resolves clear"
-assert_equals '{"task":"pager-fix","status":"clear","profile":{"harness":"pi","provider":"cursor","model":"cursor/cursor-grok-4.6-medium","effort":null}}' \
+assert_equals '{"task":"pager-fix","status":"clear","profile":{"harness":"pi","model":"cursor/cursor-grok-4.6-medium","effort":null}}' \
   "$(jq -c '{task, status, profile: (.profile | {harness, model, effort})}' "$TASK_RECORD")" \
   "a clear run records the task, status, and the printed profile with an unset effort as null"
 reset_log
@@ -1507,8 +1507,8 @@ cp "$BRIEF" "$TMP_ROOT/data/pager-fix/brief.md"
 reset_log
 write_response "$RESPONSE" rule_4 0.9
 FM_DATA_OVERRIDE=$OVERRIDE_DATA TYPESAFE_API_KEY=$KEY run code out err "$OVERRIDE_DATA/pager-fix/brief.md" --project pager
-assert_equals 'pager-fix clear cursor' \
-  "$(jq -r '"\(.task) \(.status) \(.profile.harness)"' "$OVERRIDE_DATA/pager-fix/dispatch-resolution.json")" \
+assert_equals 'pager-fix clear cursor/cursor-grok-4.6-medium' \
+  "$(jq -r '"\(.task) \(.status) \(.profile.model)"' "$OVERRIDE_DATA/pager-fix/dispatch-resolution.json")" \
   "a brief under FM_DATA_OVERRIDE records its decision beside it"
 reset_log
 write_response "$RESPONSE" rule_4 0.9
@@ -1862,7 +1862,7 @@ jq '.rules[3].use[0].floor = {scope: "model:sonnet", min_percent: 10}' "$PREFERE
 cp "$FLOOR_FIRST" "$RULES"
 run code out err "$BRIEF"
 assert_contains "$out" '  status: escalate' "an unverifiable floor on the preferred candidate escalates"
-assert_contains "$out" '  reason: preferred candidate claude:sonnet profile floor model:sonnet is unverifiable' "the unverifiable floor is named"
+assert_contains "$out" '  reason: preferred candidate pi:claude-bridge/sonnet profile floor model:sonnet is unverifiable' "the unverifiable floor is named"
 assert_not_contains "$out" '  profile:' "an unverifiable floor neither picks nor skips the preferred candidate"
 
 reset_log
