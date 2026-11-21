@@ -99,6 +99,7 @@ write_herdr_fake() {  # <fakebin> <foreground-command>
 #!/usr/bin/env bash
 set -u
 foreground=$2
+shell_pid=$$
 SH
   cat >> "$1/herdr" <<'SH'
 case "${1:-} ${2:-}" in
@@ -106,15 +107,16 @@ case "${1:-} ${2:-}" in
     printf '%s\n' '{"client":{"version":"0.9.5","protocol":22},"server":{"running":true}}' ;;
   'pane get') printf '{"result":{"pane":{"pane_id":"%s"}}}\n' "${3:-}" ;;
   'pane read') printf '%s\n' '╭────╮' '│    │' '╰────╯' ;;
+  'agent get') printf '%s\n' '{"error":{"code":"agent_not_found"}}'; exit 1 ;;
   'pane process-info')
     pane=""; args=("$@")
     for ((i = 0; i < ${#args[@]}; i++)); do
       [ "${args[$i]}" = --pane ] && pane=${args[$((i + 1))]:-}
     done
     if [ "$foreground" = pi ]; then
-      printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":%s,"foreground_process_group_id":4194305,"foreground_processes":[{"pid":4194305,"name":"pi","argv0":"pi"}]}}}\n' "$pane" "$PPID"
+      printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":%s,"foreground_process_group_id":4194305,"foreground_processes":[{"pid":4194305,"name":"pi","argv0":"pi"}]}}}\n' "$pane" "$shell_pid"
     else
-      printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":%s,"foreground_process_group_id":%s,"foreground_processes":[{"pid":%s,"name":"zsh","argv0":"zsh","argv":["-zsh"]}]}}}\n' "$pane" "$PPID" "$PPID" "$PPID"
+      printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":%s,"foreground_process_group_id":%s,"foreground_processes":[{"pid":%s,"name":"zsh","argv0":"zsh","argv":["-zsh"]}]}}}\n' "$pane" "$shell_pid" "$shell_pid" "$shell_pid"
     fi ;;
   'pane send-text') printf '%s\n' "${4:-}" >> "${FM_SEND_LOG:-/dev/null}" ;;
   'pane send-keys') : ;;

@@ -245,7 +245,7 @@ case "${1:-}" in
     monthly_reset=${FM_FAKE_QUOTA_MONTHLY_RESET_JSON:-'"2030-01-03T03:04:05Z"'}
     limiting_ids=${FM_FAKE_QUOTA_LIMITING_IDS_JSON:-'["weekly"]'}
     limiting_id=${FM_FAKE_QUOTA_LIMITING_ID_JSON:-'"weekly"'}
-    printf '{"schemaVersion":5,"providers":[{"provider":"codex","resetsAt":%s,"windows":[{"id":"weekly","percentRemaining":%s,"resetsAt":%s},{"id":"monthly","percentRemaining":8,"resetsAt":%s}],"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":%s,"runway":{"status":"%s","limitingWindowId":%s},"limitingWindowIds":%s}]}}]}\n' "$provider_reset" "${FM_FAKE_QUOTA_REMAINING:-10}" "$weekly_reset" "$monthly_reset" "${FM_FAKE_QUOTA_REMAINING:-10}" "${FM_FAKE_QUOTA_RUNWAY:-through_reset}" "$limiting_id" "$limiting_ids" ;;
+    printf '{"schemaVersion":5,"providers":[{"provider":"pi","resetsAt":%s,"windows":[{"id":"weekly","percentRemaining":%s,"resetsAt":%s},{"id":"monthly","percentRemaining":8,"resetsAt":%s}],"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":%s,"runway":{"status":"%s","limitingWindowId":%s},"limitingWindowIds":%s}]}}]}\n' "$provider_reset" "${FM_FAKE_QUOTA_REMAINING:-10}" "$weekly_reset" "$monthly_reset" "${FM_FAKE_QUOTA_REMAINING:-10}" "${FM_FAKE_QUOTA_RUNWAY:-through_reset}" "$limiting_id" "$limiting_ids" ;;
 esac
 SH
   chmod +x "$FAKEBIN_DIR/quota-axi"
