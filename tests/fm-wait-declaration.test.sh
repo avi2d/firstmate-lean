@@ -35,7 +35,7 @@ record_all() {  # <state> <scan items>
   local item
   while IFS= read -r item || [ -n "$item" ]; do
     [ -n "$item" ] || continue
-    wait_declaration_record_raised "$1" "$item" || fail "recording a raised wait failed"
+    wait_declaration_record_raised "$1" "$item" "$NOW" || fail "recording a raised wait failed"
   done <<EOF
 $2
 EOF
@@ -115,7 +115,38 @@ test_raised_once_then_rearmed_by_redeclaration() {
   if compgen -G "$state/.wait-flag-*" >/dev/null; then
     fail "a raised marker outlived its wait: $(ls -a "$state")"
   fi
-  pass "a wait is raised once per declaration and its marker goes when the wait clears"
+  pass "a wait is suppressed within the reminder interval and its marker goes when the wait clears"
+}
+
+test_overdue_reminder_does_not_stop_after_first_wake() {
+  local dir state items
+  dir=$(make_case wait-repeat); state="$dir/state"
+  printf 'paused: release | owner=CI | recheck=2020-01-01\n' > "$state/t.status"
+  items=$(scan "$state")
+  record_all "$state" "$items"
+  [ -z "$(scan_wait_declarations "$state" "$((NOW + 3599))")" ] || fail "reminder fired too soon"
+  [ -n "$(scan_wait_declarations "$state" "$((NOW + 3600))")" ] || fail "overdue reminder did not repeat"
+  printf 'working: resumed\n' >> "$state/t.status"
+  [ -z "$(scan_wait_declarations "$state" "$((NOW + 7200))")" ] || fail "cleared wait repeated"
+  pass "an unchanged overdue pause repeats at a bounded interval"
+}
+
+test_ci_run_completion_does_not_wake_for_in_progress() {
+  local dir state items form
+  dir=$(make_case wait-ci); state="$dir/state"
+  git -C "$dir" init -q
+  git -C "$dir" remote add origin https://github.com/example/repo.git
+  printf 'project=%s\n' "$dir" > "$state/t.meta"
+  printf '%s\n' '#!/usr/bin/env bash' 'printf "api_response:\\n  body: %s\\n" '"'$CI_STATUS'" > "$dir/fakebin/gh-axi"
+  chmod +x "$dir/fakebin/gh-axi"
+  for form in 'CI run 123' 'ci_run=123' 'https://github.com/example/repo/actions/runs/123'; do
+    printf 'paused: %s | owner=GitHub CI | recheck=2030-01-01\n' "$form" > "$state/t.status"
+    items=$(PATH="$dir/fakebin:$PATH" CI_STATUS=in_progress scan_wait_ci_completions "$state")
+    [ -z "$items" ] || fail "an in-progress run woke firstmate"
+    items=$(PATH="$dir/fakebin:$PATH" CI_STATUS=completed scan_wait_ci_completions "$state")
+    assert_contains "$items" "$(printf 't\texample/repo\t123\t')" "completed run was missed"
+  done
+  pass "each supported run reference wakes only after completion"
 }
 
 test_unchanged_log_is_not_folded_again() {
@@ -181,6 +212,8 @@ test_refused_shape_flagged
 test_overdue_raised_with_owner_and_time
 test_cleared_wait_quiet
 test_raised_once_then_rearmed_by_redeclaration
+test_overdue_reminder_does_not_stop_after_first_wake
+test_ci_run_completion_does_not_wake_for_in_progress
 test_unchanged_log_is_not_folded_again
 test_older_line_flagged_once_and_still_read
 test_watcher_raises_overdue_wait
