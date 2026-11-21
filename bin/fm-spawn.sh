@@ -1088,15 +1088,15 @@ spawn_herdr_project_task() {  # <session> <cwd> <launcher-pane> [project-path]
   projection_label=$(fm_backend_herdr_projection_workspace_label "$ID" "$projection_id" "$WORKER_NAME")
   if ! FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_projection_create_task \
     "$cwd" "$projection_label" "$W" "$session"; then
-    if [ "${FM_BACKEND_HERDR_PROJECTION_CLEANUP_SAFE:-0}" = 1 ]; then
-      HERDR_ABORT_SESSION=$FM_BACKEND_HERDR_PROJECTION_SESSION
+    if [ -n "$FM_BACKEND_HERDR_PROJECTION_SEEDED_PANE_ID" ]; then
+      HERDR_ABORT_SESSION=$session
       HERDR_ABORT_TASK_PANE=$FM_BACKEND_HERDR_PROJECTION_PANE_ID
       HERDR_ABORT_SEEDED_PANE=$FM_BACKEND_HERDR_PROJECTION_SEEDED_PANE_ID
     fi
     exit 1
   fi
   HERDR_PROJECTED=1
-  HERDR_SES=$FM_BACKEND_HERDR_PROJECTION_SESSION
+  HERDR_SES=$session
   HERDR_WORKSPACE_ID=$FM_BACKEND_HERDR_PROJECTION_WORKSPACE_ID
   HERDR_TAB_ID=$FM_BACKEND_HERDR_PROJECTION_TAB_ID
   HERDR_PANE_ID=$FM_BACKEND_HERDR_PROJECTION_PANE_ID
@@ -1142,9 +1142,9 @@ spawn_herdr_create_flat_task() {  # <cwd> <session> <launcher-pane>
     "$workspace_cwd" launcher-home "$session" "$task_workspace_label" >/dev/null || return 1
   HERDR_SES=$session
   HERDR_WORKSPACE_ID=$FM_BACKEND_HERDR_WS_ID
-  if [ -n "$FM_BACKEND_HERDR_WS_SEEDED_PANE_ID" ]; then
+  HERDR_ABORT_SEEDED_PANE=$(fm_backend_herdr_workspace_created_seed_pane)
+  if [ -n "$HERDR_ABORT_SEEDED_PANE" ]; then
     HERDR_ABORT_SESSION=$session
-    HERDR_ABORT_SEEDED_PANE=$FM_BACKEND_HERDR_WS_SEEDED_PANE_ID
   fi
   if ! task_ids=$(fm_backend_herdr_create_task "$session:$HERDR_WORKSPACE_ID" "$W" "$cwd" \
     "$FM_BACKEND_HERDR_WS_SEEDED_TAB_ID"); then

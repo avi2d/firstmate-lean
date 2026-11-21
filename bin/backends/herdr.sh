@@ -2177,6 +2177,10 @@ fm_backend_herdr_workspace_create() {  # <session> <cwd> <label>
   printf '%s' "$FM_BACKEND_HERDR_WS_ID"
 }
 
+fm_backend_herdr_workspace_created_seed_pane() {
+  [ -z "$FM_BACKEND_HERDR_WS_SEEDED_TAB_ID" ] || printf '%s' "$FM_BACKEND_HERDR_WS_SEEDED_PANE_ID"
+}
+
 # fm_backend_herdr_container_ensure: the full spawn-time container-ensure
 # sequence (version gate, server, workspace). Echoes
 # "<session>:<workspace_id>\t<seeded_default_tab_id>" - a single TAB character
@@ -2829,24 +2833,20 @@ EOF
 # reusing any existing workspace, in <session> (default: the ambient one).
 # The caller must atomically publish the projection journal first.
 # This function sets exact response-derived globals and prints nothing:
-#   FM_BACKEND_HERDR_PROJECTION_SESSION
 #   FM_BACKEND_HERDR_PROJECTION_WORKSPACE_ID
 #   FM_BACKEND_HERDR_PROJECTION_SEEDED_TAB_ID
 #   FM_BACKEND_HERDR_PROJECTION_SEEDED_PANE_ID
 #   FM_BACKEND_HERDR_PROJECTION_TAB_ID
 #   FM_BACKEND_HERDR_PROJECTION_PANE_ID
-#   FM_BACKEND_HERDR_PROJECTION_CLEANUP_SAFE
 # Only complete create responses grant authority to close their panes.
 fm_backend_herdr_projection_create_task() {  # <cwd> <workspace-label> <task-label> [<session>]
   local cwd=$1 workspace_label=$2 task_label=$3 session=${4:-} out tabs panes tab_count pane_count focus_before active_tab
   local sole_workspace=0 tab_focus_flag=--no-focus
-  FM_BACKEND_HERDR_PROJECTION_SESSION=""
   FM_BACKEND_HERDR_PROJECTION_WORKSPACE_ID=""
   FM_BACKEND_HERDR_PROJECTION_SEEDED_TAB_ID=""
   FM_BACKEND_HERDR_PROJECTION_SEEDED_PANE_ID=""
   FM_BACKEND_HERDR_PROJECTION_TAB_ID=""
   FM_BACKEND_HERDR_PROJECTION_PANE_ID=""
-  FM_BACKEND_HERDR_PROJECTION_CLEANUP_SAFE=0
 
   fm_backend_herdr_version_check || return 1
   [ -n "$session" ] || session=$(fm_backend_herdr_session)
@@ -2868,19 +2868,17 @@ fm_backend_herdr_projection_create_task() {  # <cwd> <workspace-label> <task-lab
     echo "error: herdr presentation workspace create failed ambiguously; leaving its journal quarantined" >&2
     return 1
   fi
-  # shellcheck disable=SC2034  # caller consumes the response-derived global
-  FM_BACKEND_HERDR_PROJECTION_SESSION=$session
   FM_BACKEND_HERDR_PROJECTION_WORKSPACE_ID=$(printf '%s' "$out" | jq -r '.result.workspace.workspace_id // empty' 2>/dev/null)
   FM_BACKEND_HERDR_PROJECTION_SEEDED_TAB_ID=$(printf '%s' "$out" | jq -r '.result.tab.tab_id // empty' 2>/dev/null)
   FM_BACKEND_HERDR_PROJECTION_SEEDED_PANE_ID=$(printf '%s' "$out" | jq -r '.result.root_pane.pane_id // empty' 2>/dev/null)
   if [ -z "$FM_BACKEND_HERDR_PROJECTION_WORKSPACE_ID" ] \
      || [ -z "$FM_BACKEND_HERDR_PROJECTION_SEEDED_TAB_ID" ] \
      || [ -z "$FM_BACKEND_HERDR_PROJECTION_SEEDED_PANE_ID" ]; then
+    FM_BACKEND_HERDR_PROJECTION_SEEDED_PANE_ID=""
     echo "error: herdr presentation workspace create returned incomplete IDs; leaving its journal quarantined" >&2
     return 1
   fi
 
-  FM_BACKEND_HERDR_PROJECTION_CLEANUP_SAFE=1
   if [ -n "$focus_before" ]; then
     fm_backend_herdr_projection_focus_restore "$session" "$focus_before" "workspace create" || {
       echo "error: herdr presentation workspace create did not preserve exact active focus; leaving its journal quarantined" >&2
