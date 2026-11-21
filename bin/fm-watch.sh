@@ -2690,6 +2690,8 @@ fm_active_check_stop() {
     i=$((i + 1))
   done
   if [ -n "$pgid" ] && kill -0 -- "-$pgid" 2>/dev/null; then
+    echo "watcher: DIAG check group $pgid outlived its stop" >&2
+    ps -eo pid,ppid,pgid,stat,etimes,args 2>/dev/null | awk -v g="$pgid" 'NR == 1 || $3 == g' >&2
     return 1
   fi
   FM_ACTIVE_CHECK_PID=
@@ -3195,6 +3197,7 @@ watcher_world_gone_report() {
 
 watcher_cleanup() {
   local exit_status=$? cleanup_status=0 owns_lock=0 transition=release-lock staged lock
+  [ "$exit_status" -eq 0 ] || echo "watcher: DIAG exit status $exit_status" >&2
   # A teardown that lands mid-cycle fails whichever state write comes next, and
   # that step's own error would otherwise stand as the exit reason.
   [ "$exit_status" -eq 0 ] || watcher_world_gone_report || true
