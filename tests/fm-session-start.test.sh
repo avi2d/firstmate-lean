@@ -922,7 +922,6 @@ $rec
 EOF
   make_fake_toolchain "$fakebin"
   make_fake_ps_claude "$fakebin"
-  make_fake_tmux "$fakebin" "fm-sess:live"
   append_wake "$home/state" signal task-wake.status "signal: $home/state/task-wake.status"
   queue="$home/state/.wake-queue"
   old=$(( $(date +%s) - 1000 ))
