@@ -83,7 +83,8 @@ test_meta_get_and_backend_of_meta() {
   pass "fm_meta_get / fm_backend_of_meta: reads exact keys and never infers an absent backend"
 }
 
-test_backend_refuses_unknown_config_instead_of_falling_back
-test_backend_source_requires_missing_adapter_file
-test_backend_source_requires_unreadable_adapter_file
-test_meta_get_and_backend_of_meta
+fm_test_run \
+  test_backend_refuses_unknown_config_instead_of_falling_back \
+  test_backend_source_requires_missing_adapter_file \
+  test_backend_source_requires_unreadable_adapter_file \
+  test_meta_get_and_backend_of_meta
