@@ -404,7 +404,7 @@ launch() {
   [ "$effort" = - ] || spawn_args+=(--effort "$effort")
   [ -z "$account" ] || spawn_args+=(--claude-account "$account")
   [ ! -e "$TARGET_HOME/data/$id" ] && [ ! -L "$TARGET_HOME/data/$id" ] || data_existed=1
-  FM_HOME="$TARGET_HOME" FM_BRIEF_WORKER_NAME="$worker_name" "$SCRIPT_DIR/fm-brief.sh" "${brief_args[@]}" >&2 || die "host-local scaffold failed"
+  FM_HOME="$TARGET_HOME" FM_BRIEF_HERDR_ROOT="${SCRIPT_DIR%/bin}" FM_BRIEF_WORKER_NAME="$worker_name" "$SCRIPT_DIR/fm-brief.sh" "${brief_args[@]}" >&2 || die "host-local scaffold failed"
   awk -v intent="$temp/intent" -v spec="$temp/spec" '
     $0 == "{TASK}" { while ((getline line < intent) > 0) print line; close(intent); next }
     $0 == "{FIRSTMATE_SPEC}" { while ((getline line < spec) > 0) print line; close(spec); next }
