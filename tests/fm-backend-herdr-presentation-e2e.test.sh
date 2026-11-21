@@ -797,6 +797,7 @@ teardown_task lock-contended "$HOME_DIR" > "$TMP_ROOT/lock-contended-teardown.ou
   || fail "flat lock-contention fixture teardown failed: $(cat "$TMP_ROOT/lock-contended-teardown.err")"
 assert_focus_is "$CAPTAIN_FOCUS" "bounded presentation lock flat fallback teardown"
 pass "real Herdr lab: bounded lock contention warns and falls back flat without projection or focus drift"
+cp "$MOVE_CALL_LOG" "$TMP_ROOT/move-log-before-named"
 NAMED_ID=example-site-2
 NAMED_WORKER=example-site-2-blog-reading-page
 mkdir -p "$HOME_DIR/data/$NAMED_ID"
@@ -814,6 +815,7 @@ NAMED_TOKEN=$(sed -n 's/^projection_id=//p' "$HOME_DIR/state/$NAMED_ID.herdr-pre
 grep -Fxq "branch=fm/$NAMED_WORKER" "$NAMED_META" || fail "spawn kept the number-only branch"
 teardown_task "$NAMED_ID" "$HOME_DIR" > "$TMP_ROOT/named-teardown.out" 2> "$TMP_ROOT/named-teardown.err" \
   || fail "numbered task teardown failed: $(cat "$TMP_ROOT/named-teardown.err")"
+cp "$TMP_ROOT/move-log-before-named" "$MOVE_CALL_LOG"
 pass "real Herdr lab: the numbered brief names its workspace and branch, and teardown still uses the ticket ID"
 
 PROJECTION_ORDER_START=$(log_line_count)
