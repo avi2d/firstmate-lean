@@ -2,7 +2,7 @@
 
 This document is the authoritative human-readable contract for the cd-guard PreToolUse seatbelt.
 `bin/fm-cd-command-policy.mjs` is the single decision owner.
-`bin/fm-cd-pretool-check.sh` is the stable transport, primary-checkout scope, and output renderer.
+`bin/fm-cd-pretool-check.sh` is the stable transport, primary-checkout scope, runtime selector, and output renderer.
 The Pi primary extension forwards command text without classifying it.
 
 It is the third member of a family of primary-session guards that share the same Pi extension:
@@ -88,11 +88,16 @@ It does not permit `cd /home/project` to anywhere but the home root itself, beca
 `bin/fm-cd-pretool-check.sh` takes the exact command string as `--command <string>`.
 A call without `--command` is a usage error and exits 2.
 
-Processing order is cheapest-first: a strict-superset prefilter, then the primary-checkout scope, then the Node policy owner, which receives the proven checkout root as `--home` and never guesses it.
+Processing order is cheapest-first: a strict-superset prefilter, then the primary-checkout scope, then the policy owner, which receives the proven checkout root as `--home` and never guesses it.
 The prefilter removes ordinary single quotes, double quotes, backslashes, carriage returns, and newlines before fast-allowing any command that carries no `cd`, `pushd`, or `popd` substring and no quoting-decoder marker (`$'` ANSI-C or `$"` locale), so quoted or escaped command-word fragments delegate to the policy while most commands never pay for the git scoping calls or the Node process.
 The quoting-decoder marker set is coupled to the classifier's decoder set in `bin/fm-arm-command-policy.mjs`: adding any new quote or expansion form the classifier decodes requires extending the prefilter marker set in the same change, or it stops being a strict superset.
 
-Missing Node, a missing policy owner, or an invalid policy response all fail open with exit 0 and no output.
+The policy runs from the shared Bun bundle that `bin/fm-effect-run.sh --ensure cd-policy` builds from `runtime/cli.ts` into `.fm-build/`.
+The bundle file name carries a fingerprint of its inputs, so an edit to any of them builds a new bundle on the next call.
+A first call in a checkout needs Bun and runs `bun install --frozen-lockfile` before it builds.
+The bundle compiles the same `bin/fm-cd-command-policy.mjs`, so both runtimes give one decision.
+When the bundle call exits non-zero, the transport runs `node bin/fm-cd-command-policy.mjs` with the same arguments, which keeps the guard working on hosts without Bun.
+A non-zero exit from Node, or an invalid policy response, fails open with exit 0 and no output.
 A broken hook must never deny every shell tool call.
 
 ## Output contract
