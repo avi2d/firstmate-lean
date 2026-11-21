@@ -2305,24 +2305,25 @@ bin/fm-extension.sh verify org.firstmate.example.file-signal
 
 Use an absent destination for the copy so the source identity remains inspectable and reproducible.
 
-**Bind on a remote secondmate**
+**Bind on a remote execution home**
 
-For a configured remote secondmate, keep the package at the controller and transfer it through the authenticated `fm-on` route:
+For a configured remote route, keep the package at the controller and transfer it through the authenticated `fm-on` route:
 
 ```sh
-bin/fm-extension.sh remote-bind <secondmate-id> \
-  /absolute/controller/path/to/file-signal \
-  --adapter file-signal \
-  --trust-same-user-code \
-  --consent artifact-references
+bin/fm-extension.sh pack-transfer /absolute/controller/path/to/file-signal \
+  | bin/fm-on.sh --stdin <route> fm-extension.sh receive-transfer-bind \
+    --adapter file-signal \
+    --trust-same-user-code \
+    --consent artifact-references
 ```
 
-The command serializes only the validated extension package, stages it below the addressed remote home's fixed extension staging root, binds it there, and prints transfer and binding digests.
-Registration uses `bin/fm-on.sh <secondmate-id> fm-procevent.sh ...`.
+`pack-transfer` serializes only the validated extension package.
+The receiver stages it below the addressed remote home's fixed extension staging root, binds it there, and prints transfer and binding digests.
+Registration uses `bin/fm-on.sh <route> fm-procevent.sh ...`.
 
 **Retire a binding**
 
-After retiring every registration with its printed owner token and handling every captured result, retire the enabled remote binding and its exact staged transfer together with `bin/fm-on.sh <secondmate-id> fm-extension.sh retire-transfer <extension-id> --if-transfer-digest <transfer-digest> --if-binding-digest <binding-digest>`.
+After retiring every registration with its printed owner token and handling every captured result, retire the enabled remote binding and its exact staged transfer together with `bin/fm-on.sh <route> fm-extension.sh retire-transfer <extension-id> --if-transfer-digest <transfer-digest> --if-binding-digest <binding-digest>`.
 For a direct local binding, use `bin/fm-extension.sh retire-binding <extension-id> --if-binding-digest <binding-digest>` after the same process-event retirement and handling steps.
 
 Both commands retain the retired identity reversibly and leave unrelated bindings and content-addressed installed packages unchanged.
