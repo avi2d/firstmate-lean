@@ -1,0 +1,44 @@
+name: Temporary flake repeat
+
+on:
+  push:
+    branches:
+      - fm/firstmate-30-investigate-intermittent-open
+
+permissions:
+  contents: read
+
+jobs:
+  repeat:
+    name: Repeat ${{ matrix.copy }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        copy: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Install pinned ShellCheck
+        run: |
+          set -eu
+          bin/fm-install-shellcheck.sh "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Repeat the two flaky suites
+        run: |
+          set -u
+          failed=0
+          for i in 1 2 3 4 5; do
+            for t in tests/fm-pr-check-security.test.sh tests/fm-watch-arm.test.sh; do
+              if bin/fm-test-run.sh "$t"; then
+                echo "REPEAT pass $i $t"
+              else
+                echo "REPEAT FAIL $i $t"
+                failed=$((failed + 1))
+              fi
+            done
+          done
+          echo "REPEAT failures=$failed"
+          [ "$failed" -eq 0 ]
