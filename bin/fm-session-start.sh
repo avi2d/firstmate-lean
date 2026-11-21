@@ -683,6 +683,8 @@ fi
 # surface without repair commands.
 stage wake-queue
 subsection "WAKE QUEUE"
+WAKE_QUEUE_OVERDUE=$(fm_wake_queue_overdue_line "$(fm_watcher_stale_grace)")
+[ -z "$WAKE_QUEUE_OVERDUE" ] || printf '%s\n' "$WAKE_QUEUE_OVERDUE"
 if [ "$READ_ONLY" -eq 1 ]; then
   QLEN=0
   [ -s "$STATE/.wake-queue" ] && QLEN=$(grep -c . "$STATE/.wake-queue" 2>/dev/null || printf '0')

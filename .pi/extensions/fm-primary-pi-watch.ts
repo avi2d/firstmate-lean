@@ -675,6 +675,22 @@ export default function (pi: ExtensionAPI) {
     !calmPresentation.stockExportRendering &&
     !calmTranscriptClassIsVisible(itemClass);
 
+  let sessionQueue: { isIdle?: () => boolean; hasPendingMessages?: () => boolean } | null = null;
+
+  // Pi consumes a queued follow-up only inside a run, so an idle session with
+  // an empty queue has dropped it: an interrupt moves queued messages into the
+  // editor. Joining a dropped wake would hide every later wake from main.
+  function acceptedWakeWasDropped(): boolean {
+    if (typeof sessionQueue?.isIdle !== "function" || typeof sessionQueue.hasPendingMessages !== "function") {
+      return false;
+    }
+    try {
+      return sessionQueue.isIdle() && !sessionQueue.hasPendingMessages();
+    } catch {
+      return false;
+    }
+  }
+
   async function sendWake(
     owner: SessionGeneration,
     message: string,
@@ -685,18 +701,20 @@ export default function (pi: ExtensionAPI) {
       "watcher",
       `FIRSTMATE WATCHER WAKE: ${message}\n\nRun bin/fm-wake-drain.sh first.`,
     );
+    let dropped: PendingActionableClose[] = [];
     if (pending) {
       const accepted = owner.unconsumedWakes.values().next().value;
-      if (accepted) {
+      if (accepted && !acceptedWakeWasDropped()) {
         if (!accepted.pending.some((joined) => joined.token === pending.token)) {
           accepted.pending.push(pending);
           owner.unconsumedWakes.set(pending.token, accepted);
         }
         return true;
       }
+      if (accepted) dropped = accepted.pending.filter((joined) => joined.token !== pending.token);
     }
-    const wake = pending ? { content, pending: [pending] } : undefined;
-    if (pending && wake) owner.unconsumedWakes.set(pending.token, wake);
+    const wake = pending ? { content, pending: [...dropped, pending] } : undefined;
+    if (wake) for (const joined of wake.pending) owner.unconsumedWakes.set(joined.token, wake);
     try {
       await pi.sendUserMessage(content, { deliverAs: "followUp" });
     } catch (error) {
@@ -716,7 +734,9 @@ export default function (pi: ExtensionAPI) {
   // Pi consumed a main follow-up: an idle main at before_agent_start, a
   // streaming main at the user message_start that joins the running run.
   function consumeWake(owner: SessionGeneration, text: string): void {
-    const wake = [...owner.unconsumedWakes.values()].find((candidate) => candidate.content === text);
+    // An interrupt moves a queued wake into the editor, where the captain may
+    // add words before sending it.
+    const wake = [...owner.unconsumedWakes.values()].find((candidate) => text.includes(candidate.content));
     if (!wake) return;
     for (const [token, accepted] of owner.unconsumedWakes) {
       if (accepted === wake) owner.unconsumedWakes.delete(token);
@@ -1276,7 +1296,8 @@ export default function (pi: ExtensionAPI) {
     consumeWake(generation, userMessageText(event.message.content));
   });
 
-  pi.on?.("session_start", async () => {
+  pi.on?.("session_start", async (_event, ctx) => {
+    sessionQueue = ctx;
     if (generation.stopping) generation = createGeneration();
     activateGeneration(generation);
     if (lockOwnership() !== "owned") return;
