@@ -866,6 +866,11 @@ for meta in "$STATE"/*.meta; do
 done
 [ "$META_FOUND" -eq 1 ] || printf '(none)\n'
 
+subsection "Finished workspaces still open"
+FINISHED_WORKSPACES=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
+  FM_CONFIG_OVERRIDE="$CONFIG" "$SCRIPT_DIR/fm-finished-cleanup.sh" list 2>&1) || FINISHED_WORKSPACES="finished workspace scan failed: $FINISHED_WORKSPACES"
+[ -n "$FINISHED_WORKSPACES" ] && printf '%s\n' "$FINISHED_WORKSPACES" || printf '(none)\n'
+
 subsection "Orphan status logs (state/*.status without matching .meta)"
 ORPHAN_STATUS_FOUND=0
 for status in "$STATE"/*.status; do

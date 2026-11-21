@@ -71,6 +71,7 @@ Usage:
   fm-captain-hold.sh binding <source-id>
   fm-captain-hold.sh complete <origin-id> (--none | <task-id>...)
   fm-captain-hold.sh verify <origin-id>
+  fm-captain-hold.sh settled <origin-id>
   fm-captain-hold.sh open <task-id> [--identity] [--distinguish-absent]
   fm-captain-hold.sh diverged
   fm-captain-hold.sh reconcile list
@@ -2307,6 +2308,26 @@ case "${1:-}" in
   binding) shift; command_binding "$@" ;;
   complete) shift; command_complete "$@" ;;
   verify) shift; command_verify "$@" ;;
+  settled)
+    shift
+    [ "$#" -eq 1 ] || exit 2
+    origin=$1
+    command_verify "$origin" >/dev/null || exit 1
+    keys=$(meta_value "$STATE/$origin.meta" decision_keys)
+    while IFS= read -r entry; do
+      [ -n "$entry" ] || continue
+      resolved=$(verify_entry_durable "$origin" "$entry") || exit 1
+      resolved_id=${resolved%% *}
+      remainder=${resolved#* }
+      how=${remainder%% *}
+      [ "$how" != archived ] || continue
+      rc=0
+      command_open "$resolved_id" --distinguish-absent || rc=$?
+      [ "$rc" -eq 1 ] || exit 1
+    done <<EOF
+$(printf '%s\n' "$keys" | tr ',' '\n')
+EOF
+    ;;
   open) shift; command_open "$@" ;;
   diverged) shift; command_diverged "$@" ;;
   reconcile) shift; command_reconcile "$@" ;;
