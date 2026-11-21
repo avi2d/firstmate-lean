@@ -21,9 +21,7 @@ make_world() {
   printf '#!/usr/bin/env bash\nexit 0\n' > "$root/bin/fm-supervision-instructions.sh"
   printf '7500\n' > "$home/config/startup-memory-budget"
   printf 'projects\n' > "$home/data/projects.md"
-  printf 'secondmates\n' > "$home/data/secondmates.md"
   printf 'captain\n' > "$home/data/captain.md"
-  printf 'shared\n' > "$home/data/captain-shared.md"
   printf 'learnings\n' > "$home/data/learnings.md"
   printf '%s|%s\n' "$root" "$home"
 }
@@ -59,7 +57,6 @@ test_initial_baseline_is_silent_and_records_metadata() {
   assert_grep $'AGENTS.md\ttracked\tpresent' "$home/state/.startup-growth-check" "baseline did not record tracked startup metadata"
   assert_grep $'data/learnings.md\tmemory\tpresent' "$home/state/.startup-growth-check" "baseline did not record memory metadata"
   assert_grep $'data/projects.md\tprinted-memory\tpresent' "$home/state/.startup-growth-check" "baseline did not record printed projects metadata"
-  assert_grep $'data/secondmates.md\tprinted-memory\tpresent' "$home/state/.startup-growth-check" "baseline did not record printed secondmates metadata"
 }
 
 test_same_day_poll_does_not_touch_surfaces() {
@@ -146,23 +143,23 @@ test_first_content_of_an_optional_file_is_baselined_silently() {
   rec=$(make_world first-content)
   root=${rec%%|*}
   home=${rec#*|}
-  rm -f "$home/data/secondmates.md"
+  rm -f "$home/data/projects.md"
   result=$(run_check "$root" "$home" 1000)
   [ "$(status_part "$result")" = 0 ] || fail "absent-surface baseline failed: $(output_part "$result")"
   out=$(output_part "$result")
   [ -z "$out" ] || fail "an absent optional surface should stay silent: $out"
 
-  add_bytes "$home/data/secondmates.md" 1000
+  add_bytes "$home/data/projects.md" 1000
   result=$(run_check "$root" "$home" 87401)
   [ "$(status_part "$result")" = 0 ] || fail "first-content check failed: $(output_part "$result")"
   out=$(output_part "$result")
   [ -z "$out" ] || fail "first content of an optional file was reported as growth: $out"
 
-  add_bytes "$home/data/secondmates.md" 900
+  add_bytes "$home/data/projects.md" 900
   result=$(run_check "$root" "$home" 173802)
   [ "$(status_part "$result")" = 0 ] || fail "post-baseline growth check failed: $(output_part "$result")"
   out=$(output_part "$result")
-  assert_contains "$out" 'printed-memory growth data/secondmates.md +300 estimated_tokens (+900 bytes' "growth above the silently established baseline was not reported"
+  assert_contains "$out" 'printed-memory growth data/projects.md +300 estimated_tokens (+900 bytes' "growth above the silently established baseline was not reported"
 }
 
 test_established_baseline_survives_disappearance_and_restoration() {
@@ -193,30 +190,6 @@ test_established_baseline_survives_disappearance_and_restoration() {
   assert_contains "$out" 'printed-memory growth data/projects.md +300 estimated_tokens (+900 bytes' "growth above the preserved baseline was not reported after restoration"
 }
 
-test_secondmate_is_not_notified_about_primary_owned_shared_growth() {
-  local rec root home result out
-  rec=$(make_world shared-growth)
-  root=${rec%%|*}
-  home=${rec#*|}
-  : > "$home/.fm-secondmate-home"
-  run_check "$root" "$home" 1000 >/dev/null
-  add_bytes "$home/data/captain-shared.md" 900
-  result=$(run_check "$root" "$home" 87401)
-  [ "$(status_part "$result")" = 0 ] || fail "secondmate shared-growth check failed: $(output_part "$result")"
-  out=$(output_part "$result")
-  [ -z "$out" ] || fail "a secondmate was notified about growth of the read-only primary-owned shared file: $out"
-
-  rec=$(make_world shared-growth-primary)
-  root=${rec%%|*}
-  home=${rec#*|}
-  run_check "$root" "$home" 1000 >/dev/null
-  add_bytes "$home/data/captain-shared.md" 900
-  result=$(run_check "$root" "$home" 87401)
-  [ "$(status_part "$result")" = 0 ] || fail "primary shared-growth check failed: $(output_part "$result")"
-  out=$(output_part "$result")
-  assert_contains "$out" 'memory growth data/captain-shared.md +300 estimated_tokens (+900 bytes' "a primary home did not report growth of its own shared file"
-}
-
 test_budget_overrun_reports_and_separates_prompt_cost() {
   local rec root home result out
   rec=$(make_world overrun)
@@ -235,26 +208,6 @@ test_budget_overrun_reports_and_separates_prompt_cost() {
   [ "$(status_part "$result")" = 0 ] || fail "repeated overrun check failed: $(output_part "$result")"
   out=$(output_part "$result")
   [ -z "$out" ] || fail "standing budget overrun was reported again instead of deduplicated: $out"
-}
-
-test_secondmate_is_not_woken_about_the_primary_owned_shared_overrun() {
-  local rec root home result out
-  rec=$(make_world secondmate)
-  root=${rec%%|*}
-  home=${rec#*|}
-  printf '10\n' > "$home/config/startup-memory-budget"
-  add_bytes "$home/data/captain-shared.md" 900
-  : > "$home/.fm-secondmate-home"
-  result=$(run_check "$root" "$home" 1000)
-  [ "$(status_part "$result")" = 0 ] || fail "secondmate overrun check failed: $(output_part "$result")"
-  out=$(output_part "$result")
-  assert_not_contains "$out" 'startup memory budget overrun' "a secondmate was woken about the primary-owned shared overrun it cannot act on"
-
-  rm -f "$home/.fm-secondmate-home"
-  result=$(run_check "$root" "$home" 87401)
-  [ "$(status_part "$result")" = 0 ] || fail "primary overrun check failed: $(output_part "$result")"
-  out=$(output_part "$result")
-  assert_contains "$out" 'startup memory budget overrun total_estimated_tokens=' "the same overrun was not reported in a primary home"
 }
 
 test_metadata_read_failure_keeps_the_retained_baseline() {
@@ -297,13 +250,13 @@ test_due_unsafe_inputs_are_reported_but_absent_optional_memory_is_not() {
   root=${rec%%|*}
   home=${rec#*|}
   run_check "$root" "$home" 1000 >/dev/null
-  rm -f "$home/data/captain-shared.md" "$home/data/learnings.md"
+  rm -f "$home/data/projects.md" "$home/data/learnings.md"
   ln -s "$home/data/captain.md" "$home/data/learnings.md"
   result=$(run_check "$root" "$home" 87401)
   [ "$(status_part "$result")" = 0 ] || fail "unsafe check failed: $(output_part "$result")"
   out=$(output_part "$result")
   assert_contains "$out" 'unsafe memory data/learnings.md' "unsafe symlinked memory was not reported"
-  assert_not_contains "$out" 'missing memory data/captain-shared.md' "absent optional shared memory should not be reported"
+  assert_not_contains "$out" 'missing printed-memory data/projects.md' "absent optional printed memory should not be reported"
   result=$(run_check "$root" "$home" 173802)
   [ "$(status_part "$result")" = 0 ] || fail "repeated unsafe check failed: $(output_part "$result")"
   out=$(output_part "$result")
@@ -613,9 +566,7 @@ test_gradual_growth_below_daily_threshold_is_reported_cumulatively
 test_printed_memory_growth_is_reported_without_entering_the_budget_total
 test_first_content_of_an_optional_file_is_baselined_silently
 test_established_baseline_survives_disappearance_and_restoration
-test_secondmate_is_not_notified_about_primary_owned_shared_growth
 test_budget_overrun_reports_and_separates_prompt_cost
-test_secondmate_is_not_woken_about_the_primary_owned_shared_overrun
 test_metadata_read_failure_keeps_the_retained_baseline
 test_due_unsafe_inputs_are_reported_but_absent_optional_memory_is_not
 test_findings_are_delivered_even_when_the_record_cannot_be_published

@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-# tests/fm-watch-ready-capacity.test.sh - bin/fm-ready-capacity.sh and the
-# watcher hook behind it: waiting work with room to run wakes the supervisor
-# once per distinct dispatchable set, and stays silent without room, under the
-# away record, or from an unreadable backlog.
 set -u
 
 # shellcheck source=tests/wake-helpers.sh
@@ -216,25 +212,6 @@ test_watcher_changed_set_fires() {
   pass "a changed dispatchable set wakes again with its new content"
 }
 
-test_watcher_away_record_absorbs() {
-  local home out pid streak
-  home=$(make_ready_home watcher-away); out="$home/watch.out"
-  FM_HOME="$home" "$ROOT/bin/fm-afk-contract.sh" enter --words 'watch the fleet' >/dev/null
-  touch "$home/state/.last-heartbeat"
-  set_mtime $(( $(date +%s) - 7200 )) "$home/state/.last-heartbeat"
-  watch_home_bg "$home" "$out"
-  pid=$!
-  if ! wait_poll_cycle "$home/state" "$pid"; then
-    reap "$pid"; fail "away record exited instead of absorbing: $(cat "$out")"
-  fi
-  streak=$(cat "$home/state/.heartbeat-streak" 2>/dev/null || echo 0)
-  [ "$streak" -ge 1 ] || { reap "$pid"; fail "away absorb did not advance the backoff streak"; }
-  [ ! -s "$out" ] || { reap "$pid"; fail "away record fired: $(cat "$out")"; }
-  [ ! -s "$home/state/.wake-queue" ] || { reap "$pid"; fail "away record queued a wake"; }
-  reap "$pid"
-  pass "ready work under the away record waits for the return"
-}
-
 test_watcher_no_headroom_absorbs() {
   local home out pid streak
   home=$(make_ready_home watcher-full); out="$home/watch.out"
@@ -286,6 +263,5 @@ test_helper_skips_held
 test_watcher_fires_once_per_set
 test_watcher_same_set_absorbs
 test_watcher_changed_set_fires
-test_watcher_away_record_absorbs
 test_watcher_no_headroom_absorbs
 test_watcher_foreign_home_absorbs

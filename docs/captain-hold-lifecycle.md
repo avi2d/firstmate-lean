@@ -25,7 +25,7 @@ A decision is not a separate thing in this system.
 It is an ordinary backlog task held for the user, and the task id is the identity every surface and channel uses.
 `bin/fm-captain-hold.sh` is the only lifecycle command layered on that primitive.
 The command addresses the active home's configured data directory.
-As a result, the existing backlog remains the only durable work database, and a secondmate-owned user call stays in the secondmate home.
+As a result, the existing backlog remains the only durable work database.
 It never reads report bodies, review artifacts, terminal output, or chat.
 
 ### Subcommands at a glance
@@ -52,8 +52,7 @@ It works in this order:
 2. It records the task's UTC hold-set timestamp as the leading line of the task body.
 3. It invokes the underlying tasks-axi hold operation.
 4. It verifies the captain-hold annotations and timestamp.
-5. In a secondmate home, it publishes the verified hold to the parent channel.
-6. When `--origin` is supplied, it records the origin on the task, replacing any previous association only after the backend hold succeeds.
+5. When `--origin` is supplied, it records the origin on the task, replacing any previous association only after the backend hold succeeds.
 
 Publishing the stamp first ensures a snapshot cannot observe a newly captain-held task without the timestamp that defines its age.
 
@@ -69,8 +68,7 @@ Repeat and edge cases:
 - If the backend hold fails, `hold` attempts to restore the previous body.
   If restoration also fails, the new stamp can remain, but the previous origin is unchanged.
   If the subsequent origin write fails, the command returns nonzero, but the successful user hold and its stamp remain with the previous association (or with no recorded origin for a new task).
-  Parent publication is attempted before that write in a secondmate home, so an origin-write failure cannot skip delivery; a channel failure retains the existing `actionable:` diagnostic.
-  Re-running `hold` retries origin publication without duplicating the parent decision.
+  Re-running `hold` retries the origin write.
 - If an incomplete hold leaves a stamp above an earlier answer, the [completion durability boundary](#recording-a-reviewed-inventory-complete) applies.
   When the task already records its previous origin, replaying the earlier `answer --release` can remove that stamp, and normal work completion can retain the answer, but neither transition changes the stored origin: neither can certify the failed move's new origin.
   Re-running `hold` completes the move, and re-running the same `answer --release` also normalizes a release interrupted before its stamp was removed.
@@ -490,7 +488,7 @@ The suites do not test the accepted merge-to-cleanup re-hold window or asynchron
 - A report-only unresolved user call refuses `--none` completion before teardown can erase the source.
 - Non-forced scout teardown always requires the durable inventory verification.
 - The recorded-answer guard holds: a bare `tasks-axi done` close fails `verify` until `answer` records the user's word, and an ordinary finished task cannot be dressed up as an answered call.
-- `test_hold_origins_follow_backend_holds` exercises lookup, backend-hold, and origin-write failures for new, active, and released holds, including secondmate publication and retry deduplication.
+- `test_hold_origins_follow_backend_holds` exercises lookup, backend-hold, and origin-write failures for new, active, and released holds, and the retry that records the new origin.
 - `test_interrupted_origin_move_does_not_inherit_the_previous_answer` exercises failed restoration, TERM interruption, active and expired holds, earlier-answer replay, and normal released-work completion against the [hold failure semantics](#creating-a-hold-hold) and inventory checks above.
 - An answered call that markdown Done retention moved into the Done archive still passes `verify`, `complete`, and scout teardown, while an archived close carrying no recorded answer still refuses teardown, and an attested call found nowhere is refused by name.
 

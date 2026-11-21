@@ -112,7 +112,7 @@ prime_and_ack() {
   key=$(watch_window_key "$window")
   export FM_FAKE_CREW_STATE='state: working · source: run-step · validating (running)'
 
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
@@ -137,7 +137,7 @@ poll_wedge_round() {
   echo $(( $(date +%s) - 500 )) > "$state/.stale-since-$key"
   : > "$out"
   # shellcheck disable=SC2086
-  env FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  env FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
@@ -154,9 +154,9 @@ poll_wedge_round() {
 # stale at its recorded hash - the population wedge_timer_check owns - with the
 # cap settings a case chose, and WITHOUT acknowledging anything, so a case can
 # leave a wake queued and unconsumed. <extra-env> drives the pane's endpoint
-# verdict: FM_FAKE_TMUX_CURRENT_COMMAND is its foreground command and
-# FM_FAKE_TMUX_WINDOWS the session inventory the recorded window must appear
-# in, so an inventory that omits it reads as `missing`. `exit` requires the
+# verdict: FM_FAKE_PANE_CURRENT_COMMAND is its foreground command and
+# FM_FAKE_PANE_WINDOWS the live panes the recorded endpoint must appear
+# among, so a list that omits it reads as `missing`. `exit` requires the
 # watcher to surface and exit, `absorb` requires it to survive whole poll cycles
 # at the threshold instead.
 poll_capped_wedge_round() {  # <dir> <max> <extra-env> <exit|absorb>
@@ -169,7 +169,7 @@ poll_capped_wedge_round() {  # <dir> <max> <extra-env> <exit|absorb>
   echo $(( $(date +%s) - 500 )) > "$state/.stale-since-$key"
   : > "$out"
   # shellcheck disable=SC2086
-  env FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  env FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_WATCH_HANDLING_SUCCESSOR=1 \
     FM_STALE_ESCALATE_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=1 \
@@ -186,21 +186,12 @@ poll_capped_wedge_round() {  # <dir> <max> <extra-env> <exit|absorb>
   return 0
 }
 
-# log_tmux_inventory_calls <fakebin> <log>: wrap the case's fake tmux so every
-# session-inventory read is logged. A watcher's ordinary per-poll traffic is
-# capture-pane, so this log counts dead-endpoint probe attempts and nothing else.
-log_tmux_inventory_calls() {
-  local fakebin=$1 log=$2
-  : > "$log"
-  mv "$fakebin/tmux" "$fakebin/tmux-real"
-  cat > "$fakebin/tmux" <<'PROBEWRAP'
-#!/usr/bin/env bash
-[ "${1:-}" = list-windows ] && printf 'probe\n' >> "${FM_FAKE_TMUX_INVENTORY_LOG:-/dev/null}"
-exec "$FM_FAKE_TMUX_REAL" "$@"
-PROBEWRAP
-  chmod +x "$fakebin/tmux"
-  export FM_FAKE_TMUX_REAL="$fakebin/tmux-real"
-  export FM_FAKE_TMUX_INVENTORY_LOG="$log"
+# log_pane_probe_calls <log>: log every endpoint-presence read of the fake pane.
+# A watcher's ordinary per-poll traffic is a screen read, so this log counts
+# dead-endpoint probe attempts and nothing else.
+log_pane_probe_calls() {
+  : > "$1"
+  export FM_FAKE_PANE_PROBE_LOG="$1"
 }
 
 inventory_calls() {  # <log>
@@ -215,7 +206,7 @@ inventory_calls() {  # <log>
 # recorded hash, with the idle timer planted <timer-age-secs> old against a
 # <stale-secs> threshold, so a case can place a window just under or well past
 # that threshold and watch what each poll costs it. The endpoint reads live
-# (FM_FAKE_TMUX_CURRENT_COMMAND=grok), so nothing here reports a death;
+# (FM_FAKE_PANE_CURRENT_COMMAND=grok), so nothing here reports a death;
 # <env> overrides the pane's verdict instead. Returns non-zero unless every
 # cycle settles with the watcher still running - which is what a silenced window
 # does - leaving <dir>/watch.out for the caller to read.
@@ -229,8 +220,8 @@ hold_capped_polls() {  # <dir> <max> <stale-secs> <timer-age-secs> <cycles> [ext
   echo $(( $(date +%s) - timer_age )) > "$state/.stale-since-$key"
   : > "$out"
   # shellcheck disable=SC2086
-  env FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
-    FM_FAKE_TMUX_CURRENT_COMMAND=grok FM_WATCH_HANDLING_SUCCESSOR=1 \
+  env FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
+    FM_FAKE_PANE_CURRENT_COMMAND=grok FM_WATCH_HANDLING_SUCCESSOR=1 \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=$stale_secs FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
@@ -262,7 +253,7 @@ test_wedge_cap_disabled_by_default() {
   out="$dir/watch.out"
   window="test:fm-wedge-cap-disabled"
   printf 'wedged default-config pane' > "$capture_file"
-  printf 'window=%s\nkind=ship\n' "$window" > "$state/wedge-cap-disabled.meta"
+  printf 'window=%s\nbackend=herdr\nkind=ship\n' "$window" > "$state/wedge-cap-disabled.meta"
   printf 'working: still wedged\n' > "$state/wedge-cap-disabled.status"
   sig=$(seen_sig "$state/wedge-cap-disabled.status"); printf '%s' "$sig" > "$state/.seen-wedge-cap-disabled_status"
   key=$(watch_window_key "$window")
@@ -274,7 +265,7 @@ test_wedge_cap_disabled_by_default() {
   # and no cap marker may ever appear.
   local fakebin n
   fakebin="$dir/fakebin"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
@@ -289,7 +280,7 @@ test_wedge_cap_disabled_by_default() {
   while [ "$n" -le 5 ]; do
     echo $(( $(date +%s) - 500 )) > "$state/.stale-since-$key"
     : > "$out"
-    PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
       FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
       FM_STALE_ESCALATE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
       FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
@@ -315,7 +306,7 @@ test_wedge_cap_fires_permanently_wedged_at_threshold() {
   out="$dir/watch.out"
   window="test:fm-wedge-cap-fires"
   printf 'idle wedged content' > "$capture_file"
-  printf 'window=%s\nkind=ship\n' "$window" > "$state/wedge-cap-fires.meta"
+  printf 'window=%s\nbackend=herdr\nkind=ship\n' "$window" > "$state/wedge-cap-fires.meta"
   printf 'working: still wedged\n' > "$state/wedge-cap-fires.status"
   sig=$(seen_sig "$state/wedge-cap-fires.status"); printf '%s' "$sig" > "$state/.seen-wedge-cap-fires_status"
   key=$(watch_window_key "$window")
@@ -350,7 +341,7 @@ test_wedge_cap_silences_subsequent_polls_for_same_hash() {
   out="$dir/watch.out"
   window="test:fm-wedge-cap-silenced"
   printf 'idle wedged content' > "$capture_file"
-  printf 'window=%s\nkind=ship\n' "$window" > "$state/wedge-cap-silenced.meta"
+  printf 'window=%s\nbackend=herdr\nkind=ship\n' "$window" > "$state/wedge-cap-silenced.meta"
   printf 'working: still wedged\n' > "$state/wedge-cap-silenced.status"
   pane_hash=$(hash_text "idle wedged content")
   key=$(watch_window_key "$window")
@@ -375,7 +366,7 @@ test_wedge_cap_silences_subsequent_polls_for_same_hash() {
     i=$((i + 1))
     echo $(( $(date +%s) - 500 )) > "$state/.stale-since-$key"
     : > "$out"
-    PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
       FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
       FM_STALE_ESCALATE_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=1 \
       FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
@@ -408,7 +399,7 @@ test_wedge_cap_window_marker_silences_hash_churning_busy_pane() {
   window="test:fm-wedge-cap-churning"
   fakebin="$dir/fakebin"
   printf 'churning wedged pane initial content' > "$capture_file"
-  printf 'window=%s\nkind=ship\n' "$window" > "$state/wedge-cap-churning.meta"
+  printf 'window=%s\nbackend=herdr\nkind=ship\n' "$window" > "$state/wedge-cap-churning.meta"
   printf 'working: still wedged\n' > "$state/wedge-cap-churning.status"
   sig=$(seen_sig "$state/wedge-cap-churning.status"); printf '%s' "$sig" > "$state/.seen-wedge-cap-churning_status"
   key=$(watch_window_key "$window")
@@ -417,7 +408,7 @@ test_wedge_cap_window_marker_silences_hash_churning_busy_pane() {
   printf '1\n' > "$state/.count-$key"
   export FM_FAKE_CREW_STATE='state: working · source: pane · harness busy'
 
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=3 \
@@ -433,7 +424,7 @@ test_wedge_cap_window_marker_silences_hash_churning_busy_pane() {
   while [ "$n" -le "$max" ]; do
     echo $(( $(date +%s) - 500 )) > "$state/.stale-since-$key"
     : > "$out"
-    PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
       FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
       FM_STALE_ESCALATE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
       FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
@@ -463,7 +454,7 @@ test_wedge_cap_window_marker_silences_hash_churning_busy_pane() {
     # reach wedge_timer_check and the cap marker below would go unexercised.
     printf '%s' "$(hash_text "churning wedged pane iteration $i fresh content")" > "$state/.stale-$key"
     : > "$out"
-    PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
       FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
       FM_STALE_ESCALATE_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=1 \
       FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max FM_CAP_HORIZON_SECS=86400 \
@@ -502,7 +493,7 @@ test_wedge_cap_expires_after_horizon() {
   fakebin="$dir/fakebin"
   window="test:fm-wedge-cap-horizon"
   printf 'idle wedged content' > "$capture_file"
-  printf 'window=%s\nkind=ship\n' "$window" > "$state/wedge-cap-horizon.meta"
+  printf 'window=%s\nbackend=herdr\nkind=ship\n' "$window" > "$state/wedge-cap-horizon.meta"
   printf 'working: still wedged\n' > "$state/wedge-cap-horizon.status"
   sig=$(seen_sig "$state/wedge-cap-horizon.status"); printf '%s' "$sig" > "$state/.seen-wedge-cap-horizon_status"
   key=$(watch_window_key "$window")
@@ -535,7 +526,7 @@ test_wedge_cap_expires_after_horizon() {
   printf '%s' "$new_hash" > "$state/.stale-$key"
   echo $(( $(date +%s) - 500 )) > "$state/.stale-since-$key"
   : > "$out"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max FM_CAP_HORIZON_SECS=86400 \
@@ -559,7 +550,7 @@ test_wedge_cap_expires_after_horizon() {
   # the marker consult instead of waiting out the threshold.
   echo $(( $(date +%s) - 500 )) > "$state/.stale-since-$key"
   : > "$out"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max FM_CAP_HORIZON_SECS=99999999999999999999 \
@@ -589,7 +580,7 @@ test_wedge_cap_expires_after_horizon() {
   printf '3\n' > "$state/.count-$key"
   echo $(( $(date +%s) - 500 )) > "$state/.stale-since-$key"
   : > "$out"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max FM_CAP_HORIZON_SECS=2 \
@@ -612,7 +603,7 @@ test_wedge_cap_operator_can_rm_marker() {
   fakebin="$dir/fakebin"
   window="test:fm-wedge-cap-operator-rm"
   printf 'idle wedged content' > "$capture_file"
-  printf 'window=%s\nkind=ship\n' "$window" > "$state/wedge-cap-operator-rm.meta"
+  printf 'window=%s\nbackend=herdr\nkind=ship\n' "$window" > "$state/wedge-cap-operator-rm.meta"
   printf 'working: still wedged\n' > "$state/wedge-cap-operator-rm.status"
   sig=$(seen_sig "$state/wedge-cap-operator-rm.status"); printf '%s' "$sig" > "$state/.seen-wedge-cap-operator-rm_status"
   key=$(watch_window_key "$window")
@@ -635,7 +626,7 @@ test_wedge_cap_operator_can_rm_marker() {
   printf '1\n' > "$state/.count-$key"
   echo $(( $(date +%s) - 500 )) > "$state/.stale-since-$key"
   : > "$out"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
@@ -661,7 +652,7 @@ test_wedge_cap_validates_invalid_overrides() {
   fakebin="$dir/fakebin"
   window="test:fm-wedge-cap-validate"
   printf 'idle wedged content' > "$capture_file"
-  printf 'window=%s\nkind=ship\n' "$window" > "$state/wedge-cap-validate.meta"
+  printf 'window=%s\nbackend=herdr\nkind=ship\n' "$window" > "$state/wedge-cap-validate.meta"
   printf 'working: still wedged\n' > "$state/wedge-cap-validate.status"
   sig=$(seen_sig "$state/wedge-cap-validate.status"); printf '%s' "$sig" > "$state/.seen-wedge-cap-validate_status"
   key=$(watch_window_key "$window")
@@ -672,7 +663,7 @@ test_wedge_cap_validates_invalid_overrides() {
 
   # Non-integer FM_WEDGE_MAX_ESCALATIONS falls back to 0 (cap disabled) and
   # the watcher must NOT fire PERMANENTLY-WEDGED across repeated wedges.
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_WEDGE_MAX_ESCALATIONS=garbage FM_CAP_HORIZON_SECS=86400 FM_ROLLBACK_SENTINEL_TTL_SECS=3600 \
@@ -690,7 +681,7 @@ test_wedge_cap_validates_invalid_overrides() {
   while [ "$n" -le 4 ]; do
     echo $(( $(date +%s) - 500 )) > "$state/.stale-since-$key"
     : > "$out"
-    PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
       FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
       FM_STALE_ESCALATE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
       FM_WEDGE_MAX_ESCALATIONS=garbage FM_CAP_HORIZON_SECS=86400 FM_ROLLBACK_SENTINEL_TTL_SECS=3600 \
@@ -721,7 +712,7 @@ test_wedge_cap_reads_an_unreadable_counter_as_a_fresh_one() {
   fakebin="$dir/fakebin"
   window="test:fm-wedge-cap-counter-unreadable"
   printf 'idle wedged content' > "$capture_file"
-  printf 'window=%s\nkind=ship\n' "$window" > "$state/wedge-cap-counter-unreadable.meta"
+  printf 'window=%s\nbackend=herdr\nkind=ship\n' "$window" > "$state/wedge-cap-counter-unreadable.meta"
   printf 'working: still wedged\n' > "$state/wedge-cap-counter-unreadable.status"
   sig=$(seen_sig "$state/wedge-cap-counter-unreadable.status"); printf '%s' "$sig" > "$state/.seen-wedge-cap-counter-unreadable_status"
   key=$(watch_window_key "$window")
@@ -754,7 +745,7 @@ test_wedge_cap_rollback_writes_sentinel_on_marker_failure() {
   fakebin="$dir/fakebin"
   window="test:fm-wedge-cap-rollback"
   printf 'idle wedged content' > "$capture_file"
-  printf 'window=%s\nkind=ship\n' "$window" > "$state/wedge-cap-rollback.meta"
+  printf 'window=%s\nbackend=herdr\nkind=ship\n' "$window" > "$state/wedge-cap-rollback.meta"
   printf 'working: still wedged\n' > "$state/wedge-cap-rollback.status"
   sig=$(seen_sig "$state/wedge-cap-rollback.status"); printf '%s' "$sig" > "$state/.seen-wedge-cap-rollback_status"
   key=$(watch_window_key "$window")
@@ -777,7 +768,7 @@ test_wedge_cap_rollback_writes_sentinel_on_marker_failure() {
   mkdir -p "$state/.wedge-escalations-$key"
   echo $(( $(date +%s) - 500 )) > "$state/.stale-since-$key"
   : > "$out"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
@@ -798,7 +789,7 @@ test_wedge_cap_rollback_writes_sentinel_on_marker_failure() {
   queue_before=$(cat "$state/.wake-queue" 2>/dev/null || true)
   echo $(( $(date +%s) - 500 )) > "$state/.stale-since-$key"
   : > "$out"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_WATCH_HANDLING_SUCCESSOR=1 \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=1 \
@@ -825,7 +816,7 @@ test_wedge_cap_rollback_writes_sentinel_on_marker_failure() {
   : > "$state/.watch-triage.log"
   echo $(( $(date +%s) - 500 )) > "$state/.stale-since-$key"
   : > "$out"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_WATCH_HANDLING_SUCCESSOR=1 \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=1 \
@@ -844,7 +835,7 @@ test_wedge_cap_rollback_writes_sentinel_on_marker_failure() {
   # lists the recorded window and the endpoint reads as missing. A wedge path
   # that silenced that report too would hide a dead worker for the whole TTL.
   local gone
-  gone="FM_FAKE_TMUX_CURRENT_COMMAND=bash FM_FAKE_TMUX_WINDOWS=someone-elses-window"
+  gone="FM_FAKE_PANE_CURRENT_COMMAND=bash FM_FAKE_PANE_WINDOWS=someone-elses-window"
   poll_capped_wedge_round "$dir" "$max" "$gone" exit \
     || fail "the sentinel never reported the endpoint that went missing while it held: $(cat "$out")"
   grep -F "agent missing" "$out" >/dev/null \
@@ -872,7 +863,7 @@ test_wedge_cap_unwritable_escalation_count_fails_safe() {
   out="$dir/watch.out"; fakebin="$dir/fakebin"
   window="test:fm-wedge-cap-counter-fail"
   printf 'idle wedged content' > "$capture_file"
-  printf 'window=%s\nkind=ship\n' "$window" > "$state/wedge-cap-counter-fail.meta"
+  printf 'window=%s\nbackend=herdr\nkind=ship\n' "$window" > "$state/wedge-cap-counter-fail.meta"
   printf 'working: still wedged\n' > "$state/wedge-cap-counter-fail.status"
   sig=$(seen_sig "$state/wedge-cap-counter-fail.status"); printf '%s' "$sig" > "$state/.seen-wedge-cap-counter-fail_status"
   key=$(watch_window_key "$window")
@@ -890,7 +881,7 @@ test_wedge_cap_unwritable_escalation_count_fails_safe() {
 
   echo $(( $(date +%s) - 500 )) > "$state/.stale-since-$key"
   : > "$out"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
@@ -945,7 +936,7 @@ test_wedge_cap_sentinel_probe_keeps_its_cadence() {
   out="$dir/watch.out"; fakebin="$dir/fakebin"
   window="test:fm-wedge-cap-sentinel-cadence"
   printf 'idle wedged content' > "$capture_file"
-  printf 'window=%s\nkind=ship\n' "$window" > "$state/wedge-cap-sentinel-cadence.meta"
+  printf 'window=%s\nbackend=herdr\nkind=ship\n' "$window" > "$state/wedge-cap-sentinel-cadence.meta"
   printf 'working: still wedged\n' > "$state/wedge-cap-sentinel-cadence.status"
   sig=$(seen_sig "$state/wedge-cap-sentinel-cadence.status"); printf '%s' "$sig" > "$state/.seen-wedge-cap-sentinel-cadence_status"
   key=$(watch_window_key "$window")
@@ -963,7 +954,7 @@ test_wedge_cap_sentinel_probe_keeps_its_cadence() {
   sentinel="$state/.wedge-rollback-failed-$key"
   printf '%s rollback-failed\n' "$(date +%s)" > "$sentinel"
   inventory="$dir/inventory.log"
-  log_tmux_inventory_calls "$fakebin" "$inventory"
+  log_pane_probe_calls "$inventory"
 
   # Below the threshold the probe has nothing to decide: five whole polls, no
   # endpoint read, still no wake.
@@ -985,7 +976,7 @@ test_wedge_cap_sentinel_probe_keeps_its_cadence() {
   [ "$(queued_wakes_carrying "$state" "$window" "possible wedge")" -eq 0 ] \
     || fail "the sentinel published a wedge wake: $(cat "$state/.wake-queue" 2>/dev/null)"
   [ -e "$sentinel" ] || fail "a poll at the threshold consumed the sentinel; it must hold until TTL expiry or an operator rm"
-  unset FM_FAKE_CREW_STATE FM_FAKE_TMUX_REAL FM_FAKE_TMUX_INVENTORY_LOG
+  unset FM_FAKE_CREW_STATE FM_FAKE_PANE_PROBE_LOG
   pass "a window silenced by the rollback-failure sentinel keeps the probe on its escalation cadence, not once per poll"
 }
 
@@ -1016,7 +1007,7 @@ test_wedge_cap_unwritable_counter_reset_fails_safe() {
   out="$dir/watch.out"; fakebin="$dir/fakebin"
   window="test:fm-wedge-cap-reset-fail"
   printf 'idle wedged content' > "$capture_file"
-  printf 'window=%s\nkind=ship\n' "$window" > "$state/wedge-cap-reset-fail.meta"
+  printf 'window=%s\nbackend=herdr\nkind=ship\n' "$window" > "$state/wedge-cap-reset-fail.meta"
   printf 'working: still wedged\n' > "$state/wedge-cap-reset-fail.status"
   sig=$(seen_sig "$state/wedge-cap-reset-fail.status"); printf '%s' "$sig" > "$state/.seen-wedge-cap-reset-fail_status"
   key=$(watch_window_key "$window")
@@ -1049,7 +1040,7 @@ SHIM
 
   echo $(( $(date +%s) - 500 )) > "$state/.stale-since-$key"
   : > "$out"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
@@ -1080,7 +1071,7 @@ SHIM
   queue_before=$(cat "$state/.wake-queue" 2>/dev/null || true)
   echo $(( $(date +%s) - 500 )) > "$state/.stale-since-$key"
   : > "$out"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_WATCH_HANDLING_SUCCESSOR=1 \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=1 \
@@ -1111,7 +1102,7 @@ test_wedge_cap_releases_after_genuine_recovery() {
   out="$dir/watch.out"; fakebin="$dir/fakebin"
   window="test:fm-wedge-cap-recovery"
   printf 'idle wedged content' > "$capture_file"
-  printf 'window=%s\nkind=ship\n' "$window" > "$state/wedge-cap-recovery.meta"
+  printf 'window=%s\nbackend=herdr\nkind=ship\n' "$window" > "$state/wedge-cap-recovery.meta"
   printf 'working: still wedged\n' > "$state/wedge-cap-recovery.status"
   sig=$(seen_sig "$state/wedge-cap-recovery.status"); printf '%s' "$sig" > "$state/.seen-wedge-cap-recovery_status"
   key=$(watch_window_key "$window")
@@ -1136,7 +1127,7 @@ test_wedge_cap_releases_after_genuine_recovery() {
   printf 'crew resumed, work rendering again' > "$capture_file"
   : > "$state/fm-wedge-cap-recovery.turn-ended"
   : > "$out"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
@@ -1156,7 +1147,7 @@ test_wedge_cap_releases_after_genuine_recovery() {
   rm -f "$state/fm-wedge-cap-recovery.turn-ended"
   echo $(( $(date +%s) - 500 )) > "$state/.stale-since-$key"
   : > "$out"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
@@ -1182,7 +1173,7 @@ test_wedge_cap_publishes_one_terminal_wake_under_persistent_marker_failure() {
   out="$dir/watch.out"; fakebin="$dir/fakebin"
   window="test:fm-wedge-cap-dup-terminal"
   printf 'idle wedged content' > "$capture_file"
-  printf 'window=%s\nkind=ship\n' "$window" > "$state/wedge-cap-dup-terminal.meta"
+  printf 'window=%s\nbackend=herdr\nkind=ship\n' "$window" > "$state/wedge-cap-dup-terminal.meta"
   printf 'working: still wedged\n' > "$state/wedge-cap-dup-terminal.status"
   sig=$(seen_sig "$state/wedge-cap-dup-terminal.status"); printf '%s' "$sig" > "$state/.seen-wedge-cap-dup-terminal_status"
   key=$(watch_window_key "$window")
@@ -1203,7 +1194,7 @@ test_wedge_cap_publishes_one_terminal_wake_under_persistent_marker_failure() {
   while [ "$cycle" -le 2 ]; do
     echo $(( $(date +%s) - 500 )) > "$state/.stale-since-$key"
     : > "$out"
-    PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
       FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
       FM_WATCH_HANDLING_SUCCESSOR=1 \
       FM_STALE_ESCALATE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
@@ -1241,7 +1232,7 @@ test_wedge_cap_releases_after_declared_wait() {
   window="test:fm-wedge-cap-declared-wait"
   statusf="$state/wedge-cap-declared-wait.status"
   printf 'idle wedged content' > "$capture_file"
-  printf 'window=%s\nkind=ship\n' "$window" > "$state/wedge-cap-declared-wait.meta"
+  printf 'window=%s\nbackend=herdr\nkind=ship\n' "$window" > "$state/wedge-cap-declared-wait.meta"
   printf 'working: still wedged\n' > "$statusf"
   mark_status_seen "$state" "$statusf"
   key=$(watch_window_key "$window")
@@ -1266,7 +1257,7 @@ test_wedge_cap_releases_after_declared_wait() {
   printf 'paused: holding for the upstream tool release\n' > "$statusf"
   mark_status_seen "$state" "$statusf"
   : > "$out"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=999 FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
@@ -1287,7 +1278,7 @@ test_wedge_cap_releases_after_declared_wait() {
   printf 'working: the wait is over\n' > "$statusf"
   mark_status_seen "$state" "$statusf"
   : > "$out"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
@@ -1303,7 +1294,7 @@ test_wedge_cap_releases_after_declared_wait() {
   # counter, not as the cap's silence.
   echo $(( $(date +%s) - 500 )) > "$state/.stale-since-$key"
   : > "$out"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
@@ -1329,7 +1320,7 @@ test_wedge_cap_reports_gone_endpoint_while_capped() {
   out="$dir/watch.out"; fakebin="$dir/fakebin"
   window="test:fm-wedge-cap-gone-endpoint"
   printf 'idle wedged content' > "$capture_file"
-  printf 'window=%s\nkind=ship\n' "$window" > "$state/wedge-cap-gone-endpoint.meta"
+  printf 'window=%s\nbackend=herdr\nkind=ship\n' "$window" > "$state/wedge-cap-gone-endpoint.meta"
   printf 'working: still wedged\n' > "$state/wedge-cap-gone-endpoint.status"
   sig=$(seen_sig "$state/wedge-cap-gone-endpoint.status"); printf '%s' "$sig" > "$state/.seen-wedge-cap-gone-endpoint_status"
   key=$(watch_window_key "$window")
@@ -1342,7 +1333,7 @@ test_wedge_cap_reports_gone_endpoint_while_capped() {
 
   # The endpoint is a live agent for this round, so the pane is escalated rather
   # than reported gone and the ceiling fires while the worker is provably here.
-  poll_wedge_round "$dir" "$max" "FM_FAKE_TMUX_CURRENT_COMMAND=grok"
+  poll_wedge_round "$dir" "$max" "FM_FAKE_PANE_CURRENT_COMMAND=grok"
   grep -F "PERMANENTLY-WEDGED" "$out" >/dev/null \
     || fail "the cap did not fire against a live endpoint: $(cat "$out")"
   [ -e "$state/.wedge-permanent-$key" ] || fail "the window-scoped cap marker is missing after the cap fired"
@@ -1350,7 +1341,7 @@ test_wedge_cap_reports_gone_endpoint_while_capped() {
   # The agent now exits while its pane keeps rendering the identical frame: the
   # session inventory no longer lists the recorded window, so the endpoint reads
   # as missing rather than as an agent that might still recover.
-  gone="FM_FAKE_TMUX_CURRENT_COMMAND=bash FM_FAKE_TMUX_WINDOWS=someone-elses-window"
+  gone="FM_FAKE_PANE_CURRENT_COMMAND=bash FM_FAKE_PANE_WINDOWS=someone-elses-window"
   poll_capped_wedge_round "$dir" "$max" "$gone" exit \
     || fail "the capped window never reported its gone endpoint: $(cat "$out")"
   grep -F "agent missing" "$out" >/dev/null \
@@ -1390,7 +1381,7 @@ test_wedge_cap_new_episode_publishes_its_own_terminal_wake() {
   out="$dir/watch.out"; fakebin="$dir/fakebin"
   window="test:fm-wedge-cap-new-episode"
   printf 'idle wedged content' > "$capture_file"
-  printf 'window=%s\nkind=ship\n' "$window" > "$state/wedge-cap-new-episode.meta"
+  printf 'window=%s\nbackend=herdr\nkind=ship\n' "$window" > "$state/wedge-cap-new-episode.meta"
   printf 'working: still wedged\n' > "$state/wedge-cap-new-episode.status"
   sig=$(seen_sig "$state/wedge-cap-new-episode.status"); printf '%s' "$sig" > "$state/.seen-wedge-cap-new-episode_status"
   key=$(watch_window_key "$window")
@@ -1417,7 +1408,7 @@ test_wedge_cap_new_episode_publishes_its_own_terminal_wake() {
   printf 'crew resumed, work rendering again' > "$capture_file"
   : > "$state/wedge-cap-new-episode.turn-ended"
   : > "$out"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_WATCH_HANDLING_SUCCESSOR=1 \
     FM_STALE_ESCALATE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
@@ -1459,7 +1450,7 @@ test_wedge_cap_probe_keeps_its_cadence_while_capped() {
   out="$dir/watch.out"; fakebin="$dir/fakebin"
   window="test:fm-wedge-cap-probe-cadence"
   printf 'idle wedged content' > "$capture_file"
-  printf 'window=%s\nkind=ship\n' "$window" > "$state/wedge-cap-probe-cadence.meta"
+  printf 'window=%s\nbackend=herdr\nkind=ship\n' "$window" > "$state/wedge-cap-probe-cadence.meta"
   printf 'working: still wedged\n' > "$state/wedge-cap-probe-cadence.status"
   sig=$(seen_sig "$state/wedge-cap-probe-cadence.status"); printf '%s' "$sig" > "$state/.seen-wedge-cap-probe-cadence_status"
   key=$(watch_window_key "$window")
@@ -1473,13 +1464,13 @@ test_wedge_cap_probe_keeps_its_cadence_while_capped() {
   # The cap fires against a live agent, so the window it silences is one whose
   # endpoint the probe keeps answering `alive` - the case that must not become
   # a per-poll backend read.
-  poll_wedge_round "$dir" "$max" "FM_FAKE_TMUX_CURRENT_COMMAND=grok"
+  poll_wedge_round "$dir" "$max" "FM_FAKE_PANE_CURRENT_COMMAND=grok"
   grep -F "PERMANENTLY-WEDGED" "$out" >/dev/null \
     || fail "the cap did not fire against a live endpoint: $(cat "$out")"
   [ -e "$state/.wedge-permanent-$key" ] || fail "the cap marker is missing after the cap fired"
 
   inventory="$dir/inventory.log"
-  log_tmux_inventory_calls "$fakebin" "$inventory"
+  log_pane_probe_calls "$inventory"
 
   # The pane is already past a long escalation bound, and the cap marker stands,
   # so every poll reaches the at-threshold branch where the probe runs. The
@@ -1492,7 +1483,7 @@ test_wedge_cap_probe_keeps_its_cadence_while_capped() {
   grep -F "PERMANENTLY-WEDGED" "$out" >/dev/null && fail "a capped poll re-fired the terminal wake"
   [ ! -s "$state/.wedge-escalations-$key" ] \
     || fail "a capped poll advanced the escalation counter while the probe kept its cadence"
-  unset FM_FAKE_CREW_STATE FM_FAKE_TMUX_REAL FM_FAKE_TMUX_INVENTORY_LOG
+  unset FM_FAKE_CREW_STATE FM_FAKE_PANE_PROBE_LOG
   pass "a capped live endpoint is probed on its own escalation cadence, not once per poll"
 }
 
@@ -1507,7 +1498,7 @@ test_wedge_cap_unwritable_terminal_marker_does_not_flood() {
   out="$dir/watch.out"; fakebin="$dir/fakebin"
   window="test:fm-wedge-cap-unwritable-marker"
   printf 'idle wedged content' > "$capture_file"
-  printf 'window=%s\nkind=ship\n' "$window" > "$state/wedge-cap-unwritable-marker.meta"
+  printf 'window=%s\nbackend=herdr\nkind=ship\n' "$window" > "$state/wedge-cap-unwritable-marker.meta"
   printf 'working: still wedged\n' > "$state/wedge-cap-unwritable-marker.status"
   sig=$(seen_sig "$state/wedge-cap-unwritable-marker.status"); printf '%s' "$sig" > "$state/.seen-wedge-cap-unwritable-marker_status"
   key=$(watch_window_key "$window")
@@ -1531,7 +1522,7 @@ test_wedge_cap_unwritable_terminal_marker_does_not_flood() {
   while [ "$cycle" -le 2 ]; do
     echo $(( $(date +%s) - 500 )) > "$state/.stale-since-$key"
     : > "$out"
-    PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
       FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
       FM_WATCH_HANDLING_SUCCESSOR=1 \
       FM_STALE_ESCALATE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
@@ -1567,7 +1558,7 @@ test_wedge_cap_off_ignores_leftover_markers() {
   out="$dir/watch.out"
   window="test:fm-wedge-cap-off-leftover"
   printf 'idle wedged content' > "$capture_file"
-  printf 'window=%s\nkind=ship\n' "$window" > "$state/wedge-cap-off-leftover.meta"
+  printf 'window=%s\nbackend=herdr\nkind=ship\n' "$window" > "$state/wedge-cap-off-leftover.meta"
   printf 'working: still wedged\n' > "$state/wedge-cap-off-leftover.status"
   sig=$(seen_sig "$state/wedge-cap-off-leftover.status"); printf '%s' "$sig" > "$state/.seen-wedge-cap-off-leftover_status"
   key=$(watch_window_key "$window")
@@ -1610,29 +1601,18 @@ test_wedge_cap_off_ignores_leftover_markers() {
 # for the rest of FM_CAP_HORIZON_SECS. The routes driven here are the ones that
 # need a crew-state verdict to pick between them - a captain-relevant status log
 # outranked by a live run, that same log with nothing overriding it, a
-# non-terminal pane absorbed because the crew is provably working, and the
-# away-posture one-shot the supervise daemon owns. The reset
+# non-terminal pane absorbed because the crew is provably working. The reset
 # routes are the ones the recovery and declared-wait cases drive: a pane that
 # leaves the stale path, and a declared wait and its lift.
 drive_first_sight_release() {  # <route>
   local route=$1 dir state fakebin out capture_file window key statusf
-  local fire_verdict route_verdict mode pid fresh_hash away_record=0
+  local fire_verdict route_verdict mode pid fresh_hash
   dir=$(make_case "wedge-cap-release-$route")
   state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; capture_file="$dir/pane.txt"
   window="test:fm-wedge-cap-release-$route"
   statusf="$state/wedge-cap-release-$route.status"
   case "$route" in
-    away-first-sight)
-      # The away-posture record makes the watcher hand the stale identity to the
-      # supervise daemon, which owns the one-shot per hash: the surface is the
-      # daemon handoff, and it takes no crew-state verdict at all.
-      printf 'working: still wedged\n' > "$statusf"
-      fire_verdict='state: working · source: run-step · validating (running)'
-      route_verdict=$fire_verdict
-      mode="exit"
-      away_record=1
-      ;;
     provably-working-terminal)
       printf 'done: implementation complete, ready to validate\n' > "$statusf"
       fire_verdict='state: working · source: run-step · validating (running)'
@@ -1654,7 +1634,7 @@ drive_first_sight_release() {  # <route>
     *) fail "unknown first-sight release route: $route" ;;
   esac
   key=$(watch_window_key "$window")
-  printf 'window=%s\nkind=ship\n' "$window" > "$state/wedge-cap-release-$route.meta"
+  printf 'window=%s\nbackend=herdr\nkind=ship\n' "$window" > "$state/wedge-cap-release-$route.meta"
   printf 'wedged render the cap fires on' > "$capture_file"
   mark_status_seen "$state" "$statusf"
   printf '%s' "$(hash_text 'wedged render the cap fires on')" > "$state/.hash-$key"
@@ -1680,9 +1660,8 @@ drive_first_sight_release() {  # <route>
   printf '%s' "$fresh_hash" > "$state/.hash-$key"
   printf '1\n' > "$state/.count-$key"
   export FM_FAKE_CREW_STATE="$route_verdict"
-  [ "$away_record" -eq 0 ] || date +%s > "$state/.afk"
   : > "$out"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_WATCH_HANDLING_SUCCESSOR=1 \
     FM_STALE_ESCALATE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
@@ -1699,7 +1678,6 @@ drive_first_sight_release() {  # <route>
       || { reap "$pid"; fail "the $route first-sight poll did not survive its cycle: $(cat "$out")"; }
   fi
   reap "$pid"
-  rm -f "$state/.afk"
   ack_stopped_cycle "$state" || true
   [ ! -e "$state/.wedge-permanent-$key" ] \
     || fail "the $route first-sight route left the cap marker standing, so the next genuine wedge would answer with silence until the horizon"
@@ -1715,7 +1693,7 @@ drive_first_sight_release() {  # <route>
   printf '1\n' > "$state/.count-$key"
   export FM_FAKE_CREW_STATE='state: working · source: run-step · validating (running)'
   : > "$out"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_WATCH_HANDLING_SUCCESSOR=1 \
     FM_STALE_ESCALATE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
@@ -1740,7 +1718,6 @@ test_wedge_cap_releases_on_every_first_sight_route() {
   drive_first_sight_release provably-working-terminal
   drive_first_sight_release surface-terminal
   drive_first_sight_release provably-working-nonterminal
-  drive_first_sight_release away-first-sight
   pass "every first-sight route that ends a wedge episode releases that episode's cap and lets the next wedge escalate"
 }
 
@@ -1755,7 +1732,7 @@ test_wedge_cap_releases_after_nonterminal_stale_episode() {
   window="test:fm-wedge-cap-nonterminal-reset"
   statusf="$state/wedge-cap-nonterminal-reset.status"
   printf 'idle wedged content' > "$capture_file"
-  printf 'window=%s\nkind=ship\n' "$window" > "$state/wedge-cap-nonterminal-reset.meta"
+  printf 'window=%s\nbackend=herdr\nkind=ship\n' "$window" > "$state/wedge-cap-nonterminal-reset.meta"
   printf 'working: still wedged\n' > "$statusf"
   mark_status_seen "$state" "$statusf"
   key=$(watch_window_key "$window")
@@ -1785,7 +1762,7 @@ test_wedge_cap_releases_after_nonterminal_stale_episode() {
   rm -f "$state/.stale-$key" "$state/.wedge-escalations-$key"
   printf '%s' "$(hash_text "a different pane body entirely")" > "$state/.hash-$key"
   : > "$out"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
@@ -1850,7 +1827,7 @@ test_wedge_cap_reports_gone_endpoint_on_terminal_override_route() {
   window="test:fm-wedge-cap-terminal-override"
   statusf="$state/wedge-cap-terminal-override.status"
   printf 'idle wedged content' > "$capture_file"
-  printf 'window=%s\nkind=ship\n' "$window" > "$state/wedge-cap-terminal-override.meta"
+  printf 'window=%s\nbackend=herdr\nkind=ship\n' "$window" > "$state/wedge-cap-terminal-override.meta"
   # Captain-relevant status line, seen, so the pane is the terminal-status
   # population: the classification the overriding crew state has to beat.
   printf 'done: implementation complete, ready to validate\n' > "$statusf"
@@ -1882,8 +1859,8 @@ test_wedge_cap_reports_gone_endpoint_on_terminal_override_route() {
   # escalation bound is short so the ladder's own re-armed timer reaches the
   # probe within this one watcher's lifetime.
   : > "$out"
-  env FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
-    FM_FAKE_TMUX_CURRENT_COMMAND=bash FM_FAKE_TMUX_WINDOWS=someone-elses-window \
+  env FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
+    FM_FAKE_PANE_CURRENT_COMMAND=bash FM_FAKE_PANE_WINDOWS=someone-elses-window \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_WATCH_HANDLING_SUCCESSOR=1 \
     FM_STALE_ESCALATE_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=1 \
@@ -1903,8 +1880,8 @@ test_wedge_cap_reports_gone_endpoint_on_terminal_override_route() {
   # The window stays on the ladder's own cadence after that: the death is
   # delivered once, not once per poll, and no terminal wake is re-published.
   : > "$out"
-  env FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
-    FM_FAKE_TMUX_CURRENT_COMMAND=bash FM_FAKE_TMUX_WINDOWS=someone-elses-window \
+  env FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
+    FM_FAKE_PANE_CURRENT_COMMAND=bash FM_FAKE_PANE_WINDOWS=someone-elses-window \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_WATCH_HANDLING_SUCCESSOR=1 \
     FM_STALE_ESCALATE_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=1 \

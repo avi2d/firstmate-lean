@@ -229,7 +229,7 @@ run_reader 0 "$EMPTY_SHA" 1 'state/link.status' > /dev/null 2>&1 && \
   fail 'a symlinked log was accepted' || true
 pass 'the reader refuses traversal, symlinks, and oversized tail lines'
 
-HELP_EXPECTED='Blocking, non-destructive delta read for a remote secondmate append-only log.
+HELP_EXPECTED='Blocking, non-destructive delta read for the append-only log of an execution home.
 
 Usage:
   fm-remote-delta-read.sh <relative-log> <offset> <prefix-sha256> [wait-seconds]

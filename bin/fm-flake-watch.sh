@@ -221,13 +221,21 @@ progress_write() {
   mv -f -- "$tmp" "$PROGRESS" 2>/dev/null || { rm -f -- "$tmp"; return 1; }
 }
 
+# Set by file_task: the backlog ID that owns the run, and 1 when this call created it.
+FILED_ID=
+FILED_NEW=0
 file_task() {
-  local task=$1 title=$2 repo=$3 body=$4
-  BD_DUE_REQUIRED=false "$TASKS_BIN" add "$task" "$title" --kind ship --repo "$repo" --body "$body" >/dev/null 2>&1
+  local key=$1 title=$2 repo=$3 body=$4 out
+  FILED_ID=
+  FILED_NEW=0
+  out=$(BD_DUE_REQUIRED=false "$TASKS_BIN" add "$title" --mint --repo "$repo" --kind ship --json \
+    --followup-key "$key" --body "$body" 2>/dev/null) || return 1
+  FILED_ID=$(printf '%s\n' "$out" | jq -er 'select(.ok) | .task.id | strings' 2>/dev/null) || return 1
+  printf '%s\n' "$out" | jq -e '.already == true' >/dev/null 2>&1 || FILED_NEW=1
 }
 
 action_check() {
-  local repo runs rc=0 task title body detail outside first_file first_line first_seeds count failures jobs
+  local repo runs rc=0 run_key title body detail outside first_file first_line first_seeds count failures jobs
   local errors=0 filed=0 truncated='' stop_repo='' started=''
   local error_line=
   local tmp report
@@ -255,8 +263,8 @@ action_check() {
         [ -n "${id:-}" ] || continue
         past_budget && { truncated=1; stop_repo=$repo; break 2; }
         seen_has "$repo/$id" && continue
-        task="flake-$repo-$id"
-        if "$TASKS_BIN" show "$task" >/dev/null 2>&1; then
+        run_key="flake-$repo-$id"
+        if "$TASKS_BIN" show "$run_key" >/dev/null 2>&1; then
           seen_add "$repo/$id" || true
           continue
         fi
@@ -306,14 +314,15 @@ action_check() {
           body=$(printf 'Scheduled flake run %s failed on %s.\nRun: %s\n\nThe flake-report artifact carried no failing-test detail (expired or missing); read the run log for the failing test and seed.' \
             "$id" "$created" "$url")
         fi
-        if file_task "$task" "$title" "$repo" "$body"; then
+        if file_task "$run_key" "$title" "$repo" "$body"; then
           seen_add "$repo/$id" || true
+          [ "$FILED_NEW" = 1 ] || continue
           filed=$((filed + 1))
-          fm_cap_line_var "flake-watch: filed $task ($title)" "$MAX_LINE"
+          fm_cap_line_var "flake-watch: filed $FILED_ID ($title)" "$MAX_LINE"
           printf '%s\n' "$FM_LINE_CAP_LINE"
         else
           errors=1
-          error_line="could not file $task"
+          error_line="could not file $run_key"
         fi
       done <<EOF
 $(printf '%s\n' "$runs" | red_runs_since)

@@ -1,51 +1,4 @@
 #!/usr/bin/env bash
-# fm-startup-growth-check.sh - daily cheap growth check for startup memory and instruction surfaces.
-#
-# Usage:
-#   fm-startup-growth-check.sh [check]
-#   fm-startup-growth-check.sh arm
-#   fm-startup-growth-check.sh disarm
-#   fm-startup-growth-check.sh --help
-#
-# `check` evaluates at most once every 86400 seconds, one daily evaluation.
-# Polls inside that interval only read this check's small state record and stay
-# silent.
-#
-# A due evaluation uses metadata only: regular-file safety checks plus stat(1)
-# byte sizes.  It does not run the startup digest, bootstrap, network checks,
-# model calls, repository refreshes, /stow, or full preference/learning
-# rereads.  The budget total, its verdict, and its secondmate exception come
-# from `bin/fm-startup-memory-budget.sh report`, the single owner of
-# config/startup-memory-budget, and are never re-derived here.  data/projects.md
-# and data/secondmates.md are printed in full by every session start too, so
-# they are watched for prompt growth without entering that budget total.
-# The tracked set is the startup entrypoints session start executes directly
-# plus the agent instruction files, not every script and library the startup
-# path reaches; those bytes are code/instruction size, not LLM prompt cost.
-#
-# A secondmate home is never notified about the primary-owned
-# data/captain-shared.md it cannot edit: the owner suppresses the budget overrun
-# it causes alone, and this check suppresses its per-file growth there while
-# still recording the observation.
-#
-# Growth is measured against a retained per-file baseline rather than only
-# against the previous evaluation, so accumulation that stays under one day's
-# threshold is still caught.  A surface seen for the first time is baselined
-# silently, including the first content of an optional file that was absent when
-# the check started; an established baseline survives the file disappearing and
-# coming back.  Reporting a file rebases its baseline to the reported size, so
-# accepted growth then stays silent.  The thresholds are fixed:
-#   2048 bytes for tracked startup/instruction files
-#   250 estimated tokens, ceil(bytes / 3), for printed startup memory files
-# Budget overrun is always meaningful.
-#
-# A due evaluation also removes the empty temporary records a killed
-# evaluation can leave in state/: only files matching its own mint pattern
-# that are empty and untouched for an hour, never a record with bytes in it.
-#
-# `arm` writes state/startup-growth.check.sh and binds its bytes with
-# fm-check-register.sh so the existing watcher slow-check cadence invokes the
-# daily gate.  `disarm` removes the shim, trust binding, and report record.
 set -u
 export LC_ALL=C
 
@@ -73,7 +26,42 @@ BUDGET_BIN="$SCRIPT_DIR/fm-startup-memory-budget.sh"
 . "$SCRIPT_DIR/fm-check-lib.sh"
 
 usage() {
-  sed -n '2,48{s/^# \{0,1\}//;p;}' "$0"
+  cat <<'EOF'
+fm-startup-growth-check.sh - daily cheap growth check for startup memory and instruction surfaces.
+
+Usage:
+  fm-startup-growth-check.sh [check]
+  fm-startup-growth-check.sh arm
+  fm-startup-growth-check.sh disarm
+  fm-startup-growth-check.sh --help
+
+`check` evaluates at most once every 86400 seconds.  Polls inside that
+interval only read this check's small state record and stay silent.
+
+A due evaluation uses metadata only: regular-file safety checks plus stat(1)
+byte sizes.  The budget total and its verdict come from
+`bin/fm-startup-memory-budget.sh report`, the single owner of
+config/startup-memory-budget.  data/projects.md is printed in full by every
+session start too, so it is watched for prompt growth without entering that
+budget total.  The tracked set is the startup entrypoints session start runs
+directly plus the agent instruction files.
+
+Growth is measured against a retained per-file baseline, so accumulation that
+stays under one day's threshold is still caught.  A surface seen for the first
+time is baselined silently; an established baseline survives the file
+disappearing and coming back.  Reporting a file rebases its baseline to the
+reported size.  The thresholds are fixed:
+  2048 bytes for tracked startup/instruction files
+  250 estimated tokens, ceil(bytes / 3), for printed startup memory files
+Budget overrun is always reported.
+
+A due evaluation also removes empty temporary records a killed evaluation left
+in state/ once they are untouched for an hour.
+
+`arm` writes state/startup-growth.check.sh and binds its bytes with
+fm-check-register.sh so the watcher slow-check cadence invokes the daily gate.
+`disarm` removes the shim, trust binding, and report record.
+EOF
 }
 
 fail() {
@@ -94,7 +82,6 @@ TOKEN_THRESHOLD=250
 MAX_LINE=1000
 ORPHAN_GRACE=3600
 ORPHAN_SWEEP_LIMIT=64
-PRIMARY_OWNED_MEMORY=
 
 file_size() {
   if [ "$(uname)" = Darwin ]; then
@@ -179,8 +166,7 @@ stat_surface() {  # <kind> <display-path> <absolute-path> <absence-ok>
         tokens=$(fm_startup_memory_estimated_tokens_for_bytes "$delta") || tokens=0
         if [ "$tokens" -ge "$TOKEN_THRESHOLD" ]; then
           baseline=$bytes
-          [ "$display" = "$PRIMARY_OWNED_MEMORY" ] \
-            || append_finding "$kind growth $display +${tokens} estimated_tokens (+${delta} bytes, total ${bytes} bytes)"
+          append_finding "$kind growth $display +${tokens} estimated_tokens (+${delta} bytes, total ${bytes} bytes)"
         fi
         ;;
       tracked)
@@ -254,7 +240,7 @@ evaluate_budget() {
     *) valid=no ;;
   esac
   case "$exception" in
-    ''|primary-owned-shared-file-alone-exceeds-budget) ;;
+    '') ;;
     *) valid=no ;;
   esac
   if [ "$valid" = no ]; then
@@ -289,7 +275,6 @@ run_check() {
   stat_surface tracked bin/fm-supervision-instructions.sh "$FM_ROOT/bin/fm-supervision-instructions.sh" no
   stat_surface printed-memory data/projects.md "$DATA_DIR/projects.md" yes
   stat_surface memory data/captain.md "$DATA_DIR/captain.md" yes
-  stat_surface memory data/captain-shared.md "$DATA_DIR/captain-shared.md" yes
   stat_surface memory data/learnings.md "$DATA_DIR/learnings.md" yes
 
   evaluate_budget

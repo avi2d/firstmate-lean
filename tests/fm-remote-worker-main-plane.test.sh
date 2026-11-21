@@ -9,7 +9,6 @@ HOME_DIR="$TMP_ROOT/home"
 mkdir -p "$HOME_DIR/state" "$HOME_DIR/data" "$HOME_DIR/config" "$TMP_ROOT/fakebin"
 printf '%s\n' '- lab - lab route (host: lab-host; root: /remote/code; home: /remote/home; scope: test; projects: alpha; added 2026-01-01)' > "$HOME_DIR/data/remote-homes.md"
 printf 'kind=ship\nharness=pi\nremote_host=lab-host\nremote_route=lab\nworktree=/tmp/wt\nproject=/tmp/proj\n' > "$HOME_DIR/state/w1.meta"
-printf 'kind=secondmate\nharness=pi\nremote_host=lab-host\n' > "$HOME_DIR/state/w2.meta"
 cat > "$TMP_ROOT/fakebin/fake-ssh" <<'SH'
 #!/usr/bin/env bash
 set -eu
@@ -69,9 +68,6 @@ pass "remote lifecycle refuses an older remote code root by name"
 out=$(FM_TEST_HOP_MODE=lost FM_HOME="$HOME_DIR" bash "$ROOT/bin/fm-control.sh" w1 interrupt 2>&1) && fail "remote interrupt trusted a lost transport"
 printf '%s\n' "$out" | grep -F 'lost its transport; completion unknown' >/dev/null || fail "a lost transport was reported as a host refusal: $out"
 pass "a lost lifecycle transport reads as completion unknown, not a host refusal"
-out=$(FM_HOME="$HOME_DIR" bash "$ROOT/bin/fm-control.sh" w2 interrupt 2>&1) && fail "lifecycle reached a remotely placed secondmate"
-printf '%s\n' "$out" | grep -F 'remotely placed secondmate' >/dev/null || fail "secondmate refusal lost its placement reason: $out"
-pass "a remotely placed secondmate keeps its own recovery path"
 out=$(FM_HOME="$HOME_DIR" bash "$ROOT/bin/fm-crew-state.sh" w1 2>&1) || fail "remote crew-state refused: $out"
 [ "$out" = 'state: working: building the widget' ] || fail "remote crew-state did not relay the host line: $out"
 pass "remote crew-state relays the execution-home state line"

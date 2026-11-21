@@ -54,65 +54,113 @@ inbox_lib() {  # <state> <function> [args...]
   ' _ "$ROOT/bin/fm-task-inbox-lib.sh" "$@"
 }
 
-# A fake tmux for the watcher cases: capture-pane replays FM_FAKE_TMUX_CAPTURE,
-# display-message yields a numeric cursor row, and every literal send-keys is
-# logged to FM_SEND_LOG so a doorbell ring is observable. With
-# FM_FAKE_TMUX_AGENT set, the inventory lists window fm-t1 and its
-# #{pane_current_command} answers with that value, so `zsh` makes
-# fm_backend_tmux_agent_state read the pane as a dead bare shell.
+# A fake herdr for the watcher cases, serving the one pane sess:w1:p-t1.
+#   FM_FAKE_PANE_CAPTURE  file served as the visible screen, an empty box when
+#                         unset; a screen holding BUSYTOKEN reports working
+#   FM_FAKE_COMPOSER      file holding the composer text instead of a screen:
+#                         typed text appends to it and Enter submits it, logged
+#                         as SUBMIT, unless FM_FAKE_DROP_ENTERS still counts
+#                         Enters to swallow
+#   FM_FAKE_PANE_CURRENT_COMMAND  the foreground process, pi when unset: a shell
+#                         reads as an exited agent, empty as an unreadable one
+#   FM_FAKE_PANE_MISSING=1  the pane is gone
+#   FM_FAKE_PANE_SEND_FAIL=1  typing fails, logged as "send failed"
+# Typed text without a composer file goes to FM_SEND_LOG, one line per send.
 make_watch_stubs() {  # <dir> -> echoes fakebin dir
-  local dir=$1 fb="$1/fakebin"
+  local fb="$1/fakebin"
   mkdir -p "$fb"
-  cat > "$fb/tmux" <<'SH'
+  cat > "$fb/herdr" <<'SH'
 #!/usr/bin/env bash
 set -u
-case "${1:-}" in
-  send-keys)
-    if [ "${FM_FAKE_TMUX_SEND_FAIL:-0}" = 1 ]; then
+if [ "$#" -ge 2 ] && [ "${@: -2:1}" = --session ]; then
+  set -- "${@:1:$#-2}"
+fi
+command=${FM_FAKE_PANE_CURRENT_COMMAND-pi}
+screen() {
+  local rule
+  rule=$(printf '─%.0s' $(seq 62))
+  if [ -n "${FM_FAKE_COMPOSER:-}" ]; then
+    printf '╭%s╮\n' "$rule"
+    if [ -s "$FM_FAKE_COMPOSER" ]; then
+      fold -w 60 "$FM_FAKE_COMPOSER" | awk '{ printf "│ %-60s │\n", $0 }'
+    else
+      printf '│ %-60s │\n' ''
+    fi
+    printf '╰%s╯\n' "$rule"
+  elif [ -n "${FM_FAKE_PANE_CAPTURE:-}" ] && [ -f "$FM_FAKE_PANE_CAPTURE" ]; then
+    cat "$FM_FAKE_PANE_CAPTURE"
+  else
+    printf '╭────╮\n│    │\n╰────╯\n'
+  fi
+}
+case "${1:-} ${2:-}" in
+  'status --json')
+    printf '%s\n' '{"client":{"version":"0.9.5","protocol":22},"server":{"running":true}}'
+    ;;
+  'pane get')
+    if [ "${FM_FAKE_PANE_MISSING:-0}" = 1 ]; then
+      printf '%s\n' '{"error":{"code":"pane_not_found"}}'
+      exit 1
+    fi
+    printf '{"result":{"pane":{"pane_id":"%s"}}}\n' "$3"
+    ;;
+  'pane read')
+    case " $* " in *' ansi '*) exit 1 ;; esac
+    screen
+    ;;
+  'agent get')
+    case "$command" in
+      pi)
+        status=idle
+        ! screen | grep -q BUSYTOKEN || status=working
+        printf '{"result":{"agent":{"agent":"pi","agent_status":"%s"}}}\n' "$status"
+        ;;
+      '') printf '%s\n' '{"error":{"code":"internal"}}'; exit 1 ;;
+      *) printf '%s\n' '{"error":{"code":"agent_not_found"}}'; exit 1 ;;
+    esac
+    ;;
+  'pane process-info')
+    if [ -n "$command" ]; then
+      printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":4242,"foreground_processes":[{"pid":4243,"name":"%s","argv":["%s"]}]}}}\n' \
+        "$4" "$command" "$command"
+    else
+      printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":4242,"foreground_processes":[]}}}\n' "$4"
+    fi
+    ;;
+  'pane send-text')
+    if [ "${FM_FAKE_PANE_SEND_FAIL:-0}" = 1 ]; then
       printf 'send failed\n' >> "${FM_SEND_LOG:-/dev/null}"
       exit 1
     fi
-    shift
-    literal=0
-    while [ $# -gt 0 ]; do
-      case "$1" in
-        -t) shift 2 ;;
-        -l) literal=1; shift ;;
-        *) break ;;
-      esac
-    done
-    if [ "$literal" = 1 ]; then
-      printf '%s\n' "${1:-}" >> "${FM_SEND_LOG:-/dev/null}"
-      if [ -n "${FM_ACK_RECORD:-}" ] && [ -f "$FM_ACK_RECORD" ]; then
-        mv "$FM_ACK_RECORD" "${FM_ACK_RECORD%/*}/handled/"
-      fi
-      # A concurrent fire-and-forget send marking its newer record mid-ring.
-      if [ -n "${FM_RING_MARKS_RETRY:-}" ]; then
-        printf '%s\n' "${FM_RING_MARKS_RETRY##*/}" > "${FM_RING_MARKS_RETRY%/*}/.retry-ring"
+    if [ -n "${FM_FAKE_COMPOSER:-}" ]; then
+      printf '%s' "$4" >> "$FM_FAKE_COMPOSER"
+      exit 0
+    fi
+    printf '%s\n' "$4" >> "${FM_SEND_LOG:-/dev/null}"
+    if [ -n "${FM_ACK_RECORD:-}" ] && [ -f "$FM_ACK_RECORD" ]; then
+      mv "$FM_ACK_RECORD" "${FM_ACK_RECORD%/*}/handled/"
+    fi
+    # A concurrent fire-and-forget send marking its newer record mid-ring.
+    if [ -n "${FM_RING_MARKS_RETRY:-}" ]; then
+      printf '%s\n' "${FM_RING_MARKS_RETRY##*/}" > "${FM_RING_MARKS_RETRY%/*}/.retry-ring"
+    fi
+    ;;
+  'pane send-keys')
+    [ "${FM_FAKE_PANE_SEND_FAIL:-0}" != 1 ] || exit 1
+    if [ -n "${FM_FAKE_COMPOSER:-}" ] && [ "${4:-}" = enter ]; then
+      drops=$(cat "${FM_FAKE_DROP_ENTERS:-/dev/null}" 2>/dev/null || true)
+      if [ "${drops:-0}" -gt 0 ]; then
+        echo $((drops - 1)) > "$FM_FAKE_DROP_ENTERS"
+      elif [ -s "$FM_FAKE_COMPOSER" ]; then
+        printf 'SUBMIT: %s\n' "$(cat "$FM_FAKE_COMPOSER")" >> "$FM_SEND_LOG"
+        : > "$FM_FAKE_COMPOSER"
       fi
     fi
-    exit 0 ;;
-  display-message)
-    for a in "$@"; do
-      case "$a" in
-        *cursor_y*) printf '1\n'; exit 0 ;;
-        *pane_current_command*) [ -z "${FM_FAKE_TMUX_AGENT:-}" ] || { printf '%s\n' "$FM_FAKE_TMUX_AGENT"; exit 0; } ;;
-        *pane_tty*) [ -z "${FM_FAKE_TMUX_AGENT:-}" ] || { printf '\n'; exit 0; } ;;
-      esac
-    done
-    printf 'fakepane\n'; exit 0 ;;
-  capture-pane)
-    if [ -n "${FM_FAKE_TMUX_CAPTURE:-}" ] && [ -f "$FM_FAKE_TMUX_CAPTURE" ]; then
-      cat "$FM_FAKE_TMUX_CAPTURE"
-    else
-      printf '╭────╮\n│    │\n╰────╯\n'
-    fi
-    exit 0 ;;
-  list-windows) [ "${FM_FAKE_TMUX_MISSING:-0}" = 1 ] || printf 'fm-t1\n'; exit 0 ;;
+    ;;
+  *) exit 1 ;;
 esac
-exit 0
 SH
-  chmod +x "$fb/tmux"
+  chmod +x "$fb/herdr"
   make_fake_crew_state "$fb" >/dev/null
   printf '%s\n' "$fb"
 }
@@ -262,7 +310,7 @@ test_doorbell_rejects_terminal_controls() {
     log="$dir/$label.send.log"; : > "$log"
     rc=0
     PATH="$dir/fakebin:$PATH" FM_SEND_LOG="$log" \
-      inbox_lib "$state" fm_task_inbox_ring tmux sess:fm-t1 "$rec" fm-t1 || rc=$?
+      inbox_lib "$state" fm_task_inbox_ring herdr sess:w1:p-t1 "$rec" fm-t1 || rc=$?
     [ "$rc" = 2 ] || fail "a rejected $label inbox name should return send-failed status 2, got $rc"
     [ ! -s "$log" ] || fail "a $label inbox name reached send-keys:"$'\n'"$(cat "$log")"
     [ ! -e "$marker" ] || fail "a $label inbox name executed its crafted command"
@@ -284,81 +332,29 @@ test_ring_skips_dead_agent() {
   rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
   log="$dir/send.log"; : > "$log"
   rc=0
-  PATH="$dir/fakebin:$PATH" FM_SEND_LOG="$log" FM_FAKE_TMUX_AGENT=zsh \
-    inbox_lib "$state" fm_task_inbox_ring tmux sess:fm-t1 "$rec" fm-t1 || rc=$?
+  PATH="$dir/fakebin:$PATH" FM_SEND_LOG="$log" FM_FAKE_PANE_CURRENT_COMMAND=zsh \
+    inbox_lib "$state" fm_task_inbox_ring herdr sess:w1:p-t1 "$rec" fm-t1 || rc=$?
   [ "$rc" = 3 ] || fail "a dead agent should return 3 from the ring, got $rc"
   [ ! -s "$log" ] || fail "a dead pane was typed into:"$'\n'"$(cat "$log")"
   [ -f "$rec" ] || fail "skipping the ring must leave the durable record in place"
   rc=0
-  PATH="$dir/fakebin:$PATH" FM_SEND_LOG="$log" FM_FAKE_TMUX_MISSING=1 \
-    inbox_lib "$state" fm_task_inbox_ring tmux sess:fm-t1 "$rec" fm-t1 || rc=$?
+  PATH="$dir/fakebin:$PATH" FM_SEND_LOG="$log" FM_FAKE_PANE_MISSING=1 \
+    inbox_lib "$state" fm_task_inbox_ring herdr sess:w1:p-t1 "$rec" fm-t1 || rc=$?
   [ "$rc" = 3 ] || fail "a missing endpoint should return 3 from the ring, got $rc"
   [ ! -s "$log" ] || fail "a missing endpoint was typed into:"$'\n'"$(cat "$log")"
   [ -f "$rec" ] || fail "skipping a missing endpoint must leave the durable record in place"
   rc=0
-  PATH="$dir/fakebin:$PATH" FM_SEND_LOG="$log" FM_FAKE_TMUX_AGENT=claude \
-    inbox_lib "$state" fm_task_inbox_ring tmux sess:fm-t1 "$rec" fm-t1 || rc=$?
+  PATH="$dir/fakebin:$PATH" FM_SEND_LOG="$log" \
+    inbox_lib "$state" fm_task_inbox_ring herdr sess:w1:p-t1 "$rec" fm-t1 || rc=$?
   [ "$rc" = 0 ] || fail "a live agent should still be rung, got $rc"
   grep -qF 'Firstmate instruction waiting' "$log" || fail "a live agent did not receive the doorbell"
   : > "$log"
   rc=0
-  PATH="$dir/fakebin:$PATH" FM_SEND_LOG="$log" \
-    inbox_lib "$state" fm_task_inbox_ring tmux sess:fm-t1 "$rec" fm-t1 || rc=$?
+  PATH="$dir/fakebin:$PATH" FM_SEND_LOG="$log" FM_FAKE_PANE_CURRENT_COMMAND='' \
+    inbox_lib "$state" fm_task_inbox_ring herdr sess:w1:p-t1 "$rec" fm-t1 || rc=$?
   [ "$rc" = 0 ] || fail "an endpoint the classifier cannot see should still be rung, got $rc"
   grep -qF 'Firstmate instruction waiting' "$log" || fail "an unclassifiable endpoint did not receive the doorbell"
   pass "inbox: the ring skips dead or missing endpoints and still rings live or unclassifiable endpoints"
-}
-
-# A fake tmux whose pane is a Claude-style composer that keeps its content in
-# FM_FAKE_COMPOSER: literal input appends to it, capture renders it wrapped
-# between rules, and Enter submits it (logged as SUBMIT) unless
-# FM_FAKE_DROP_ENTERS still holds a count of Enters to swallow.
-make_composer_stub() {  # <dir>
-  mkdir -p "$1/fakebin"
-  cat > "$1/fakebin/tmux" <<'SH'
-#!/usr/bin/env bash
-set -u
-case "${1:-}" in
-  send-keys)
-    shift
-    literal=0
-    while [ $# -gt 0 ]; do
-      case "$1" in
-        -t) shift 2 ;;
-        -l) literal=1; shift ;;
-        *) break ;;
-      esac
-    done
-    if [ "$literal" = 1 ]; then
-      printf '%s' "$1" >> "$FM_FAKE_COMPOSER"
-    elif [ "${1:-}" = Enter ]; then
-      drops=$(cat "$FM_FAKE_DROP_ENTERS" 2>/dev/null || echo 0)
-      if [ "$drops" -gt 0 ]; then
-        echo $((drops - 1)) > "$FM_FAKE_DROP_ENTERS"
-      elif [ -s "$FM_FAKE_COMPOSER" ]; then
-        printf 'SUBMIT: %s\n' "$(cat "$FM_FAKE_COMPOSER")" >> "$FM_SEND_LOG"
-        : > "$FM_FAKE_COMPOSER"
-      fi
-    fi
-    exit 0 ;;
-  display-message)
-    case "$*" in *cursor_y*) printf '2\n'; exit 0 ;; esac
-    printf 'fakepane\n'; exit 0 ;;
-  capture-pane)
-    rule=$(printf '─%.0s' $(seq 64))
-    printf '● done\n%s\n' "$rule"
-    if [ -s "$FM_FAKE_COMPOSER" ]; then
-      fold -w 60 "$FM_FAKE_COMPOSER" | awk 'NR == 1 { print "❯ " $0; next } { print "  " $0 }'
-    else
-      printf '❯ \n'
-    fi
-    printf '%s\n  ? for shortcuts\n' "$rule"
-    exit 0 ;;
-  list-windows) printf 'fm-t1\n'; exit 0 ;;
-esac
-exit 0
-SH
-  chmod +x "$1/fakebin/tmux"
 }
 
 # The stuck-doorbell deadlock: a doorbell whose Enter never landed sits in the
@@ -370,13 +366,13 @@ test_ring_submits_its_own_stuck_doorbell() {
   dir="$TMP_ROOT/ring-stuck"
   state="$dir/state"
   mkdir -p "$state"
-  make_composer_stub "$dir"
+  make_watch_stubs "$dir" >/dev/null
   rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
   doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec")
   log="$dir/send.log"; composer="$dir/composer"; drops="$dir/drops"
   ring() {
     PATH="$dir/fakebin:$PATH" FM_SEND_LOG="$log" FM_FAKE_COMPOSER="$composer" \
-      FM_FAKE_DROP_ENTERS="$drops" inbox_lib "$state" fm_task_inbox_ring tmux sess:fm-t1 "$rec" fm-t1
+      FM_FAKE_DROP_ENTERS="$drops" inbox_lib "$state" fm_task_inbox_ring herdr sess:w1:p-t1 "$rec" fm-t1
   }
 
   : > "$log"; printf '%s' "$doorbell" > "$composer"
@@ -847,7 +843,7 @@ setup_watch_case() {  # <name> -> echoes case dir; state in <dir>/state
   dir="$TMP_ROOT/$name"
   mkdir -p "$dir/state"
   make_watch_stubs "$dir" >/dev/null
-  fm_write_meta "$dir/state/t1.meta" "window=sess:fm-t1" "kind=ship" "harness=grok"
+  fm_write_herdr_meta "$dir/state/t1.meta" sess:w1:p-t1 "kind=ship" "harness=pi"
   printf '%s\n' "$dir"
 }
 
@@ -863,7 +859,7 @@ test_watcher_rerings_idle_pane_quietly() {
   rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
   age_path "$rec"
   watch_bg "$state" "$dir/fakebin" "$out" \
-    FM_SEND_LOG="$log" FM_FAKE_TMUX_CAPTURE="$(idle_capture "$dir")" \
+    FM_SEND_LOG="$log" FM_FAKE_PANE_CAPTURE="$(idle_capture "$dir")" \
     FM_TASK_INBOX_RING_MAX=99
   pid=$!
   local i=0
@@ -892,9 +888,9 @@ test_watcher_rerings_idle_pane_quietly() {
 # A fresh process for each check proves the busy budget survives watcher restarts.
 busy_steer_check() {  # <case-dir> [capture] [busy-max]
   PATH="$1/fakebin:$PATH" FM_STATE_OVERRIDE="$1/state" FM_SEND_LOG="$1/send.log" \
-    FM_FAKE_TMUX_CAPTURE="${2:-$1/busy.capture}" FM_BUSY_REGEX=BUSYTOKEN \
+    FM_FAKE_PANE_CAPTURE="${2:-$1/busy.capture}" \
     FM_TASK_INBOX_GRACE_SECS=0 FM_TASK_INBOX_BUSY_MAX="${3-2}" \
-    bash -c '. "$1" && inbox_steer_check sess:fm-t1 t1' _ "$WATCH" > "$1/check.out" 2>&1
+    bash -c '. "$1" && inbox_steer_check sess:w1:p-t1 t1' _ "$WATCH" > "$1/check.out" 2>&1
 }
 
 busy_case() {
@@ -1066,7 +1062,7 @@ test_watcher_retry_ignores_busy_reset_failure() {
 }
 
 test_watcher_successor_escalation_stays_quiet() {
-  local mode=$1 dir rec agent='' missing=0 check
+  local mode=$1 dir rec agent=pi missing=0 check
   dir=$(busy_case "successor-$mode")
   busy_steer_check "$dir" "$(idle_capture "$dir")"
   grep -q 'Firstmate instruction waiting' "$dir/send.log" || fail "predecessor did not ring"
@@ -1081,10 +1077,10 @@ test_watcher_successor_escalation_stays_quiet() {
     missing) missing=1 ;;
     unwritable) mkdir "$dir/state/t1.inbox/.busy-state" ;;
   esac
-  FM_FAKE_TMUX_AGENT="$agent" FM_FAKE_TMUX_MISSING="$missing" busy_steer_check "$dir"
+  FM_FAKE_PANE_CURRENT_COMMAND="$agent" FM_FAKE_PANE_MISSING="$missing" busy_steer_check "$dir"
   grep -qF "$rec" "$dir/state/.wake-queue" || fail "$mode successor did not escalate"
   for check in 1 2 3; do
-    FM_FAKE_TMUX_AGENT="$agent" FM_FAKE_TMUX_MISSING="$missing" busy_steer_check "$dir"
+    FM_FAKE_PANE_CURRENT_COMMAND="$agent" FM_FAKE_PANE_MISSING="$missing" busy_steer_check "$dir"
     [ "$(wc -l < "$dir/state/.wake-queue" | tr -d ' ')" = 1 ] \
       || fail "$mode successor escalation repeated on check $check with stale predecessor ring history"
   done
@@ -1111,7 +1107,7 @@ test_watcher_nonbusy_attempt_resets_busy_streak() {
       ;;
     failed) send_fail=1 ;;
   esac
-  FM_FAKE_TMUX_SEND_FAIL="$send_fail" busy_steer_check "$dir" "$capture"
+  FM_FAKE_PANE_SEND_FAIL="$send_fail" busy_steer_check "$dir" "$capture"
   case "$mode" in
     protected) [ ! -s "$dir/send.log" ] || fail "protected composer was typed into" ;;
     failed) grep -q '^send failed$' "$dir/send.log" || fail "delivery failure was not exercised" ;;
@@ -1135,7 +1131,7 @@ test_watcher_quiet_on_healthy_inbox() {
   state="$dir/state"; out="$dir/watch.out"; log="$dir/send.log"; : > "$log"
   mkdir -p "$state/t1.inbox/handled"
   watch_bg "$state" "$dir/fakebin" "$out" \
-    FM_SEND_LOG="$log" FM_FAKE_TMUX_CAPTURE="$(idle_capture "$dir")" \
+    FM_SEND_LOG="$log" FM_FAKE_PANE_CAPTURE="$(idle_capture "$dir")" \
     FM_TASK_INBOX_RING_MAX=99
   pid=$!
   sleep 4
@@ -1154,7 +1150,7 @@ test_watcher_ack_silences_unwritable_ladder() {
   age_path "$rec"
   mkdir "$state/t1.inbox/.ring-state"
   watch_bg "$state" "$dir/fakebin" "$out" \
-    FM_SEND_LOG="$log" FM_FAKE_TMUX_CAPTURE="$(idle_capture "$dir")" \
+    FM_SEND_LOG="$log" FM_FAKE_PANE_CAPTURE="$(idle_capture "$dir")" \
     FM_ACK_RECORD="$rec" FM_TASK_INBOX_RING_MAX=99
   pid=$!
   while [ "$i" -lt 100 ]; do
@@ -1184,7 +1180,7 @@ test_watcher_surfaces_unwritable_ladder() {
   age_path "$rec"
   mkdir "$state/t1.inbox/.ring-state"
   watch_bg "$state" "$dir/fakebin" "$out" \
-    FM_SEND_LOG="$log" FM_FAKE_TMUX_CAPTURE="$(idle_capture "$dir")" \
+    FM_SEND_LOG="$log" FM_FAKE_PANE_CAPTURE="$(idle_capture "$dir")" \
     FM_TASK_INBOX_RING_MAX=99
   pid=$!
   wait_watcher_gone "$pid" \
@@ -1214,7 +1210,7 @@ test_watcher_pays_fire_and_forget_retry_once() {
   age_path "$state/t1.inbox/.retry-ring"
   watch_bg "$state" "$dir/fakebin" "$out" \
     FM_CONFIG_OVERRIDE="$dir/config" \
-    FM_SEND_LOG="$log" FM_FAKE_TMUX_CAPTURE="$(idle_capture "$dir")" \
+    FM_SEND_LOG="$log" FM_FAKE_PANE_CAPTURE="$(idle_capture "$dir")" \
     FM_TASK_INBOX_RING_MAX=1
   pid=$!
   while [ "$i" -lt 100 ]; do
@@ -1240,8 +1236,8 @@ test_watcher_pays_fire_and_forget_retry_once() {
 # functions, so a status log the case writes is not also read as a wake.
 steer_check_once() {  # <case-dir>
   PATH="$1/fakebin:$PATH" FM_STATE_OVERRIDE="$1/state" FM_SEND_LOG="$1/send.log" \
-    FM_FAKE_TMUX_CAPTURE="$(idle_capture "$1")" FM_TASK_INBOX_GRACE_SECS=1 \
-    bash -c '. "$1" && inbox_steer_check sess:fm-t1 t1' _ "$WATCH" >/dev/null 2>&1
+    FM_FAKE_PANE_CAPTURE="$(idle_capture "$1")" FM_TASK_INBOX_GRACE_SECS=1 \
+    bash -c '. "$1" && inbox_steer_check sess:w1:p-t1 t1' _ "$WATCH" >/dev/null 2>&1
 }
 
 test_watcher_holds_retry_while_the_worker_decides() {
@@ -1304,7 +1300,7 @@ test_watcher_escalates_once_after_budget() {
   rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
   age_path "$rec"
   watch_bg "$state" "$dir/fakebin" "$out" \
-    FM_SEND_LOG="$log" FM_FAKE_TMUX_CAPTURE="$(idle_capture "$dir")" \
+    FM_SEND_LOG="$log" FM_FAKE_PANE_CAPTURE="$(idle_capture "$dir")" \
     FM_TASK_INBOX_RING_MAX=1
   pid=$!
   wait_watcher_gone "$pid" \
@@ -1328,8 +1324,8 @@ test_watcher_dead_pane_escalates_once_without_ringing() {
   rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
   age_path "$rec"
   watch_bg "$state" "$dir/fakebin" "$out" \
-    FM_SEND_LOG="$log" FM_FAKE_TMUX_CAPTURE="$(idle_capture "$dir")" \
-    FM_FAKE_TMUX_AGENT=zsh FM_TASK_INBOX_RING_MAX=99
+    FM_SEND_LOG="$log" FM_FAKE_PANE_CAPTURE="$(idle_capture "$dir")" \
+    FM_FAKE_PANE_CURRENT_COMMAND=zsh FM_TASK_INBOX_RING_MAX=99
   pid=$!
   wait_watcher_gone "$pid" \
     || { kill "$pid" 2>/dev/null; fail "the watcher never surfaced a dead pane's unhandled instruction"; }
@@ -1358,8 +1354,8 @@ test_watcher_dead_pane_ignores_stale_busy_state() {
   rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
   age_path "$rec"
   watch_bg "$state" "$dir/fakebin" "$out" \
-    FM_SEND_LOG="$log" FM_FAKE_TMUX_CAPTURE="$dir/busy.capture" \
-    FM_FAKE_TMUX_AGENT=zsh FM_BUSY_REGEX=BUSYTOKEN FM_TASK_INBOX_RING_MAX=99
+    FM_SEND_LOG="$log" FM_FAKE_PANE_CAPTURE="$dir/busy.capture" \
+    FM_FAKE_PANE_CURRENT_COMMAND=zsh FM_TASK_INBOX_RING_MAX=99
   pid=$!
   wait_watcher_gone "$pid" \
     || { kill "$pid" 2>/dev/null; fail "stale busy state hid a dead pane's unhandled instruction"; }

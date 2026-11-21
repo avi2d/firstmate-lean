@@ -2278,7 +2278,7 @@ printf 'fixture\n' > "$REMOTE_ROOT/AGENTS.md"
 for remote_file in \
   fm-extension.mjs fm-extension-launch-barrier.mjs fm-extension.sh fm-procevent.sh fm-procevent-lib.sh fm-procevent-extension-capture.pl fm-procevent-lavish.sh \
   fm-pr-lib.sh fm-wake-lib.sh fm-path-lib.sh fm-remote-entrypoint.sh fm-remote-job-lib.sh \
-  fm-mkdir-lib.sh fm-remote-job-worker.sh; do
+  fm-mkdir-lib.sh fm-remote-job-worker.sh fm-task-inbox-lib.sh fm-backend.sh; do
   cp "$ROOT/bin/$remote_file" "$REMOTE_ROOT/bin/$remote_file"
 done
 chmod +x "$REMOTE_ROOT/bin"/fm-*.sh "$REMOTE_ROOT/bin/fm-extension.mjs" "$REMOTE_ROOT/bin/fm-extension-launch-barrier.mjs"
@@ -2287,7 +2287,7 @@ git -C "$REMOTE_ROOT" config user.email test@example.com
 git -C "$REMOTE_ROOT" config user.name Test
 git -C "$REMOTE_ROOT" add AGENTS.md bin
 git -C "$REMOTE_ROOT" commit -qm 'remote extension fixture'
-cat > "$H_REMOTE_CONTROL/data/secondmates.md" <<EOF
+cat > "$H_REMOTE_CONTROL/data/remote-homes.md" <<EOF
 - ios - remote extension home (host: remote-mac; root: $REMOTE_ROOT; home: $H_REMOTE; scope: extension test; projects: none; added 2026-08-27)
 EOF
 cat > "$REMOTE_FAKEBIN/fake-ssh" <<'SH'
@@ -2338,6 +2338,11 @@ remote_direct() {
   FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux \
   FM_REMOTE_JOB_STATE_ROOT="$TMP_ROOT/remote-jobs" \
   "$REMOTE_ROOT/bin/$command" "$@"
+}
+remote_bind_package() {
+  local package=$1 adapter=$2
+  FM_HOME="$H_REMOTE_CONTROL" "$HOST" pack-transfer "$package" \
+    | remote_on fm-extension.sh receive-transfer-bind --adapter "$adapter" --trust-same-user-code
 }
 remote_receive_file_direct() {
   local file=$1 adapter=$2
@@ -2414,7 +2419,7 @@ pass "failed activation cannot partially publish and retains exact transfer evid
 fi
 
 if section_enabled remote-activation; then
-remote_bind=$(remote_controller "$ROOT/bin/fm-extension.sh" remote-bind ios "$P_REMOTE" --adapter ext-remote --trust-same-user-code)
+remote_bind=$(remote_bind_package "$P_REMOTE" ext-remote)
 assert_contains "$remote_bind" "bound: org.example.remote@1.2.3" "remote transport did not publish the binding"
 remote_transfer_digest=$(printf '%s\n' "$remote_bind" | sed -n 's/^transfer-digest: //p')
 case "$remote_transfer_digest" in sha256:*) ;; *) fail "remote bind returned no transfer identity" ;; esac
@@ -2451,7 +2456,7 @@ pass "remote registration owner transitions observe the active runner boundary"
 fi
 
 if section_enabled remote-lifecycle; then
-remote_bind=$(remote_controller "$ROOT/bin/fm-extension.sh" remote-bind ios "$P_REMOTE" --adapter ext-remote --trust-same-user-code)
+remote_bind=$(remote_bind_package "$P_REMOTE" ext-remote)
 assert_contains "$remote_bind" "bound: org.example.remote@1.2.3" "remote transport did not publish the binding"
 remote_transfer_digest=$(printf '%s\n' "$remote_bind" | sed -n 's/^transfer-digest: //p')
 case "$remote_transfer_digest" in sha256:*) ;; *) fail "remote bind returned no transfer identity" ;; esac

@@ -188,6 +188,7 @@ lanes=0
 pr_ready=0
 lane_ids=
 for meta in "$STATE"/*.meta; do
+  [ -f "$meta" ] || continue
   lanes=$((lanes + 1))
   lane_ids="$lane_ids$(basename "$meta" .meta)
 "

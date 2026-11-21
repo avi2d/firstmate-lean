@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # tests/fm-trace-context-lib.test.sh - unit tests for the native, default-off
 # W3C trace-context library (bin/fm-trace-context-lib.sh) plus structural checks
-# that bin/fm-spawn.sh wires it in at the pre-launch injection seam and that the
-# capability is inherited into secondmate homes. Pure functions, no backend and
-# no live spawn required.
+# that bin/fm-spawn.sh wires it in at the pre-launch injection seam. Pure
+# functions, no backend and no live spawn required.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -149,31 +148,25 @@ out=$(FM_TRACE_CONTEXT=on fm_trace_context_resolve "$CFG_OFF" "$NOMETA")
 fm_trace_context_valid "$out" || fail "enabled resolve must mint a valid traceparent: $out"
 pass "resolve mints a valid traceparent when enabled"
 
-# --- secondmate home-session boundary ---------------------------------------
-# fm-spawn launches every Secondmate with the primary session's non-empty frozen
-# FM_TRACE_CONTEXT decision. The Secondmate resolves it at its own session start.
-# Its own launch-time TRACEPARENT stays in its process environment for its whole
-# life, but that is the Secondmate's agent identity, never a parent: every task
-# it spawns must root a fresh trace, or unrelated routed tasks would accumulate
-# into one ever-growing trace per Secondmate.
-PRIMARY_TP='00-abcabcabcabcabcabcabcabcabcabcab-1212121212121212-01'
+# --- frozen session decision and ambient TRACEPARENT ------------------------
+AMBIENT_TP='00-abcabcabcabcabcabcabcabcabcabcab-1212121212121212-01'
 saved_tp=${TRACEPARENT-__unset__}
 unset TRACEPARENT
-frozen_off=$(FM_TRACE_CONTEXT=off fm_trace_context_resolve "$CFG_ON" "$WORK/sm-frozen-off.meta")
-[ -z "$frozen_off" ] || fail "a Secondmate launched off must stay disabled even after the config file appears: $frozen_off"
-frozen_on=$(FM_TRACE_CONTEXT=on fm_trace_context_resolve "$CFG_OFF" "$WORK/sm-frozen-on.meta")
-fm_trace_context_valid "$frozen_on" || fail "a Secondmate launched on must stay enabled even while the config file is absent: $frozen_on"
-[ "${frozen_on:3:32}" != "${PRIMARY_TP:3:32}" ] || fail "an enabled Secondmate without an ambient carrier must start a new root"
-routed_a=$(TRACEPARENT="$PRIMARY_TP" FM_TRACE_CONTEXT=on fm_trace_context_resolve "$CFG_ON" "$WORK/sm-routed-a.meta")
-routed_b=$(TRACEPARENT="$PRIMARY_TP" FM_TRACE_CONTEXT=on fm_trace_context_resolve "$CFG_ON" "$WORK/sm-routed-b.meta")
+frozen_off=$(FM_TRACE_CONTEXT=off fm_trace_context_resolve "$CFG_ON" "$WORK/frozen-off.meta")
+[ -z "$frozen_off" ] || fail "a session frozen off must stay disabled even after the config file appears: $frozen_off"
+frozen_on=$(FM_TRACE_CONTEXT=on fm_trace_context_resolve "$CFG_OFF" "$WORK/frozen-on.meta")
+fm_trace_context_valid "$frozen_on" || fail "a session frozen on must stay enabled even while the config file is absent: $frozen_on"
+[ "${frozen_on:3:32}" != "${AMBIENT_TP:3:32}" ] || fail "an enabled session without an ambient carrier must start a new root"
+routed_a=$(TRACEPARENT="$AMBIENT_TP" FM_TRACE_CONTEXT=on fm_trace_context_resolve "$CFG_ON" "$WORK/routed-a.meta")
+routed_b=$(TRACEPARENT="$AMBIENT_TP" FM_TRACE_CONTEXT=on fm_trace_context_resolve "$CFG_ON" "$WORK/routed-b.meta")
 fm_trace_context_valid "$routed_a" || fail "resolving under an ambient TRACEPARENT must still mint a valid carrier (a='$routed_a')"
 fm_trace_context_valid "$routed_b" || fail "resolving under an ambient TRACEPARENT must still mint a valid carrier (b='$routed_b')"
-[ "${routed_a:3:32}" != "${PRIMARY_TP:3:32}" ] && [ "${routed_b:3:32}" != "${PRIMARY_TP:3:32}" ] \
+[ "${routed_a:3:32}" != "${AMBIENT_TP:3:32}" ] && [ "${routed_b:3:32}" != "${AMBIENT_TP:3:32}" ] \
   || fail "a task resolved under a persistent ambient TRACEPARENT must root its own trace, never adopt it (a='$routed_a' b='$routed_b')"
 [ "${routed_a:3:32}" != "${routed_b:3:32}" ] \
   || fail "two tasks resolved from one ambient environment must root distinct traces (a='$routed_a' b='$routed_b')"
 [ "$saved_tp" = "__unset__" ] || export TRACEPARENT="$saved_tp"
-pass "Secondmate home-session state stays off or on despite later file state; ambient TRACEPARENT is never adopted, so each routed task roots its own trace"
+pass "a frozen session decision stays off or on despite later file state; ambient TRACEPARENT is never adopted, so each routed task roots its own trace"
 
 # --- recovery: a recorded value is reused verbatim, disabled still omits -----
 
@@ -224,9 +217,9 @@ pass "the resolver has no sleep/timeout/command hang source and always returns s
 # --- harness/backend/kind independence (code only, comments stripped) ---------
 
 LIB_CODE=$(sed 's/#.*$//' "$ROOT/bin/fm-trace-context-lib.sh")
-for tok in harness backend herdr pi pi-signed kind ship scout secondmate ; do
-  case "$LIB_CODE" in
-    *"$tok"*) fail "trace-context lib code must be harness/backend/kind agnostic, but references '$tok'" ;;
+for tok in harness backend herdr pi pi-signed kind ship scout ; do
+  case "$(grep -w -- "$tok" <<<"$LIB_CODE")" in
+    ?*) fail "trace-context lib code must be harness/backend/kind agnostic, but references '$tok'" ;;
   esac
 done
 pass "the carrier is minted identically for every harness, backend, and spawn kind (no such branching in the lib code)"
@@ -239,15 +232,5 @@ for tok in brief prompt report status ; do
   esac
 done
 pass "the lib code never reads a brief, prompt, report, or status - it cannot leak content"
-
-# --- secondmate inheritance wires the nested chain ---------------------------
-
-# shellcheck source=/dev/null
-. "$ROOT/bin/fm-config-inherit-lib.sh"
-case " $FM_INHERITABLE_CONFIG " in
-  *" trace-context "*) : ;;
-  *) fail "config/trace-context must be in FM_INHERITABLE_CONFIG so secondmate homes stay traced" ;;
-esac
-pass "config/trace-context is inherited into secondmate homes, keeping the nested chain enabled end to end"
 
 echo "# fm-trace-context-lib.test.sh: all assertions passed"

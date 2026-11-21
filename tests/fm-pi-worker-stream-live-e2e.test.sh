@@ -37,6 +37,8 @@ for case_label in $cases; do
   fm_git_worktree "$project" "$wt" "stream-$case_label"
   fm_test_spawn_brief "$home" stream
   fakebin=$(make_spawn_fakebin "$TMP_ROOT/fake-$case_label")
+  # The version probe and the launch must resolve the real installed Pi.
+  rm -f "$fakebin/pi"
   spawn_root=$ROOT fault_dir=''
   if [ "$case_label" = stalled ]; then
     fault_dir="$home/fault"
@@ -65,7 +67,7 @@ SH
   out=$(ROOT="$spawn_root" FM_STREAM_SILENT_MAX_SECS="$enabled" fm_test_run_spawn "$home" "$wt" "$fakebin" stream "$project" pi --mode no-mistakes --yolo off) \
     || fail "Pi $PI_VERSION: could not generate worker extension: $out"
   if [ "$case_label" = unverified ]; then
-    printf '%s\n' "$out" | grep -Fx "warning: pi model-stream observation unavailable for version $PI_VERSION; verified version: 1.2.0; existing busy bound remains active" >/dev/null || fail "Pi $PI_VERSION: missing exact unverified-version warning"
+    printf '%s\n' "$out" | grep -Fx "warning: pi model-stream observation unavailable for version $PI_VERSION; verified version: 1.2.0; existing busy bound remains active" >/dev/null || fail "Pi $PI_VERSION: missing exact unverified-version warning: $out"
     enabled=0
     STREAM_EXTENSION="$home/state/stream.pi-ext.ts" node --input-type=module <<'JS' || fail "Pi $PI_VERSION: unverified worker installed stream handlers"
 import assert from "node:assert/strict";

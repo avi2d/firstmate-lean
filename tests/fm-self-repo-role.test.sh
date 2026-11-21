@@ -1,22 +1,4 @@
 #!/usr/bin/env bash
-# Behavior tests for the firstmate-repository publication boundary
-# (bin/fm-role-lib.sh, bin/fm-role.sh, and its consumers).
-#
-# Every home runs as a user/operator by default: a ship task whose project is
-# firstmate's own repository may carry a publishing contract (no-mistakes or
-# direct-PR) only under an explicit grant - the maintainer scope written by
-# the operator into config/firstmate-role, or a bounded per-task
-# --upstream-consent recorded in the delivery contract. Role is never inferred
-# from remotes, credentials, or repository ownership. In a secondmate home the
-# grant is honored only when the inheritance receipt matches the exact bytes
-# the parent published; the receipt guards supported propagation, not forged
-# local records. local-only publishes nothing and never reaches the
-# gate.
-#
-# These tests exercise the real entry points only: bin/fm-role.sh, the
-# propagation owner bin/fm-config-inherit-lib.sh, bin/fm-brief.sh,
-# bin/fm-spawn.sh, bin/fm-promote.sh, and fm_dod_block. Nothing here greps
-# source for policy prose.
 set -u
 
 # shellcheck source=tests/fixtures.sh
@@ -390,137 +372,6 @@ test_check_task_consent_authorizes_one_task() {
   pass "fm-role.sh check: recorded one-task consent authorizes its named repository only"
 }
 
-# --- secondmate homes: receipt-proven grants only ---------------------------
-
-# In a secondmate home (its .fm-secondmate-home marker) a role file without a
-# propagation receipt resolves to user.
-test_secondmate_cannot_self_grant() {
-  local home out rc
-  home=$(make_role_home sm-selfgrant "maintainer ${PUB_TARGET:-github.com/a/b}")
-  : > "$home/.fm-secondmate-home"
-  out=$(run_role "$home" report)
-  assert_contains "$out" "fm-role: user" "a self-planted role file must not grant a secondmate anything"
-  assert_contains "$out" "no propagation receipt" "the report must name the missing receipt"
-  if [ -n "$PUB_TARGET" ]; then
-    out=$(run_role "$home" check "$ROOT"); rc=$?
-    expect_code 1 "$rc" "a self-granted secondmate must be refused at the gate"
-  fi
-  pass "secondmate home: a role file without an inheritance receipt grants nothing"
-}
-
-# The real propagation path (fm-config-inherit-lib.sh) both carries the file
-# and writes the exact-byte receipt; the resolved role then reads as
-# inherited, revocation mirrors the parent's removal, and any local edit
-# invalidates the proof.
-test_secondmate_inheritance_receipt_lifecycle() {
-  local src dst_config sm_home out rc receipt
-  src="$TMP_ROOT/inherit-src-config"
-  dst_config="$TMP_ROOT/inherit-sm/config"
-  sm_home="$TMP_ROOT/inherit-sm"
-  mkdir -p "$src" "$dst_config" "$sm_home/state" "$sm_home/data"
-  : > "$sm_home/.fm-secondmate-home"
-  receipt="$dst_config/.fm-inherit-firstmate-role.generation"
-
-  printf 'maintainer %s\n' "${PUB_TARGET:-github.com/kunchenguid/firstmate}" > "$src/firstmate-role"
-  FM_INHERITABLE_CONFIG=firstmate-role propagate_inheritable_config "$src" "$dst_config" \
-    || fail "local propagation of firstmate-role failed"
-  assert_present "$dst_config/firstmate-role" "propagation did not copy the role file"
-  assert_present "$receipt" "propagation did not commit the role receipt"
-  out=$(run_role "$sm_home" report)
-  assert_equals "fm-role: maintainer ${PUB_TARGET:-github.com/kunchenguid/firstmate} (inherited)" "$out" \
-    "a receipt-proven inherited grant must resolve to maintainer"
-  if [ -n "$PUB_TARGET" ]; then
-    out=$(run_role "$sm_home" check "$ROOT"); rc=$?
-    expect_code 0 "$rc" "an inherited matching scope must authorize at the gate (got: $out)"
-  fi
-
-  # Local drift after propagation invalidates the exact-byte proof.
-  printf 'maintainer github.com/evil/scope\n' > "$dst_config/firstmate-role"
-  out=$(run_role "$sm_home" report)
-  assert_contains "$out" "fm-role: user" "a locally edited inherited grant must die"
-  assert_contains "$out" "unverified inherited grant" "a diverged grant must name the unverified state"
-  assert_contains "$out" "diverges from the receipt" "a diverged grant must name the divergence"
-
-  # The receipt proves consistency, not provenance: a deliberately forged
-  # local record is out of scope. Rewriting the receipt here only exercises
-  # how an inherited file with a second directive parses: it is malformed as
-  # a whole even when its receipt matches the exact bytes.
-  gen=$(sed -n '1p' "$receipt")
-  printf 'maintainer %s\nuser\n' "${PUB_TARGET:-github.com/kunchenguid/firstmate}" > "$dst_config/firstmate-role"
-  {
-    printf '%s\n' "$((gen + 1))"
-    wc -c <"$dst_config/firstmate-role" | tr -d '[:space:]' | awk '{printf "%s\n", $1}'
-    fm_role_sha256_stdin <"$dst_config/firstmate-role"
-    printf 'put\n'
-  } > "$receipt"
-  out=$(run_role "$sm_home" report)
-  assert_contains "$out" "fm-role: user" "an inherited file with two directives must resolve to user"
-  assert_contains "$out" "malformed inherited role" "an inherited two-directive file must be named malformed"
-
-  # Revocation: the parent's role file disappears, so propagation removes the
-  # destination file and records the absence in the receipt.
-  printf 'maintainer %s\n' "${PUB_TARGET:-github.com/kunchenguid/firstmate}" > "$dst_config/firstmate-role"
-  rm "$src/firstmate-role"
-  FM_INHERITABLE_CONFIG=firstmate-role propagate_inheritable_config "$src" "$dst_config" \
-    || fail "revocation propagation of firstmate-role failed"
-  assert_absent "$dst_config/firstmate-role" "revocation did not remove the inherited role file"
-  assert_present "$receipt" "revocation dropped the receipt that proves absence"
-  [ "$(sed -n '4p' "$receipt")" = absent ] || fail "revocation did not record an absent receipt"
-  out=$(run_role "$sm_home" report)
-  assert_equals "fm-role: user (inherited)" "$out" "a revoked grant must resolve to user"
-
-  # Once revoked, a role file planted locally still has only the absent
-  # receipt to its name and grants nothing.
-  printf 'maintainer %s\n' "${PUB_TARGET:-github.com/kunchenguid/firstmate}" > "$dst_config/firstmate-role"
-  out=$(run_role "$sm_home" report)
-  assert_contains "$out" "fm-role: user" "a post-revocation self-plant must grant nothing"
-  assert_contains "$out" "unverified inherited grant" "a self-plant after revocation must be named unverified"
-  pass "secondmate home: inherited grants need a matching receipt; receipt-less and revoked grants are dead"
-}
-
-# The parent publishes its resolved role, not its raw file: a primary role
-# file the primary's own resolver rejects (symlinked or malformed) propagates
-# as revocation, never as a copied grant.
-test_secondmate_inherits_only_resolved_primary_role() {
-  local src dst_config sm_home out receipt scope bad
-  scope=${PUB_TARGET:-github.com/kunchenguid/firstmate}
-  src="$TMP_ROOT/resolved-src-home/config"
-  sm_home="$TMP_ROOT/resolved-sm"
-  dst_config="$sm_home/config"
-  mkdir -p "$src" "$dst_config" "$sm_home/state" "$sm_home/data"
-  : > "$sm_home/.fm-secondmate-home"
-  receipt="$dst_config/.fm-inherit-firstmate-role.generation"
-
-  for bad in symlink two-directives; do
-    rm -f "$src/firstmate-role"
-    printf '# operator note\nmaintainer %s\n' "$scope" > "$src/firstmate-role"
-    FM_INHERITABLE_CONFIG=firstmate-role propagate_inheritable_config "$src" "$dst_config" \
-      || fail "propagation of a valid primary grant failed"
-    out=$(run_role "$sm_home" report)
-    assert_equals "fm-role: maintainer $scope (inherited)" "$out" "a valid primary grant must be inherited"
-
-    rm -f "$src/firstmate-role"
-    case $bad in
-    symlink)
-      printf 'maintainer %s\n' "$scope" > "$TMP_ROOT/resolved-symlink-target"
-      ln -s "$TMP_ROOT/resolved-symlink-target" "$src/firstmate-role"
-      ;;
-    two-directives)
-      printf 'maintainer %s\nuser\n' "$scope" > "$src/firstmate-role"
-      ;;
-    esac
-    out=$(FM_HOME="$TMP_ROOT/resolved-src-home" FM_CONFIG_OVERRIDE="$src" "$ROLE" report 2>&1)
-    assert_contains "$out" "fm-role: user" "the $bad primary role file must resolve to user on the primary"
-    FM_INHERITABLE_CONFIG=firstmate-role propagate_inheritable_config "$src" "$dst_config" \
-      || fail "propagation of a rejected $bad primary role failed"
-    assert_absent "$dst_config/firstmate-role" "a rejected $bad primary role must not be copied downstream"
-    [ "$(sed -n '4p' "$receipt")" = absent ] || fail "a rejected $bad primary role must record an absent receipt"
-    out=$(run_role "$sm_home" report)
-    assert_equals "fm-role: user (inherited)" "$out" "a rejected $bad primary role must revoke the secondmate grant"
-  done
-  pass "secondmate home: a primary role its own resolver rejects propagates as revocation"
-}
-
 # --- delivery contract rendering --------------------------------------------
 
 test_dod_block_renders_and_bounds_consent() {
@@ -734,19 +585,6 @@ test_promote_gate_on_self_repo() {
   pass "fm-promote.sh: the self-repository gate governs promotion identically to spawn"
 }
 
-test_secondmate_spawn_refuses_consent_flag() {
-  local home out
-  home=$(make_role_home spawn-sm)
-  mkdir -p "$home/data/spawn-sm-c1"
-  printf 'You are a secondmate.\n' > "$home/data/spawn-sm-c1/brief.md"
-  rc=0
-  out=$(run_spawn "$home" spawn-sm-c1 "$home" --secondmate --mode no-mistakes --yolo off \
-    --upstream-consent github.com/a/b 2>&1) || rc=$?
-  [ "$rc" -ne 0 ] || fail "a secondmate charter must refuse a consent flag"
-  assert_contains "$out" "applies only to ship spawns" "a secondmate charter must refuse a consent flag"
-  pass "fm-spawn.sh: --upstream-consent is refused on secondmate charters"
-}
-
 # --- run --------------------------------------------------------------------
 
 test_report_default_and_local_grants
@@ -761,15 +599,11 @@ test_check_gh_default_outranks_upstream
 test_check_gh_resolved_base_selects_fork
 test_check_undeterminable_lineage_and_target_refuse
 test_check_task_consent_authorizes_one_task
-test_secondmate_cannot_self_grant
-test_secondmate_inheritance_receipt_lifecycle
-test_secondmate_inherits_only_resolved_primary_role
 test_dod_block_renders_and_bounds_consent
 test_brief_consent_flag_bounds
 test_brief_self_repo_pre_gate
 test_spawn_gate_on_self_repo
 test_spawn_consent_agreement
 test_promote_gate_on_self_repo
-test_secondmate_spawn_refuses_consent_flag
 
 echo "# all fm-self-repo-role tests passed"

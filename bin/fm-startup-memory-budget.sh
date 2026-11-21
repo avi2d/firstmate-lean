@@ -6,7 +6,7 @@
 #
 # `read` prints the one validated effective budget from
 # config/startup-memory-budget.  `report` prints the stable local estimate for
-# data/captain.md, data/captain-shared.md, and data/learnings.md together.
+# data/captain.md and data/learnings.md together.
 # Bootstrap owns default materialization; this command never creates or repairs
 # configuration, so an absent, malformed, symlinked, hardlinked, or otherwise
 # unsafe value is a concrete error rather than an inferred default.
@@ -43,7 +43,6 @@ report() {
     return 2
   fi
 
-
   printf 'estimator=ceil(UTF-8 bytes / 3) conservative-local-estimate\n'
   printf 'role=primary\n'
   printf 'effective_budget_tokens=%s\n' "$budget"
@@ -55,6 +54,7 @@ report() {
     bytes=$FM_STARTUP_MEMORY_MEASURE_BYTES
     tokens=$FM_STARTUP_MEMORY_MEASURE_TOKENS
     presence=$FM_STARTUP_MEMORY_MEASURE_PRESENCE
+    total=$((total + tokens))
     printf 'file=data/%s bytes=%s estimated_tokens=%s status=%s\n' \
       "$file" "$bytes" "$tokens" "$presence"
   done

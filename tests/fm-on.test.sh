@@ -113,6 +113,8 @@ shift 2
 case "$entry" in \'/*/bin/fm-remote-entrypoint.sh\') ;; *) exit 92 ;; esac
 case "${FM_FAKE_SSH_MODE:-normal}" in
   unreachable) exit 255 ;;
+  # dash drops the exported function the git-less cases override git with.
+  bash) exec bash -c "$entry $*" ;;
   ambiguous)
     sh -c "$entry $*"
     exit 255
@@ -400,8 +402,8 @@ case "${1:-}:${2:-}" in
 esac
 SH
 printf '#!/usr/bin/env bash\nexit 0\n' > "$DOCTOR_BIN/treehouse"
-printf '#!/usr/bin/env bash\nexit 0\n' > "$DOCTOR_BIN/claude"
-chmod +x "$DOCTOR_BIN/jq" "$DOCTOR_BIN/herdr" "$DOCTOR_BIN/tasks-axi" "$DOCTOR_BIN/treehouse" "$DOCTOR_BIN/claude"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$DOCTOR_BIN/pi"
+chmod +x "$DOCTOR_BIN/jq" "$DOCTOR_BIN/herdr" "$DOCTOR_BIN/tasks-axi" "$DOCTOR_BIN/treehouse" "$DOCTOR_BIN/pi"
 set +e
 out=$(HOME="$DOCTOR_HOME" PATH="$DOCTOR_BIN:/usr/bin:/bin:/usr/sbin:/sbin" "$ROOT/bin/fm-remote-doctor.sh" --backend herdr 2>&1)
 rc=$?
@@ -416,7 +418,7 @@ fi
 assert_contains "$out" "required herdr=$DOCTOR_BIN/herdr" "the remote doctor did not require herdr"
 assert_contains "$out" "required tasks-axi=$DOCTOR_BIN/tasks-axi" "the remote doctor did not require compatible tasks-axi"
 assert_contains "$out" "required treehouse=$DOCTOR_BIN/treehouse" "the remote doctor did not require treehouse"
-assert_contains "$out" "required harness=claude:$DOCTOR_BIN/claude" "the remote doctor did not require a verified harness"
+assert_contains "$out" "required harness=pi:$DOCTOR_BIN/pi" "the remote doctor did not require a verified harness"
 assert_not_contains "$out" 'required tools do not resolve' "a resolved required tool was still reported missing"
 pass "the remote doctor reports its required runtime tool set and optional tools"
 
@@ -476,7 +478,7 @@ out=$(
     builtin command "$@"
   }
   export -f command
-  fm_on ios fm-remote-doctor.sh 2>&1
+  FM_FAKE_SSH_MODE=bash fm_on ios fm-remote-doctor.sh 2>&1
 )
 set -e
 assert_contains "$out" 'mode=check' "the trusted doctor could not bootstrap while git was unavailable"
@@ -489,7 +491,7 @@ out=$(
     builtin command "$@"
   }
   export -f command
-  fm_on ios fm-remote-doctor.sh 2>&1
+  FM_FAKE_SSH_MODE=bash fm_on ios fm-remote-doctor.sh 2>&1
 )
 rc=$?
 set -e

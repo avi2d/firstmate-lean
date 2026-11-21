@@ -4,7 +4,8 @@
 // Usage:
 //   fm-extension.mjs bind <package-root> --adapter <name> [--adapter <name> ...]
 //     --trust-same-user-code [--consent <fact> ...] [--timeout-ms <milliseconds>]
-//   fm-extension.sh remote-bind <secondmate-id> <package-root> [bind options]
+//   fm-extension.mjs pack-transfer <package-root>
+//     | fm-on.sh --stdin <route> fm-extension.sh receive-transfer-bind [bind options]
 //   fm-extension.mjs retire-binding <extension-id>
 //     --if-binding-digest <sha256:digest>
 //   fm-extension.mjs retire-transfer <extension-id>
@@ -2592,7 +2593,7 @@ function usage() {
 
 Usage:
   bin/fm-extension.mjs bind <package-root> --adapter <name> [--adapter <name> ...] --trust-same-user-code [--consent <fact> ...] [--timeout-ms <milliseconds>]
-  bin/fm-extension.sh remote-bind <secondmate-id> <package-root> --adapter <name> --trust-same-user-code [bind options]
+  bin/fm-extension.mjs pack-transfer <package-root> | bin/fm-on.sh --stdin <route> fm-extension.sh receive-transfer-bind --adapter <name> --trust-same-user-code [bind options]
   bin/fm-extension.mjs retire-binding <extension-id> --if-binding-digest <sha256:digest>
   bin/fm-extension.mjs retire-transfer <extension-id> --if-transfer-digest <sha256:digest> --if-binding-digest <sha256:digest>
   bin/fm-extension.mjs list

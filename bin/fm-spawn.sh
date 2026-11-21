@@ -1560,7 +1560,7 @@ resolve_pi_executable() {
 # cwd for the run without rewriting ~/.pi/agent/trust.json.
 pi_supports_approve() {
   local executable=$1 help
-  help=$("$executable" --help 2>&1) || return 1
+  help=$(fm_run_timed 5 "$executable" --help 2>&1) || return 1
   # Pi prints "--approve, -a"; allow comma (and any non-token char) after the name.
   printf '%s\n' "$help" | grep -Eq -- '(^|[[:space:]])--approve([^[:alnum:]_-]|$)'
 }
@@ -2667,7 +2667,7 @@ else
         FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_projection_reclaim_task \
           "$HERDR_SES" "$HERDR_PRESENTATION_JOURNAL" "$ID" "$HERDR_LABEL_HOME" \
           "$HERDR_RECOVERY_WORKSPACE_ID" "$HERDR_RECOVERY_TAB_ID" "$HERDR_RECOVERY_PANE_ID" \
-          "$HERDR_PARENT_LABEL" "$W" "$PROJ_ABS"
+          "$W" "$PROJ_ABS"
         HERDR_RECLAIM_STATUS=$?
         set -e
         case "$HERDR_RECLAIM_STATUS" in
