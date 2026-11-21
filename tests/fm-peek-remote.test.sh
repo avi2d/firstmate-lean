@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# fm-peek remote-secondmate capture routing.
-#
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -33,18 +31,20 @@ setup_remote_home() {  # <name> -> echoes home dir with remote meta + registry
   local home="$TMP_ROOT/$1-$RANDOM"
   mkdir -p "$home/state" "$home/data"
   fm_write_meta "$home/state/rsm.meta" \
-    "window=remote:rsm" \
+    "window=fm-remote:w1:p1" \
     "endpoint_task_id=rsm" \
     "harness=pi" \
-    "kind=secondmate" \
-    "mode=secondmate" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "yolo=off" \
     "remote_host=remote-mac" \
+    "remote_route=exec-one" \
     "remote_root=/remote/root" \
     "remote_backend=herdr" \
     "remote_herdr_session=fm-remote" \
     "remote_target=fm-remote:w1:p1"
-  cat > "$home/data/secondmates.md" <<EOF
-- rsm - remote test domain (host: remote-mac; root: /remote/root; home: /remote/home; scope: remote testing; projects: alpha; added 2026-08-02)
+  cat > "$home/data/remote-homes.md" <<EOF
+- exec-one - remote test home (host: remote-mac; root: /remote/root; home: /remote/home; scope: remote testing; projects: alpha; added 2026-08-02)
 EOF
   printf '%s\n' "$home"
 }
@@ -59,11 +59,11 @@ test_remote_peek_reads_remote_pane() {
   out=$(env PATH="$fb:$PATH" \
     FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
     FM_SSH_BIN="$fb/fake-ssh" FM_FAKE_SSH_RC=0 \
-    FM_FAKE_REMOTE_CAPTURE='● the remote mate is mid-refactor' \
+    FM_FAKE_REMOTE_CAPTURE='● the remote worker is mid-refactor' \
     FM_FAKE_HERDR_TOUCHED="$touched" \
     "$PEEK" rsm 20 2>"$dir/err"); rc=$?
   expect_code 0 "$rc" "a healthy remote peek should succeed"
-  assert_contains "$out" "the remote mate is mid-refactor" \
+  assert_contains "$out" "the remote worker is mid-refactor" \
     "the remote pane tail should be printed"
   assert_not_contains "$out" "can't find session" \
     "a remote peek must not fall into a local session lookup"
@@ -85,10 +85,10 @@ test_remote_peek_unreachable_fails_loudly_without_death_claim() {
     "$PEEK" rsm >"$dir/out" 2>"$dir/err"; rc=$?
   err=$(cat "$dir/err")
   [ "$rc" -ne 0 ] || fail "an unreachable remote peek must exit nonzero"
-  assert_contains "$err" "remote pane of rsm on remote-mac" \
-    "the failure must name the remote mate and host"
-  assert_contains "$err" "not thereby dead" \
-    "an unreadable remote pane must not be presented as a dead mate"
+  assert_contains "$err" "could not read the pane of rsm on remote-mac" \
+    "the failure must name the remote worker and host"
+  assert_not_contains "$err" "dead" \
+    "an unreadable remote pane must not be presented as a dead worker"
   pass "fm-peek remote: an unreachable host fails loudly without a false death claim"
 }
 
@@ -110,9 +110,9 @@ test_remote_scrollback_peek_is_refused_instead_of_returning_the_viewport() {
   assert_not_contains "$out" "the remote viewport" \
     "a remote --scrollback peek must not pass the remote viewport off as scrollback"
   assert_contains "$err" "--scrollback cannot read the remote pane of rsm on remote-mac" \
-    "the refusal must name the flag, the remote mate, and the host"
+    "the refusal must name the flag, the remote worker, and the host"
   [ ! -s "$touched" ] || fail "the local Herdr adapter was consulted for a remote target"
-  pass "fm-peek remote: --scrollback is refused naming the mate and host"
+  pass "fm-peek remote: --scrollback is refused naming the worker and host"
 }
 
 test_remote_peek_reads_remote_pane
