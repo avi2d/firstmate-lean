@@ -908,6 +908,20 @@ fm_write_meta() {
   done
 }
 
+# fm_write_herdr_meta <file> <session>:<workspace>:<pane> <key=val> ...: write a
+# meta bound to its task (the file's basename) on the Herdr endpoint the window
+# names, as cleanup and delivery require.
+fm_write_herdr_meta() {
+  local file=$1 window=$2 id session pane
+  shift 2
+  id=$(basename "$file" .meta)
+  session=${window%%:*}
+  pane=${window#*:}
+  fm_write_meta "$file" "window=$window" "backend=herdr" "endpoint_task_id=$id" \
+    "herdr_session=$session" "herdr_workspace_id=${pane%%:*}" \
+    "herdr_tab_id=${pane%%:*}:t-$id" "herdr_pane_id=$pane" "$@"
+}
+
 # fm_write_secondmate_meta <file> <home> [window] [projects] [harness]: write the
 # standard kind=secondmate meta block used across the secondmate suites. Window
 # defaults to firstmate:fm-<id>, projects defaults to alpha, and harness defaults

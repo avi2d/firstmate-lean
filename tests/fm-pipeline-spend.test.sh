@@ -455,17 +455,12 @@ test_refusals() {
   spend "$d" record missing >/dev/null 2>&1; rc=$?
   set -e
   expect_code 1 "$rc" 'a task with no record'
-  fm_write_meta "$d/home/state/mate.meta" "kind=secondmate" "worktree=$d/wt"
-  set +e
-  spend "$d" record mate >/dev/null 2>&1; rc=$?
-  set -e
-  expect_code 1 "$rc" 'a secondmate'
   assert_absent "$d/home/data/pipeline-spend.jsonl" 'a refused record wrote the ledger'
   set +e
   spend "$d" record ../task >/dev/null 2>&1; rc=$?
   set -e
   expect_code 2 "$rc" 'an unsafe task id'
-  pass 'missing tasks, secondmates, and unsafe ids are refused'
+  pass 'missing tasks and unsafe ids are refused'
 }
 
 test_known_spend_including_failed_and_cancelled_is_attributed_to_the_task

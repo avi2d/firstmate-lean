@@ -312,15 +312,14 @@ fm_send_resolve_target() { # <raw-target>
       TARGET_SELECTOR=1
       TARGET_REMOTE_ID=$id
       TARGET_REMOTE_HOST=$(fm_meta_get "$meta" remote_host)
-      TARGET_REMOTE_FM_ON_ROUTE=$id
-        TARGET_REMOTE_ROUTE=$(fm_meta_get "$meta" remote_route)
-        [ -n "$TARGET_REMOTE_ROUTE" ] || {
-          echo "error: task $id records a remote host but no execution-home route (tried meta=$meta); refusing a steer with no delivery plane" >&2
-          return 1
-        }
-        TARGET_REMOTE_FM_ON_ROUTE=$TARGET_REMOTE_ROUTE
-        TARGET_REMOTE_NOUN=worker
-        TARGET_REMOTE_CONTROL=fm-remote-worker-control.sh
+      TARGET_REMOTE_ROUTE=$(fm_meta_get "$meta" remote_route)
+      [ -n "$TARGET_REMOTE_ROUTE" ] || {
+        echo "error: task $id records a remote host but no execution-home route (tried meta=$meta); refusing a steer with no delivery plane" >&2
+        return 1
+      }
+      TARGET_REMOTE_FM_ON_ROUTE=$TARGET_REMOTE_ROUTE
+      TARGET_REMOTE_NOUN=worker
+      TARGET_REMOTE_CONTROL=fm-remote-worker-control.sh
       RESOLUTION_TRIED="meta=$meta; placement=remote"
       return 0
     fi
@@ -660,7 +659,7 @@ if [ -n "$RESOLVE_KEYS" ]; then
   [ "$RESOLVE_CLOSE_MAX" -ge 0 ] || RESOLVE_CLOSE_MAX=0
   resolve_excerpt=$(printf '%s' "$*" | tr '\n\r\t' '   ' | LC_ALL=C tr -d '\000-\037\177')
   for k in $RESOLVE_STATUS_KEYS; do
-  probe="answered: $resolve_excerpt"
+    probe="answered: $resolve_excerpt"
     if ! _fm_decision_key_transition_allowed "$k" "$probe"; then
       echo "error: --resolve-key '$k' cannot take effect: this key is reserved for its owning library, and this send cannot produce a close note that library's fold will accept. Refusing rather than writing a silent no-op; nothing was sent." >&2
       exit 1
@@ -692,7 +691,7 @@ fm_send_close_resolved_keys() { # <answer-text>
   local note=$1 k close_note append_rc still manual_close_cmd close_lines=() i=0
   note=$(printf '%s' "$note" | tr '\n\r\t' '   ' | LC_ALL=C tr -d '\000-\037\177')
   for k in $RESOLVE_STATUS_KEYS; do
-  close_note="answered: $note"
+    close_note="answered: $note"
     fm_cap_line_var "resolved [key=$k]: $close_note" "$RESOLVE_CLOSE_MAX"
     close_lines+=("$(status_stamp_line "$FM_LINE_CAP_LINE")")
   done

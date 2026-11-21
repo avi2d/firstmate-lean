@@ -136,7 +136,7 @@ test_spawn_records_the_home_before_launch() {  # <label> <id> <fm-spawn args...>
   proj="$case_dir/project"
   wt="$case_dir/wt"
   fakebin=$(fm_test_make_spawn_fakebin "$case_dir/fake")
-  fm_test_spawn_home "$home" codex
+  fm_test_spawn_home "$home" pi
   fm_git_worktree "$proj" "$wt" "wt-$id"
   fm_test_spawn_brief "$home" "$id"
   mkdir -p "$home/user-home/.claude" "$case_dir/live"

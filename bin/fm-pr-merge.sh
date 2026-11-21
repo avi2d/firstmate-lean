@@ -482,7 +482,8 @@ gitlab_verify_mergeable() {
         "head=" + ((.sha // "") | tostring),
         "pipeline_sha=" + ((.head_pipeline.sha // "") | tostring),
         "pipeline_status=" + ((.head_pipeline.status // "") | tostring),
-        "pipeline_absent=" + (if has("head_pipeline") and .head_pipeline == null then "true" else "false" end)      else
+        "pipeline_absent=" + (if has("head_pipeline") and .head_pipeline == null then "true" else "false" end)
+      else
         error("merge request payload is not an object")
       end' 2>/dev/null); then
     echo "error: could not read the GitLab merge request state before merging" >&2
@@ -508,7 +509,7 @@ FIELDS
   # Every field named exactly once and no unnamed line: a value carrying a
   # newline would split into a line no name matches, so it is refused here
   # rather than silently truncated into a value a check could accept.
-  if [ "$named" -ne 9 ] || [ "$total" -ne 9 ]; then
+  if [ "$named" -ne 8 ] || [ "$total" -ne 8 ]; then
     echo "error: could not read the GitLab merge request state before merging" >&2
     return 1
   fi

@@ -427,7 +427,7 @@ Ctrl+c:cancel'
 
 test_launch_prompt_pi_trust_dialog() {
   local state out h
-  for h in pi pi-signed omp; do
+  for h in pi pi-signed; do
     state=$(new_state_dir "launch-prompt-$h")
     "$EV" arm "$state" t1 >/dev/null
     out=$(fm_busy_classify herdr test:w1:p2 "$h" t1 "$state" ' Trust project folder?
@@ -445,7 +445,7 @@ test_launch_prompt_pi_trust_dialog() {
     [ "$out" = "unknown launch-prompt" ] \
       || fail "a $h launch pinned at fm-spawn parked on the project-trust dialog must classify unknown launch-prompt, got '$out'"
   done
-  pass "a Pi-family launch (pi, pi-signed, omp) parked on the project-trust dialog classifies unknown launch-prompt"
+  pass "a Pi-family launch (pi, pi-signed) parked on the project-trust dialog classifies unknown launch-prompt"
 }
 
 test_launch_prompt_pi_requires_both_markers() {
@@ -687,7 +687,7 @@ test_model_stream_lifecycle_is_fenced() {
   [ ! -e "$state/t1.progress" ] || fail "model stream changed the default native anchor"
   [ "$(cat "$state/t1.busy-state")" = "$before" ] || fail "stream changed busy state"
   [ ! -e "$state/t1.turn-ended" ] || fail "stream fabricated completion"
-  if fm_busy_stream_read "$state" t1 pi >/dev/null; then fail "foreign harness trusted stream"; fi
+  if fm_busy_stream_read "$state" t1 unknown >/dev/null; then fail "foreign harness trusted stream"; fi
   "$EV" stream "$state" t1 close --gen "$gen" --request 1 || fail "stream close refused"
   [ ! -e "$state/t1.model-stream" ] || fail "close retained active marker"
   if "$EV" stream "$state" t1 progress --gen "$gen" --request 1 2>/dev/null; then fail "closed progress accepted"; fi

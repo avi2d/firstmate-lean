@@ -156,15 +156,22 @@ SH
 
 
 test_competing_pi_cannot_take_a_live_session_lock() {
-  local home="$TMP_ROOT/competing" fixture out status=0
+  local home="$TMP_ROOT/competing" fixture out status=0 holder_script child_script
   fixture=$(fm_fakebin "$TMP_ROOT/pi")
   ln -s /bin/bash "$fixture/pi"
   mkdir -p "$home/state"
-  FM_HOME="$home" LOCK="$ROOT/bin/fm-lock.sh" "$fixture/pi" -c '
-    "$LOCK" > "$FM_HOME/state/result" 2>&1 || exit
-    printf "%s\n" "$$" > "$FM_HOME/state/ready"
-    while [ ! -e "$FM_HOME/state/release" ] && [ "$SECONDS" -lt 15 ]; do sleep 0.05; done
-  ' &
+  holder_script="$TMP_ROOT/competing-holder.sh"
+  child_script="$TMP_ROOT/competing-child.sh"
+  cat > "$holder_script" <<'SH'
+"$LOCK" > "$FM_HOME/state/result" 2>&1 || exit
+printf "%s\n" "$$" > "$FM_HOME/state/ready"
+while [ ! -e "$FM_HOME/state/release" ] && [ "$SECONDS" -lt 15 ]; do sleep 0.05; done
+SH
+  cat > "$child_script" <<'SH'
+"$1"
+exit "$?"
+SH
+  FM_HOME="$home" LOCK="$ROOT/bin/fm-lock.sh" "$fixture/pi" "$holder_script" &
   local holder=$!
   local n=0
   while [ ! -s "$home/state/ready" ] && kill -0 "$holder" 2>/dev/null && [ "$n" -lt 80 ]; do
@@ -176,7 +183,7 @@ test_competing_pi_cannot_take_a_live_session_lock() {
     wait "$holder" || true
     fail "the first Pi could not acquire its lock: $(cat "$home/state/result")"
   fi
-  out=$(FM_HOME="$home" "$fixture/pi" -c '"$1"; rc=$?; exit "$rc"' _ "$ROOT/bin/fm-lock.sh" 2>&1) || status=$?
+  out=$(FM_HOME="$home" "$fixture/pi" "$child_script" "$ROOT/bin/fm-lock.sh" 2>&1) || status=$?
   local recorded
   recorded=$(<"$home/state/.lock")
   : > "$home/state/release"
@@ -185,7 +192,7 @@ test_competing_pi_cannot_take_a_live_session_lock() {
   assert_contains "$out" "another live firstmate session holds the lock" "the second Pi did not see the live owner"
   [ "$recorded" = "$holder" ] || fail "the second Pi changed the lock to $recorded"
   status=0
-  out=$(FM_HOME="$home" "$fixture/pi" -c '"$1"; rc=$?; exit "$rc"' _ "$ROOT/bin/fm-lock.sh" 2>&1) || status=$?
+  out=$(FM_HOME="$home" "$fixture/pi" "$child_script" "$ROOT/bin/fm-lock.sh" 2>&1) || status=$?
   expect_code 0 "$status" "the next Pi must reclaim a lock after the owner exits: $out"
   [ "$(<"$home/state/.lock")" != "$holder" ] || fail "reclaim left the original Pi pid in the lock"
   pass "session-lock: a second Pi cannot steal the lock but can reclaim it after the owner exits"

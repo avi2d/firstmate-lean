@@ -95,7 +95,7 @@ record_pi_state() {  # <state-dir> <id> <busy|idle>
 # over-age spawn record, so the completed-turn bound owns the ladder and no
 # poll reports a death. The busy route writes neither the stale suppressor nor
 # the escalation counter, on either watcher, by both files' own design.
-BUSY_ENV=(FM_FAKE_TMUX_CURRENT_COMMAND=grok FM_BUSY_TURN_MAX_SECS=1)
+BUSY_ENV=(FM_FAKE_PANE_CURRENT_COMMAND=grok FM_BUSY_TURN_MAX_SECS=1)
 IDLE_CREW='state: idle · source: none'
 
 parity_run() {  # <dir> <watch> <label> <crew-state> <cap-assignment> [extra-env...]
@@ -113,7 +113,7 @@ parity_run() {  # <dir> <watch> <label> <crew-state> <cap-assignment> [extra-env
   # continues the same episode. Both watchers are driven the same way, so the
   # comparison stays like-for-like.
   env \
-    FM_FAKE_TMUX_WINDOW="$PARITY_WINDOW" FM_FAKE_TMUX_CAPTURE="$dir/pane.txt" \
+    FM_FAKE_PANE_WINDOW="$PARITY_WINDOW" FM_FAKE_PANE_CAPTURE="$dir/pane.txt" \
     FM_STATE_OVERRIDE="$dir/state" FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
     FM_FAKE_CREW_STATE="$crew" FM_WATCH_HANDLING_SUCCESSOR=1 \
     FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
@@ -165,7 +165,7 @@ run_scenario() {  # <watch> <tag> [cap-env] [rounds]: drive the stuck-pane scena
   : > "$dir/trace"
 
   printf 'idle wedged content' > "$dir/pane.txt"
-  printf 'window=%s\nkind=ship\nharness=pi\n' "$PARITY_WINDOW" > "$state/wedge-cap-parity.meta"
+  printf 'window=%s\nbackend=herdr\nkind=ship\nharness=pi\n' "$PARITY_WINDOW" > "$state/wedge-cap-parity.meta"
   record_pi_state "$state" wedge-cap-parity busy
   backdate_meta "$state/wedge-cap-parity.meta"
   printf 'working: still wedged\n' > "$statusf"

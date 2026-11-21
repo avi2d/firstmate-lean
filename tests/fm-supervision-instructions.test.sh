@@ -52,7 +52,7 @@ test_pi_snippet_uses_effective_extension_path() {
 
 test_literal_paths_in_rendered_snippets() {
   local name home harness out
-  for name in normal 'R&D "double" '''single''' home'; do
+  for name in normal "R&D \"double\" 'single' home"; do
     home="$TMP_ROOT/$name"
     for harness in pi pi-signed; do
       out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$home" "$RENDER" --harness "$harness")

@@ -1,28 +1,6 @@
 #!/usr/bin/env bash
-# Shared durable, supervisor-facing outcome publication for a confirmed merge.
-#
-# Both a merge performed by this home and a merge detected by its existing poll
-# use this operation, so neither outcome depends on an agent remembering it.
-# This operation publishes the poll's local actionable row; the watcher
-# immediately delivers that row as observation handling, not a second outcome
-# path.
-#
-# The destination is the home's role, never the caller's choice:
-#   - a secondmate home reports upward on its parent channel;
-#   - a main home reports to the captain through the durable wake queue.
-# A poll observed in a secondmate home also receives a local durable wake after
-# the upward write, so the mate can handle its own poll observation.
-# No new state file and no new transport are involved.
-#
-# Normal operation deduplicates the task's latest canonical PR identity through
-# the merge-notification marker owned by bin/fm-pr-lib.sh. Main-home wake keys
-# also include that PR identity so distinct PRs for a reused task remain
-# distinct in queue presentation. The outcome is published before the marker
-# is committed, so a failed commit stays eligible for at-least-once retry and
-# may rarely duplicate rather than leave a merge silent.
-#
-# Sourced by bin/fm-pr-merge.sh, bin/fm-watch.sh, and tests. No side effects on
-# source beyond its sourced libraries.
+# The outcome is published before the merge-notification marker is committed,
+# so a failed commit retries and may duplicate rather than leave a merge silent.
 
 _FM_MERGE_OUTCOME_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=bin/fm-pr-lib.sh
@@ -36,8 +14,7 @@ FM_MERGE_OUTCOME_ALREADY_RECORDED=false
 # <origin> says who observed the merge, because that decides whether the
 # existing poll path also needs a local wake:
 #   self - this home performed the merge.
-#   poll - this home's merge poll detected the merge, so the canonical outcome
-#          also wakes this home after any upward hop needed by a secondmate.
+#   poll - this home's merge poll detected the merge.
 # Optional <authority> is away, attended, or external (the retired yolo and
 # away-grant values are still accepted for a persisted authority written before
 # the words model landed). Away, external, and the retired tags are appended to
