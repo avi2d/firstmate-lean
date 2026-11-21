@@ -984,6 +984,10 @@ FIELDS
     return 1
   fi
 
+  if [ "$state" = MERGED ]; then
+    return 4
+  fi
+
   draft=$(fm_pr_json_draft_state "$json")
   if ! fm_pr_head_valid "$live_head"; then
     echo "error: could not read the GitHub pull request head commit before merging" >&2
@@ -1155,6 +1159,10 @@ github_update_behind_branch() {
   while :; do
     status=0
     github_verify_mergeable 2> "$attempt_error" || status=$?
+    if [ "$status" -eq 4 ]; then
+      rm -f "$attempt_error"
+      return 4
+    fi
     if [ -z "$FM_PR_GITHUB_LIVE_HEAD" ]; then
       cat "$attempt_error" >&2
       rm -f "$attempt_error"
@@ -2651,7 +2659,13 @@ case "$PROVIDER" in
         echo "error: $URL is behind its base; updating its source branch requires explicit --update-branch consent on this authorized merge request (the update remains if new checks prevent merging)" >&2
         exit 1
       fi
-      github_update_behind_branch || exit 1
+      update_status=0
+      github_update_behind_branch || update_status=$?
+      if [ "$update_status" -eq 4 ]; then
+        printf 'verified: %s is merged after the branch update\n' "$URL"
+        exit 0
+      fi
+      [ "$update_status" -eq 0 ] || exit 1
     fi
     if [ -n "$UPSTREAM_SYNC_HEAD" ] && [ "$UPSTREAM_SYNC_HEAD" != "$FM_PR_MERGE_HEAD" ]; then
       printf 'error: refusing to merge %s: its head moved from %s, whose upstream sync classification was read, to %s; retry so the new head is classified\n' \
