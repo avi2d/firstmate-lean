@@ -790,18 +790,16 @@ test_fleet_sync_timeout_is_computed_before_launch() {
 }
 
 make_routine_bootstrap_fixture() {
-  local case_dir=$1 fakebin root home sm c1
+  local case_dir=$1 fakebin root home
   root="$case_dir/root"
   home="$case_dir/home"
-  sm="$case_dir/sm"
   fm_git_identity
-  mkdir -p "$home/config" "$home/state"
+  mkdir -p "$home/config" "$home/state" "$home/data"
   printf '%s\n' pi > "$home/config/crew-harness"
-  printf '%s\n' '{"rules":[{"when":"normal work","use":{"harness":"codex"}}],"default":{"harness":"claude","effort":"low"}}' \
+  printf '%s\n' '{"rules":[{"when":"normal work","use":{"harness":"pi-signed"}}],"default":{"harness":"pi","effort":"low"}}' \
     > "$home/config/crew-dispatch.json"
   git init -q -b main "$root"
   {
-    printf '%s\n' '.fm-secondmate-home'
     printf '%s\n' 'config/crew-harness'
     printf '%s\n' 'config/crew-dispatch.json'
     printf '%s\n' 'config/startup-memory-budget'
@@ -812,15 +810,6 @@ make_routine_bootstrap_fixture() {
   printf '%s\n' 'skill' > "$root/.agents/skills/example.md"
   git -C "$root" add -A
   git -C "$root" commit -qm initial
-  c1=$(git -C "$root" rev-parse HEAD)
-  git -C "$root" worktree add -q --detach "$sm" "$c1"
-  printf '%s\n' sm > "$sm/.fm-secondmate-home"
-  {
-    printf 'window=bootstrap-fixture:w1:p1\nbackend=herdr\n'
-    printf 'kind=secondmate\n'
-    printf 'harness=pi\n'
-    printf 'home=%s\n' "$sm"
-  } > "$home/state/sm.meta"
   fakebin=$(make_fake_toolchain "$case_dir")
   add_real_jq "$fakebin"
   printf '%s|%s|%s\n' "$root" "$home" "$fakebin"
@@ -921,15 +910,9 @@ SH
     FM_BOOTSTRAP_NETWORK_LOCK_PID=111111 FM_FAKE_FLEET_SYNC_STARTED_MARKER="$marker" \
     "$ROOT/bin/fm-bootstrap.sh")
   assert_absent "$marker" "a stale worker refreshed project clones after lock handoff"
-  assert_contains "$out" "changed before dead-secondmate relaunch" \
-    "the stale worker did not report the refused liveness sweep"
-  assert_contains "$out" "changed before secondmate convergence" \
-    "the stale worker did not report the refused convergence sweep"
-  assert_contains "$out" "changed before pending handoff delivery" \
-    "the stale worker did not report the refused handoff sweep"
   assert_contains "$out" "changed before project clone refresh" \
     "the stale worker did not report the refused clone refresh"
-  pass "bootstrap: every deferred mutating sweep rechecks fleet-lock ownership"
+  pass "bootstrap: the deferred clone refresh rechecks fleet-lock ownership"
 }
 
 # The verdict costs three subprocesses, so a caller that already has it can hand
@@ -962,9 +945,6 @@ test_network_phases_record_per_step_elapsed_times() {
   # A real clone with a real origin, so fm-fleet-sync.sh genuinely iterates it.
   fm_git_init_commit "$case_dir/home/projects/alpha"
   fm_git_add_origin "$case_dir/home/projects/alpha" "$case_dir/alpha-origin"
-  # A secondmate the liveness sweep must account for. Whatever verdict it reaches
-  # is owned elsewhere; what matters here is that the step is measured.
-  fm_write_secondmate_meta "$case_dir/home/state/mate-a.meta" "$case_dir/home"
 
   log="$case_dir/timings.tsv"
   PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$ROOT" \
@@ -974,12 +954,7 @@ test_network_phases_record_per_step_elapsed_times() {
 
   assert_present "$log" "the network phase recorded no elapsed times at all"
   assert_timing_record "$log" phase gh-auth '' "the GitHub auth probe was not timed"
-  assert_timing_record "$log" phase secondmate-liveness '' "the dead-secondmate relaunch sweep was not timed"
-  assert_timing_record "$log" phase secondmate-sync '' "the secondmate convergence sweep was not timed"
-  assert_timing_record "$log" phase handoff-delivery '' "the pending handoff sweep was not timed"
   assert_timing_record "$log" phase fleet-sync '' "the project clone refresh was not timed"
-  assert_timing_record "$log" secondmate liveness mate-a \
-    "the liveness sweep was not attributed to the individual secondmate it checked"
   assert_timing_record "$log" clone sync alpha \
     "the clone refresh was not attributed to the individual clone it refreshed"
 
@@ -997,7 +972,7 @@ test_network_phases_record_per_step_elapsed_times() {
     FM_BOOTSTRAP_NETWORK_LOCK_PID=$$ \
     "$ROOT/bin/fm-bootstrap.sh" >/dev/null 2>&1
   assert_absent "$log" "a run that never asked for timings recorded them anyway"
-  pass "bootstrap: each deferred network phase, secondmate, and clone records its own elapsed time"
+  pass "bootstrap: each deferred network phase and clone records its own elapsed time"
 }
 
 test_tasks_axi_verdict_handoff_is_consumed_once() {

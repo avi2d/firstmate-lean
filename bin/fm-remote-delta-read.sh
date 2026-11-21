@@ -10,7 +10,7 @@ FAST_WINDOW_SECONDS=2
 die() { printf 'error: %s\n' "$1" >&2; exit 1; }
 usage() {
   cat <<'EOF'
-Blocking, non-destructive delta read for an execution home’s append-only log.
+Blocking, non-destructive delta read for the append-only log of an execution home.
 
 Usage:
   fm-remote-delta-read.sh <relative-log> <offset> <prefix-sha256> [wait-seconds]

@@ -14,19 +14,13 @@
 #   4. The composer pre-check is advisory: visibly pending text skips the ring
 #      with a notice, and the steer is still durably sent (exit 0).
 #   5. A failed doorbell is still a sent steer (exit 0, record durable): the
-#      watcher's re-ring ladder owns delivery from the record on. A
-#      fire-and-forget record whose ring did not land is owed one retry ring.
+#      watcher's re-ring ladder owns delivery from the record on.
 #   6. Carve-outs keep the typed plane: a leading "/" (any harness), a leading
 #      an explicit Herdr target, or the --key path.
-#   7. A marked secondmate steer carries its marker + corr token in the record
-#      body, and the pending-reply expectation is marked delivered at enqueue.
-#   8. Pending-reply bookkeeping failure after enqueue never reports a
-#      retryable send failure that could duplicate the durable instruction.
-#   9. An unwritable inbox is a real local failure: nonzero exit, nothing
-#      typed, and a just-created pending-reply expectation is discarded.
-#  10. An empty or whitespace-only text steer is refused before anything is
-#      marked, recorded, or typed - on the marked secondmate path that means
-#      no marker-only record and no pending-reply expectation.
+#   7. An unwritable inbox is a real local failure: nonzero exit, nothing
+#      typed.
+#   8. An empty or whitespace-only text steer is refused before anything is
+#      recorded or typed.
 # Every case below that passes a literal `$...` message quotes it on purpose
 # (the point is sending an unexpanded `$` line), so SC2016 is disabled.
 # shellcheck disable=SC2016
@@ -34,8 +28,6 @@ set -u
 
 # shellcheck source=tests/fixtures.sh
 . "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
-# shellcheck source=/dev/null
-. "$ROOT/bin/fm-marker-lib.sh"
 
 SEND="$ROOT/bin/fm-send.sh"
 
@@ -62,7 +54,7 @@ setup_case() { # <name> [harness] -> echoes case dir with home/state + t1 meta
   dir="$TMP_ROOT/$name"
   mkdir -p "$dir/home/state"
   make_stubs "$dir" >/dev/null
-  fm_write_meta "$dir/home/state/t1.meta" "window=sess:w1:p1" "kind=ship" "harness=$harness"
+  fm_write_herdr_meta "$dir/home/state/t1.meta" "sess:w1:p1" "kind=ship" "harness=$harness"
   printf '%s\n' "$dir"
 }
 
@@ -115,10 +107,10 @@ test_deep_home_doorbell_stays_short() {
   run_send "$shallow" "$shallow/send.err" -- t1 "please continue" || fail "the shallow-home send failed"
   shallow_typed=$(cat "$shallow/send.log")
   deep="$TMP_ROOT/deep-home"
-  home="$deep/one/two/three/four/five/six/seven/eight-secondmate-homes-nest-under-long-worktree-paths"
+  home="$deep/one/two/three/four/five/six/seven/eight-homes-nest-under-long-worktree-paths"
   mkdir -p "$home/state"
   make_stubs "$deep" >/dev/null
-  fm_write_meta "$home/state/t1.meta" "window=sess:w1:p1" "kind=ship" "harness=pi"
+  fm_write_herdr_meta "$home/state/t1.meta" "sess:w1:p1" "kind=ship" "harness=pi"
   err="$deep/send.err"
   env PATH="$deep/fakebin:$PATH" \
     FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SEND_LOG="$deep/send.log" \
@@ -209,56 +201,6 @@ test_failed_ring_is_still_sent() {
   pass "fm-send inbox: a failed doorbell is still a durably sent steer"
 }
 
-# Contract: a fire-and-forget record stays outside the re-ring ladder, so a
-# ring that did not land at enqueue is owed exactly one retry by the watcher.
-test_fire_and_forget_unlanded_ring_owes_one_retry() {
-  local dir err rc
-  dir=$(setup_case faf-retry)
-  mkdir -p "$dir/home/config"
-  : > "$dir/home/config/wait-no-turns"
-  err="$dir/send.err"
-  # The stub lists only window fm-t1, so the secondmate takes it over.
-  rm -f "$dir/home/state/t1.meta"
-  fm_write_secondmate_meta "$dir/home/state/domain.meta" "$dir/home" "sess:w1:p1" alpha pi
-  run_send "$dir" "$err" FM_FAKE_HERDR_COMPOSER=pending -- \
-    fm-domain --fire-and-forget 0123456789abcdef "reconcile your books"; rc=$?
-  expect_code 0 "$rc" "a skipped fire-and-forget ring is still a sent steer"
-  [ "$(cat "$dir/home/state/domain.inbox/.retry-ring" 2>/dev/null)" = 001.msg ] \
-    || fail "a skipped fire-and-forget ring did not owe its one retry"
-  assert_contains "$(cat "$err")" "the watcher will ring it once more" \
-    "the skip notice should promise exactly one retry"
-
-  run_send "$dir" "$err" -- fm-domain --fire-and-forget 1123456789abcdef "reconcile again"; rc=$?
-  expect_code 0 "$rc" "a rung fire-and-forget steer should succeed"
-  [ "$(cat "$dir/home/state/domain.inbox/.retry-ring" 2>/dev/null)" = 001.msg ] \
-    || fail "a ring that landed must not owe a retry for its own record"
-
-  dir=$(setup_case ordinary-no-retry)
-  err="$dir/send.err"
-  run_send "$dir" "$err" FM_FAKE_HERDR_COMPOSER=pending -- t1 "ordinary steer"
-  [ ! -e "$dir/home/state/t1.inbox/.retry-ring" ] \
-    || fail "an ordinary record rides the ladder and must not owe a separate retry"
-  pass "fm-send inbox: a fire-and-forget ring that did not land owes one retry ring"
-}
-
-# Without the flag a skipped fire-and-forget ring is not owed a retry.
-test_fire_and_forget_retry_stays_off_without_the_flag() {
-  local dir err rc
-  dir=$(setup_case faf-retry-off)
-  err="$dir/send.err"
-  [ ! -e "$dir/home/config/wait-no-turns" ]
-  rm -f "$dir/home/state/t1.meta"
-  fm_write_secondmate_meta "$dir/home/state/domain.meta" "$dir/home" "sess:w1:p1" alpha pi
-  run_send "$dir" "$err" FM_FAKE_HERDR_COMPOSER=pending -- \
-    fm-domain --fire-and-forget 0123456789abcdef "reconcile your books"; rc=$?
-  expect_code 0 "$rc" "a skipped fire-and-forget ring is still a sent steer"
-  [ ! -e "$dir/home/state/domain.inbox/.retry-ring" ] \
-    || fail "an absent flag still owed a fire-and-forget retry"
-  assert_contains "$(cat "$err")" "the watcher will re-ring" \
-    "an absent flag should keep the ordinary re-ring notice"
-  pass "fm-send inbox: without config/wait-no-turns a fire-and-forget ring is not retried"
-}
-
 test_harness_invocations_stay_typed() {
   local dir err typed
   # A slash command must reach the harness's own parser, on any harness.
@@ -300,76 +242,6 @@ test_key_path_never_touches_inbox() {
   pass "fm-send planes: the --key lifecycle path never touches the inbox"
 }
 
-test_secondmate_marker_and_enqueue_delivery() {
-  local dir err body corr pr_rec delivered
-  dir=$(setup_case secondmate)
-  err="$dir/send.err"
-  fm_write_secondmate_meta "$dir/home/state/domain.meta" "$dir/home" "sess:w1:p1"
-  run_send "$dir" "$err" -- fm-domain "please summarize fleet health" ||
-    fail "a secondmate steer should succeed"
-  body=$(record_body _ "$dir/home/state/domain.inbox/001.msg")
-  case "$body" in
-  "$FM_FROMFIRST_MARK"corr=*) : ;;
-  *) fail "the recorded body lost the from-firstmate marker/corr framing:"$'\n'"$body" ;;
-  esac
-  corr=$(printf '%s' "$body" | grep -oE 'corr=[a-f0-9]{16}' | head -1 | cut -d= -f2)
-  [ -n "$corr" ] || fail "no corr token in the recorded body"
-  pr_rec="$dir/home/state/pending-replies/$corr"
-  [ -f "$pr_rec" ] || fail "no pending-reply expectation was recorded at $pr_rec"
-  delivered=$(grep '^delivered_epoch=' "$pr_rec" | cut -d= -f2)
-  [ -n "$delivered" ] || fail "enqueue IS delivery: delivered_epoch should be set at enqueue time:"$'\n'"$(cat "$pr_rec")"
-  case "$(cat "$dir/send.log")" in
-  *"summarize fleet health"*) fail "the marked payload was typed" ;;
-  esac
-  pass "fm-send inbox: a secondmate steer records marker+corr in the body and is delivered at enqueue"
-}
-
-test_post_enqueue_bookkeeping_failure_is_not_retryable() {
-  local dir err rc rec body
-  dir=$(setup_case bookkeeping-failure)
-  err="$dir/send.err"
-  fm_write_secondmate_meta "$dir/home/state/domain.meta" "$dir/home" "sess:w1:p1"
-  cat >"$dir/fakebin/mv" <<'SH'
-#!/usr/bin/env bash
-set -u
-source_arg=${@: -2:1}
-target_arg=${@: -1}
-if [ "${FM_FAIL_DELIVERY_CONFIRM:-0}" = 1 ] \
-  && grep -q '^confirmed=' "$source_arg" 2>/dev/null; then
-  # Simulate losing both the delivery commit and its prepared recovery marker.
-  rm -f "$target_arg"
-  exit 1
-fi
-exec /bin/mv "$@"
-SH
-  chmod +x "$dir/fakebin/mv"
-
-  run_send "$dir" "$err" FM_FAIL_DELIVERY_CONFIRM=1 -- domain "durable once"
-  rc=$?
-  # The durable record IS the delivery: even with the commit AND its recovery
-  # marker both lost, the steer was delivered, so fm-send must not signal a
-  # status that invites a resend (a nonzero would make automated callers
-  # enqueue the same instruction again under a new sequence). The degradation
-  # surfaces as its own distinct do-not-resend condition instead.
-  expect_code 0 "$rc" "a delivered steer must not report a resend-inviting failure over lost bookkeeping"
-  rec="$dir/home/state/domain.inbox/001.msg"
-  [ -f "$rec" ] || fail "bookkeeping failure test did not durably enqueue the steer"
-  [ "$(find "$dir/home/state/domain.inbox" -maxdepth 1 -name '*.msg' | wc -l | tr -d ' ')" = 1 ] ||
-    fail "the delivered steer was duplicated:"$'\n'"$(ls "$dir/home/state/domain.inbox")"
-  body=$(record_body _ "$rec")
-  case "$body" in
-  "$FM_FROMFIRST_MARK"corr=*) : ;;
-  *) fail "bookkeeping failure test lost the secondmate marker: $body" ;;
-  esac
-  assert_contains "$(cat "$err")" "reply-tracking-degraded" \
-    "lost bookkeeping should surface as its own distinct degraded condition"
-  assert_contains "$(cat "$err")" "do not resend" \
-    "the degraded condition should give explicit do-not-resend guidance"
-  assert_contains "$(cat "$err")" "durably recorded at" \
-    "the degraded condition should name the already-delivered record"
-  pass "fm-send inbox: lost reply bookkeeping never invites a resend, and the delivered steer is never duplicated"
-}
-
 test_meta_lock_contention_fails_bounded() {
   local dir err rc holder marker lock i
   dir=$(setup_case meta-lock)
@@ -407,35 +279,26 @@ test_unwritable_inbox_fails_loudly() {
   local dir err rc
   dir=$(setup_case unwritable)
   err="$dir/send.err"
-  fm_write_secondmate_meta "$dir/home/state/domain.meta" "$dir/home" "sess:w1:p1"
-  : >"$dir/home/state/domain.inbox" # a FILE where the inbox dir must go
-  run_send "$dir" "$err" -- fm-domain "this cannot be recorded"
+  : >"$dir/home/state/t1.inbox" # a FILE where the inbox dir must go
+  run_send "$dir" "$err" -- t1 "this cannot be recorded"
   rc=$?
   [ "$rc" -ne 0 ] || fail "an unwritable inbox must fail the send"
   assert_contains "$(cat "$err")" "inbox record could not be written" \
     "the failure should name the unwritable inbox"
   [ ! -s "$dir/send.log" ] || fail "a failed enqueue still typed something:"$'\n'"$(cat "$dir/send.log")"
-  [ -z "$(find "$dir/home/state/pending-replies" -type f -not -name '.*' 2>/dev/null)" ] ||
-    fail "a failed enqueue should discard the just-created pending-reply expectation"
-  pass "fm-send inbox: an unwritable record is a loud local failure that leaves no false expectation"
+  pass "fm-send inbox: an unwritable record is a loud local failure"
 }
 
 test_empty_message_refused() {
   local dir err rc
-  # The lived defect: an empty marked secondmate steer used to deliver a
-  # marker+corr record with no body and mint a pending-reply expectation the
-  # parent could never see resolved.
-  dir=$(setup_case empty-marked)
+  dir=$(setup_case empty-message)
   err="$dir/send.err"
-  fm_write_secondmate_meta "$dir/home/state/domain.meta" "$dir/home" "sess:w1:p1"
-  run_send "$dir" "$err" -- fm-domain
+  run_send "$dir" "$err" -- t1
   rc=$?
-  [ "$rc" -ne 0 ] || fail "an empty secondmate steer should refuse"
+  [ "$rc" -ne 0 ] || fail "a steer with no message should refuse"
   assert_contains "$(cat "$err")" "nonempty message" \
     "the empty-message refusal should be explicit"
-  [ ! -d "$dir/home/state/domain.inbox" ] || fail "an empty steer still wrote an inbox record"
-  [ -z "$(find "$dir/home/state/pending-replies" -type f -not -name '.*' 2>/dev/null)" ] ||
-    fail "an empty steer still minted a pending-reply expectation"
+  [ ! -d "$dir/home/state/t1.inbox" ] || fail "an empty steer still wrote an inbox record"
   [ ! -s "$dir/send.log" ] || fail "an empty steer still typed something:"$'\n'"$(cat "$dir/send.log")"
 
   # An explicit empty-string argument is the same refusal.
@@ -462,7 +325,7 @@ test_empty_message_refused() {
   dir=$(setup_case keypath-after-refusal)
   err="$dir/send.err"
   run_send "$dir" "$err" -- t1 --key Enter || fail "a --key send should still succeed"
-  pass "fm-send: an empty or whitespace-only text steer refuses before marking, recording, or typing"
+  pass "fm-send: an empty or whitespace-only text steer refuses before recording or typing"
 }
 
 test_text_steer_rides_inbox
@@ -471,13 +334,9 @@ test_multiline_steer_is_legal
 test_resend_enqueues_new_sequence
 test_pending_composer_skips_ring_advisorily
 test_failed_ring_is_still_sent
-test_fire_and_forget_unlanded_ring_owes_one_retry
-test_fire_and_forget_retry_stays_off_without_the_flag
 test_harness_invocations_stay_typed
 test_explicit_target_stays_typed
 test_key_path_never_touches_inbox
-test_secondmate_marker_and_enqueue_delivery
-test_post_enqueue_bookkeeping_failure_is_not_retryable
 test_meta_lock_contention_fails_bounded
 test_unwritable_inbox_fails_loudly
 test_empty_message_refused

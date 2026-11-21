@@ -9,12 +9,6 @@ set -u
 . "$ROOT/bin/fm-wake-lib.sh"
 
 WATCH="$ROOT/bin/fm-watch.sh"
-DAEMON="$ROOT/bin/fm-supervise-daemon.sh"
-if [ -z "$(printenv FM_TEST_DAEMON_SOURCED)" ]; then
-  export FM_TEST_DAEMON_SOURCED=1
-  # shellcheck source=bin/fm-supervise-daemon.sh
-  . "$DAEMON"
-fi
 
 TMP_ROOT=$(fm_test_tmproot fm-wait-declaration-tests)
 
@@ -182,16 +176,6 @@ test_watcher_raises_overdue_wait() {
   pass "the watcher raises an overdue wait through the real entry point"
 }
 
-test_daemon_flags_undated_wait() {
-  local dir state
-  dir=$(make_case wait-daemon); state="$dir/state"
-  printf 'paused [at=1793000000]: waiting for the release\n' > "$state/t.status"
-  FM_HEARTBEAT_SCAN_SECS=1 housekeeping "$state" >/dev/null 2>&1 || fail "the housekeeping run failed"
-  assert_contains "$(cat "$state/.subsuper-escalations" 2>/dev/null || true)" "wait names no owner or recheck date: t paused: waiting for the release" \
-    "the daemon did not flag the undated wait"
-  pass "the daemon flags an undated wait through the real entry point"
-}
-
 test_accepted_shape_quiet_before_recheck
 test_refused_shape_flagged
 test_overdue_raised_with_owner_and_time
@@ -200,4 +184,3 @@ test_raised_once_then_rearmed_by_redeclaration
 test_unchanged_log_is_not_folded_again
 test_older_line_flagged_once_and_still_read
 test_watcher_raises_overdue_wait
-test_daemon_flags_undated_wait

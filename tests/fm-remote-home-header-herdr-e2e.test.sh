@@ -61,7 +61,7 @@ mkdir -p "$PARENT/data" "$PARENT/state" "$PARENT/config" "$PARENT/projects/alpha
 mkdir -p "$EXEC_HOME/data" "$EXEC_HOME/projects/alpha" "$EXEC_HOME/state" "$EXEC_HOME/config"
 chmod 700 "$PARENT/state" "$EXEC_HOME/state"
 touch "$EXEC_HOME/state/.last-watcher-beat"
-printf 'codex\n' > "$EXEC_HOME/config/crew-harness"
+printf 'pi\n' > "$EXEC_HOME/config/crew-harness"
 printf 'exec-one\n' > "$EXEC_HOME/.fm-exec-home"
 printf 'manual\n' > "$EXEC_HOME/config/backlog-backend"
 # The header holds projected rows; CI's pinned herdr is below the default floor.
@@ -83,12 +83,16 @@ case "\$*" in
 esac
 exit 0
 SH
-cat > "$REMOTE_ROOT/bin/codex" <<'SH'
+cat > "$REMOTE_ROOT/bin/pi" <<'SH'
 #!/usr/bin/env bash
-printf 'OpenAI Codex (fake)\n> '
+case "${1:-}" in
+  --version) printf '%s\n' 1.5.1; exit 0 ;;
+  --help) printf 'usage: pi [options]\n'; exit 0 ;;
+esac
+printf 'pi (fake)\n> '
 exec sleep 100000
 SH
-chmod +x "$REMOTE_ROOT/bin/treehouse" "$REMOTE_ROOT/bin/codex"
+chmod +x "$REMOTE_ROOT/bin/treehouse" "$REMOTE_ROOT/bin/pi"
 # A remote job composes its PATH from the account home and system directories,
 # so a herdr installed elsewhere is only reachable through the code root's bin.
 ln -s "$(command -v herdr)" "$REMOTE_ROOT/bin/herdr"
@@ -125,7 +129,7 @@ launch() {  # <task-id>
   mkdir -p "$PARENT/data/$id"
   printf "# Task\n## Captain's intent\nResearch the project.\n\n## Firstmate spec\nReport evidence.\n" \
     > "$PARENT/data/$id/brief.md"
-  out=$(parent "$ROOT/bin/fm-spawn.sh" "$id" "$PARENT/projects/alpha" --scout --harness codex 2>&1) \
+  out=$(parent "$ROOT/bin/fm-spawn.sh" "$id" "$PARENT/projects/alpha" --scout --harness pi 2>&1) \
     || fail "remote launch of $id failed"$'\n'"$out"
 }
 

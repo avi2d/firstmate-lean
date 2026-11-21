@@ -20,8 +20,8 @@ test_merge_approval_releases_before_zero_done_retention() {
   fm_git_worktree "$repo" "$wt" fm/zero-retention-merge
   tasks_in "$home" add "$id" "Ship zero-retention merge $pr" --kind ship \
     --repo sample --start >/dev/null || fail "could not create the zero-retention fixture"
-  fm_write_meta "$home/state/$id.meta" \
-    "window=firstmate:fm-$id" "endpoint_task_id=$id" "worktree=$wt" \
+  write_task_meta "$home/state/$id.meta" "$id" \
+    "worktree=$wt" \
     "project=$repo" "harness=codex" "kind=ship" "mode=no-mistakes" \
     "pr=$pr" "spawn_gen=fixture-$id"
   printf 'done: merge ready\n' > "$home/state/$id.status"
@@ -178,8 +178,8 @@ test_pr_merge_entrypoint_refuses_a_captain_held_task() {
   fm_git_worktree "$repo" "$wt" "fm/$pr_id"
   tasks_in "$home" add "$pr_id" "Ship the held pull request" --kind ship \
     --repo sample --start >/dev/null || fail "could not create the held PR fixture"
-  fm_write_meta "$home/state/$pr_id.meta" \
-    "window=firstmate:fm-$pr_id" "endpoint_task_id=$pr_id" "worktree=$wt" \
+  write_task_meta "$home/state/$pr_id.meta" "$pr_id" \
+    "worktree=$wt" \
     "project=$repo" "harness=codex" "kind=ship" "mode=no-mistakes" \
     "pr=$pr" "spawn_gen=fixture-$pr_id"
   run_captain "$home" hold "$pr_id" --reason "captain merge approval pending" >/dev/null \
@@ -214,8 +214,8 @@ test_local_merge_entrypoint_refuses_a_captain_held_task() {
     commit -qm 'held local delivery'
   tasks_in "$home" add "$local_id" "Ship the held local change" --kind ship \
     --repo sample --start >/dev/null || fail "could not create the held local fixture"
-  fm_write_meta "$home/state/$local_id.meta" \
-    "window=firstmate:fm-$local_id" "endpoint_task_id=$local_id" "worktree=$local_wt" \
+  write_task_meta "$home/state/$local_id.meta" "$local_id" \
+    "worktree=$local_wt" \
     "project=$local_repo" "harness=codex" "kind=ship" "mode=local-only" \
     "spawn_gen=fixture-$local_id"
   printf 'local_done_head=%s\n' "$(git -C "$local_wt" rev-parse HEAD)" >> "$home/state/$local_id.meta"
@@ -285,8 +285,8 @@ test_local_merge_entrypoint_separates_an_unreadable_record_from_an_absent_one() 
   git -C "$wt" add local.txt
   git -C "$wt" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' \
     commit -qm 'untracked local delivery'
-  fm_write_meta "$home/state/$id.meta" \
-    "window=firstmate:fm-$id" "endpoint_task_id=$id" "worktree=$wt" \
+  write_task_meta "$home/state/$id.meta" "$id" \
+    "worktree=$wt" \
     "project=$repo" "harness=codex" "kind=ship" "mode=local-only" \
     "spawn_gen=fixture-$id"
   printf 'local_done_head=%s\n' "$(git -C "$wt" rev-parse HEAD)" >> "$home/state/$id.meta"
@@ -397,8 +397,8 @@ test_merge_entrypoints_refuse_a_reused_task_incarnation() {
   fm_git_worktree "$old_repo" "$old_wt" "fm/$id"
   tasks_in "$home" add "$id" "Ship the original pull request" --kind ship \
     --repo sample --start >/dev/null || fail "could not create the original PR task"
-  fm_write_meta "$home/state/$id.meta" \
-    "window=firstmate:fm-$id" "endpoint_task_id=$id" "worktree=$old_wt" \
+  write_task_meta "$home/state/$id.meta" "$id" \
+    "worktree=$old_wt" \
     "project=$old_repo" "harness=codex" "kind=ship" "mode=no-mistakes" \
     "spawn_gen=original-$id"
   printf 'done: merge ready\n' > "$home/state/$id.status"
@@ -452,8 +452,8 @@ test_merge_entrypoints_refuse_a_reused_task_incarnation() {
   new_wt="$home/projects/reused-$id"
   fm_git_worktree "$new_repo" "$new_wt" "fm/$id"
   tasks_in "$home" reopen "$id" >/dev/null || fail "could not reopen the reused PR task"
-  fm_write_meta "$home/state/$id.meta" \
-    "window=firstmate:fm-$id" "endpoint_task_id=$id" "worktree=$new_wt" \
+  write_task_meta "$home/state/$id.meta" "$id" \
+    "worktree=$new_wt" \
     "project=$new_repo" "harness=codex" "kind=ship" "mode=no-mistakes" \
     "spawn_gen=replacement-$id"
   tasks_in "$home" start "$id" >/dev/null || fail "could not start the reused PR task"
@@ -487,8 +487,7 @@ test_merge_entrypoints_refuse_a_reused_task_incarnation() {
     -c user.email='tests@example.invalid' commit -qm 'original local delivery'
   tasks_in "$local_home" add "$local_id" "Ship the original local change" --kind ship \
     --repo sample --start >/dev/null || fail "could not create the original local task"
-  fm_write_meta "$local_home/state/$local_id.meta" \
-    "window=firstmate:fm-$local_id" "endpoint_task_id=$local_id" \
+  write_task_meta "$local_home/state/$local_id.meta" "$local_id" \
     "worktree=$local_old_wt" "project=$local_old_repo" "harness=codex" \
     "kind=ship" "mode=local-only" "spawn_gen=original-$local_id"
   printf 'local_done_head=%s\n' "$(git -C "$local_old_wt" rev-parse HEAD)" >> "$local_home/state/$local_id.meta"
@@ -554,8 +553,7 @@ test_merge_entrypoints_refuse_a_reused_task_incarnation() {
   before=$(git -C "$local_new_repo" rev-parse main)
   tasks_in "$local_home" reopen "$local_id" >/dev/null \
     || fail "could not reopen the reused local task"
-  fm_write_meta "$local_home/state/$local_id.meta" \
-    "window=firstmate:fm-$local_id" "endpoint_task_id=$local_id" \
+  write_task_meta "$local_home/state/$local_id.meta" "$local_id" \
     "worktree=$local_new_wt" "project=$local_new_repo" "harness=codex" \
     "kind=ship" "mode=local-only" "spawn_gen=replacement-$local_id"
   tasks_in "$local_home" start "$local_id" >/dev/null \
@@ -594,8 +592,8 @@ test_merge_entrypoints_serialize_forced_teardown_before_task_reads() {
   fm_git_worktree "$repo" "$wt" "fm/$id"
   tasks_in "$home" add "$id" "Ship the released pull request" --kind ship \
     --repo sample --start >/dev/null || fail "could not create the PR teardown-race fixture"
-  fm_write_meta "$home/state/$id.meta" \
-    "window=firstmate:fm-$id" "endpoint_task_id=$id" "worktree=$wt" \
+  write_task_meta "$home/state/$id.meta" "$id" \
+    "worktree=$wt" \
     "project=$repo" "harness=codex" "kind=ship" "mode=no-mistakes" \
     "spawn_gen=fixture-$id"
   printf 'done: merge ready\n' > "$home/state/$id.status"
@@ -671,8 +669,8 @@ SH
     commit -qm 'serialized local delivery'
   tasks_in "$local_home" add "$local_id" "Ship the released local change" --kind ship \
     --repo sample --start >/dev/null || fail "could not create the local teardown-race fixture"
-  fm_write_meta "$local_home/state/$local_id.meta" \
-    "window=firstmate:fm-$local_id" "endpoint_task_id=$local_id" "worktree=$local_wt" \
+  write_task_meta "$local_home/state/$local_id.meta" "$local_id" \
+    "worktree=$local_wt" \
     "project=$local_repo" "harness=codex" "kind=ship" "mode=local-only" \
     "spawn_gen=fixture-$local_id"
   printf 'local_done_head=%s\n' "$(git -C "$local_wt" rev-parse HEAD)" >> "$local_home/state/$local_id.meta"
@@ -763,8 +761,8 @@ test_released_merge_passes_the_entrypoint_and_lands() {
   fm_git_worktree "$repo" "$wt" "fm/$id"
   tasks_in "$home" add "$id" "Ship the approved pull request" --kind ship \
     --repo sample --start >/dev/null || fail "could not create the released merge fixture"
-  fm_write_meta "$home/state/$id.meta" \
-    "window=firstmate:fm-$id" "endpoint_task_id=$id" "worktree=$wt" \
+  write_task_meta "$home/state/$id.meta" "$id" \
+    "worktree=$wt" \
     "project=$repo" "harness=codex" "kind=ship" "mode=no-mistakes" \
     "pr=$pr" "spawn_gen=fixture-$id"
   printf 'done: merge ready\n' > "$home/state/$id.status"
@@ -784,7 +782,7 @@ test_released_merge_passes_the_entrypoint_and_lands() {
     FM_CONFIG_OVERRIDE="$home/config" "$TEARDOWN" "$id" --force \
     > "$home/teardown.out" 2> "$home/teardown.err" \
     || fail "the released merge cleanup failed: $(cat "$home/teardown.err")"
-  json=$(run_bearings "$home") || fail "Bearings failed after the released merge lifecycle"
+  json=$(run_landed "$home") || fail "fleet snapshot failed after the released merge lifecycle"
   printf '%s' "$json" | jq -e --arg id "$id" --arg pr "$pr" \
     '.landed | any(.id == $id and .artifact == $pr)' >/dev/null \
     || fail "the released merge was absent from Recently Landed: $json"
@@ -800,8 +798,8 @@ test_teardown_refuses_a_ship_when_the_captain_hold_cannot_be_read() {
   id=sample-unreadable-ship-hold
   tasks_in "$home" add "$id" "Ship the sample change" --kind ship \
     --repo sample --start >/dev/null || fail "could not create the unreadable-hold fixture"
-  fm_write_meta "$home/state/$id.meta" \
-    "window=firstmate:fm-$id" "worktree=$home/projects/missing-$id" \
+  write_task_meta "$home/state/$id.meta" "$id" \
+    "worktree=$home/projects/missing-$id" \
     "project=$home/projects/sample" "harness=codex" "kind=ship" "mode=direct-PR" \
     "spawn_gen=fixture-$id"
   printf 'done: PR https://github.com/sample/sample/pull/7\n' > "$home/state/$id.status"

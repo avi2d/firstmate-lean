@@ -11,12 +11,6 @@ set -u
 . "$ROOT/bin/fm-wake-lib.sh"
 
 WATCH="$ROOT/bin/fm-watch.sh"
-DAEMON="$ROOT/bin/fm-supervise-daemon.sh"
-if [ -z "$(printenv FM_TEST_DAEMON_SOURCED)" ]; then
-  export FM_TEST_DAEMON_SOURCED=1
-  # shellcheck source=bin/fm-supervise-daemon.sh
-  . "$DAEMON"
-fi
 
 TMP_ROOT=$(fm_test_tmproot fm-stalled-qa-tests)
 
@@ -179,17 +173,6 @@ test_watcher_escalates_undelivered_answer() {
   pass "the watcher raises an undelivered answer through the real entry point"
 }
 
-test_daemon_escalates_stalled_question() {
-  local dir state
-  dir=$(make_case stalled-daemon); state="$dir/state"
-  printf 'needs-decision [at=%s] [key=q1]: pick A or B\n' "$(hour_ago)" > "$state/t.status"
-  FM_STALLED_QA_ESCALATE_SECS=99999999 FM_HEARTBEAT_SCAN_SECS=1 housekeeping "$state" >/dev/null 2>&1     || fail "the priming housekeeping run failed"
-  rm -f "$state/.subsuper-escalations" "$state/.subsuper-last-scan"
-  FM_HEARTBEAT_SCAN_SECS=1 housekeeping "$state" >/dev/null 2>&1     || fail "the housekeeping run failed"
-  assert_contains "$(cat "$state/.subsuper-escalations" 2>/dev/null || true)" "worker question unanswered"     "the daemon did not raise the stalled question"
-  pass "the daemon raises a stalled question through the real entry point"
-}
-
 test_scan_ignores_foreign_state_files() {
   local dir state items lines
   dir=$(make_case stalled-foreign-files); state="$dir/state"
@@ -213,4 +196,3 @@ test_scan_no_refire_after_mark
 test_scan_ignores_foreign_state_files
 test_watcher_escalates_stalled_question
 test_watcher_escalates_undelivered_answer
-test_daemon_escalates_stalled_question

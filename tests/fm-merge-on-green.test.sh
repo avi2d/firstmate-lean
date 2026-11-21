@@ -431,20 +431,6 @@ test_behind_head_is_updated_by_merge_then_merges_when_green_again() {
   pass "a behind head is updated by merging its base, never rebased, and merges once green again"
 }
 
-test_secondmate_home_wakes_itself_after_its_own_merge() {
-  local c
-  c=$(make_case secondmate)
-  printf '%s\n' mate-x > "$c/home/.fm-secondmate-home"
-  printf 'schema=fm-secondmate-parent.v1\nroute=remote\n' > "$c/home/.fm-secondmate-parent"
-  sweep "$c"
-  sweep "$c"
-  [ "$(merge_calls "$c")" -eq 1 ] || fail "secondmate: the mate's pull request did not merge"
-  assert_grep "merged task-x1 $URL" "$c/state/parent-replies.status" "secondmate: the merge was not reported upward"
-  assert_grep "check: merge landed: task-x1 $URL" "$c/state/.wake-queue" \
-    "secondmate: the mate home got no wake to run its own cleanup"
-  pass "a secondmate home merges its own task and wakes itself for cleanup"
-}
-
 test_adapter_polls_silently_while_work_remains() {
   local c other id other_id out rc
   c=$(make_case adapter)
@@ -591,8 +577,8 @@ test_records_waiting_on_a_merge_word_are_not_reresolved_from_the_forge_every_swe
   done
   printf 'done [at=1792400100]: PR %s checks green\n' "$URL" >> "$c/state/task-x1.status"
   mkdir -p "$c/projects/repo"
-  fm_write_meta "$c/state/mate-x2.meta" "window=fm-mate-x2" "project=$c/projects/repo" "kind=secondmate" "mode=secondmate" "yolo=off"
-  cp "$c/state/task-x1.status" "$c/state/mate-x2.status"
+  fm_write_meta "$c/state/task-x2.meta" "window=fm-task-x2" "project=$c/projects/repo" "kind=ship" "mode=direct-PR" "yolo=off"
+  cp "$c/state/task-x1.status" "$c/state/task-x2.status"
   sweep "$c"
   sweep "$c"
   sweep "$c"
@@ -632,7 +618,6 @@ test_done_line_boundary_flag_stays_open
 test_boundary_diffs_stay_open
 test_security_refusal_holds_once_and_never_retries
 test_behind_head_is_updated_by_merge_then_merges_when_green_again
-test_secondmate_home_wakes_itself_after_its_own_merge
 test_adapter_polls_silently_while_work_remains
 test_idle_source_retires_through_the_runner_without_a_wake
 test_pr_check_arms_the_source_for_a_yolo_pull_request

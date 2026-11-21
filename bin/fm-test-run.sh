@@ -350,7 +350,7 @@ family_for_basename() {
       printf '%s\n' secondmate
       ;;
     fm-backlog-atomicity.test.sh|\
-    fm-bootstrap.test.sh|fm-bootstrap-network-parallel.test.sh|fm-fleet-sync.test.sh|fm-gate-refuse.test.sh|fm-gotmp.test.sh|\
+    fm-bootstrap.test.sh|fm-fleet-sync.test.sh|fm-gate-refuse.test.sh|fm-gotmp.test.sh|\
     fm-session-start.test.sh|fm-sessionstart-nudge.test.sh|fm-startup-network.test.sh|\
     fm-tangle-guard.test.sh|fm-update.test.sh)
       printf '%s\n' session-bootstrap
@@ -382,7 +382,6 @@ family_for_basename() {
     fm-git-strip-ai-trailers.test.sh|fm-home-write-diff.test.sh|\
     fm-trace-context-spawn.test.sh|\
     fm-spawn-compact-adviser-disable.test.sh|\
-    fm-spawn-compact-adviser-disable-remote.test.sh|\
     fm-project-capacity.test.sh|\
     fm-teardown-endpoint-safety.test.sh)
       printf '%s\n' backend-dispatch
@@ -526,11 +525,13 @@ portable_parallel_lane_weight() {
 list_portable_parallel_1() {
   cat <<'EOF'
 tests/fm-lint.test.sh
-tests/fm-crew-state.test.sh
+tests/fm-pr-merge.test.sh
 tests/fm-pi-primary-types.test.sh
-tests/fm-brief.test.sh
+tests/fm-arm-pretool-check.test.sh
 tests/fm-herdr-lab.test.sh
-tests/fm-spawn-batch.test.sh
+tests/fm-cd-pretool-check.test.sh
+tests/fm-send-strict.test.sh
+tests/fm-supervision-instructions.test.sh
 EOF
 }
 
@@ -538,15 +539,13 @@ EOF
 list_portable_parallel_2() {
   cat <<'EOF'
 tests/fm-test-run.test.sh
-tests/fm-pr-merge.test.sh
+tests/fm-crew-state.test.sh
 tests/fm-backend-herdr.test.sh
-tests/fm-arm-pretool-check.test.sh
 tests/fm-composer-lib.test.sh
-tests/fm-cd-pretool-check.test.sh
-tests/fm-send-strict.test.sh
+tests/fm-brief.test.sh
+tests/fm-spawn-batch.test.sh
 tests/fm-send-settle.test.sh
 tests/fm-review-diff.test.sh
-tests/fm-supervision-instructions.test.sh
 tests/fm-ensure-agents-md.test.sh
 tests/fm-transition-lib.test.sh
 EOF
@@ -645,7 +644,6 @@ tests/fm-backend-herdr-server-detach.test.sh 1460
 tests/fm-backend.test.sh 28709
 tests/fm-backlog-atomicity.test.sh 219379
 tests/fm-backlog-read-bound.test.sh 24743
-tests/fm-bootstrap-network-parallel.test.sh 30424
 tests/fm-bootstrap.test.sh 50965
 tests/fm-branch-supervision.test.sh 22979
 tests/fm-browser-suite.test.sh 26730
@@ -794,7 +792,6 @@ tests/fm-share-guard-pretool-check.test.sh 124
 tests/fm-shell-history-herdr-e2e.test.sh 12197
 tests/fm-shell-history.test.sh 2753
 tests/fm-sim-boot.test.sh 3063
-tests/fm-spawn-compact-adviser-disable-remote.test.sh 38561
 tests/fm-spawn-compact-adviser-disable.test.sh 37156
 tests/fm-spawn-dispatch-profile.test.sh 554099
 tests/fm-spawn-dispatch-proof.test.sh 15223
@@ -1687,6 +1684,7 @@ families_for_changed_path() {
       printf '%s\n' pure-contract-unit
       printf '%s\n' real-herdr-gated
       ;;
+    docs/fm-test-isolation-proof.md|\
     docs/fm-test-isolation-proof.json)
       printf '%s\n' pure-contract-unit
       ;;

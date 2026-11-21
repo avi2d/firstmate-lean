@@ -45,10 +45,10 @@ test_teardown_never_closes_a_captain_held_task() {
     "successful cleanup left its pending transition record behind"
   assert_grep "still held for the captain" "$home/teardown.out" \
     "cleanup did not say the row stays open for the captain"
-  json=$(run_bearings "$home") || fail "Bearings failed after cleanup of a captain-held task"
+  json=$(run_snapshot "$home") || fail "fleet snapshot failed after cleanup of a captain-held task"
   printf '%s' "$json" | jq -e --arg id "$id" '
-    (.decisions_open | any(.id == $id and .verb == "captain-hold"))
-  ' >/dev/null || fail "the board no longer surfaces the captain call: $json"
+    .backlog.records | any(.id == $id and .hold_kind == "captain" and .hold_bucket != null)
+  ' >/dev/null || fail "the snapshot no longer surfaces the captain call: $json"
 
   # The ordinary path is untouched: a finished task with no captain call closes.
   plain=sample-plain-review
@@ -207,8 +207,8 @@ test_retained_row_artifacts_survive_captain_answers() {
   fm_git_worktree "$repo" "$wt" fm/approved-merge
   tasks_in "$home" add "$approved_id" "Ship the approved pull request $approved_pr" --kind ship \
     --repo sample --start >/dev/null || fail "could not create the approved merge fixture"
-  fm_write_meta "$home/state/$approved_id.meta" \
-    "window=firstmate:fm-$approved_id" "endpoint_task_id=$approved_id" "worktree=$wt" \
+  write_task_meta "$home/state/$approved_id.meta" "$approved_id" \
+    "worktree=$wt" \
     "project=$repo" "harness=codex" "kind=ship" "mode=no-mistakes" \
     "pr=$approved_pr" "spawn_gen=fixture-$approved_id"
   printf 'done: PR %s merged\n' "$approved_pr" > "$home/state/$approved_id.status"
@@ -237,8 +237,8 @@ test_retained_row_artifacts_survive_captain_answers() {
     commit -qm 'local delivery'
   tasks_in "$home" add "$local_id" "Land the approved local-only change" --kind ship \
     --repo sample --start >/dev/null || fail "could not create the released local fixture"
-  fm_write_meta "$home/state/$local_id.meta" \
-    "window=firstmate:fm-$local_id" "endpoint_task_id=$local_id" "worktree=$local_wt" \
+  write_task_meta "$home/state/$local_id.meta" "$local_id" \
+    "worktree=$local_wt" \
     "project=$local_repo" "harness=codex" "kind=ship" "mode=local-only" \
     "spawn_gen=fixture-$local_id"
   printf 'done: local merge ready\n' > "$home/state/$local_id.status"
@@ -318,8 +318,8 @@ test_retained_row_artifacts_survive_captain_answers() {
   tasks_in "$home" 'done' "$legacy_id" >/dev/null \
     || fail "could not complete the kindless legacy delivery"
 
-  json=$(run_bearings "$home" --all-landed) \
-    || fail "Bearings failed after retained delivery answers"
+  json=$(run_landed "$home") \
+    || fail "fleet snapshot failed after retained delivery answers"
   printf '%s' "$json" | jq -e \
     --arg retained_id "$retained_id" --arg retained "data/$retained_id/report.md" \
     --arg precedence_id "$precedence_id" \
@@ -369,8 +369,8 @@ test_interrupted_cleanup_keeps_the_captain_call_recoverable() {
   git -C "$home/projects/sample" init -q || fail "could not initialize cleanup-failure project fixture"
   tasks_in "$home" add "$id" "Investigate failed sample cleanup" --kind scout \
     --repo sample --start >/dev/null || fail "could not create the cleanup-failure fixture"
-  fm_write_meta "$home/state/$id.meta" \
-    "window=firstmate:fm-$id" "worktree=$wt" "project=$home/projects/sample" \
+  write_task_meta "$home/state/$id.meta" "$id" \
+    "worktree=$wt" "project=$home/projects/sample" \
     "harness=codex" "kind=scout" "mode=scout" "spawn_gen=fixture-$id"
   printf 'done: report complete\n' > "$home/state/$id.status"
   printf '# Failed cleanup\n\nThe captain call remains open.\n\n## References\n\n- fixture source\n' > "$home/data/$id/report.md"
@@ -428,8 +428,8 @@ test_answer_before_cleanup_replay_preserves_the_retained_report() {
   mkdir -p "$home/data/$id" "$wt" "$home/projects/sample"
   tasks_in "$home" add "$id" "Investigate answer before cleanup replay" --kind scout \
     --repo sample --start >/dev/null || fail "could not create the answer-before-replay fixture"
-  fm_write_meta "$home/state/$id.meta" \
-    "window=firstmate:fm-$id" "worktree=$wt" "project=$home/projects/sample" \
+  write_task_meta "$home/state/$id.meta" "$id" \
+    "worktree=$wt" "project=$home/projects/sample" \
     "harness=codex" "kind=scout" "mode=scout" "spawn_gen=fixture-$id"
   printf 'done: report complete\n' > "$home/state/$id.status"
   printf '# Interrupted cleanup\n\nThe captain call remains open.\n\n## References\n\n- fixture source\n' > "$home/data/$id/report.md"
@@ -465,7 +465,7 @@ SH
     || fail "session start could not replay cleanup after the answer: $bootstrap"
   assert_absent "$home/state/$id.meta" "session start left the interrupted task record behind"
   assert_absent "$home/state/$id.backlog-close" "session start left the pending record behind"
-  json=$(run_bearings "$home") || fail "Bearings failed after the answer-before-replay lifecycle"
+  json=$(run_landed "$home") || fail "fleet snapshot failed after the answer-before-replay lifecycle"
   printf '%s' "$json" | jq -e \
     --arg id "$id" --arg report "data/$id/report.md" \
     '.landed | any(.id == $id and .artifact == $report)' >/dev/null \
@@ -482,8 +482,8 @@ test_answer_before_cleanup_replay_notes_a_retained_gerrit_change() {
   fm_git_worktree "$repo" "$wt" fm/answer-before-replay-gerrit
   tasks_in "$home" add "$id" "Ship the held Gerrit change" --kind ship \
     --repo sample --start >/dev/null || fail "could not create the held Gerrit answer fixture"
-  fm_write_meta "$home/state/$id.meta" \
-    "window=firstmate:fm-$id" "endpoint_task_id=$id" "worktree=$wt" \
+  write_task_meta "$home/state/$id.meta" "$id" \
+    "worktree=$wt" \
     "project=$repo" "harness=codex" "kind=ship" "mode=no-mistakes" \
     "pr=$gerrit_url" "spawn_gen=fixture-$id"
   printf 'done: change landed\n' > "$home/state/$id.status"
@@ -539,8 +539,8 @@ test_unusable_pending_close_record_names_its_reason() {
   mkdir -p "$home/data/$id" "$wt" "$home/projects/sample" "$home/elsewhere"
   tasks_in "$home" add "$id" "Investigate the unusable pending close" --kind scout \
     --repo sample --start >/dev/null || fail "could not create the unusable pending-close fixture"
-  fm_write_meta "$home/state/$id.meta" \
-    "window=firstmate:fm-$id" "worktree=$wt" "project=$home/projects/sample" \
+  write_task_meta "$home/state/$id.meta" "$id" \
+    "worktree=$wt" "project=$home/projects/sample" \
     "harness=codex" "kind=scout" "mode=scout" "spawn_gen=fixture-$id"
   printf 'done: report complete\n' > "$home/state/$id.status"
   printf '# Unusable pending close\n\nThe captain call remains open.\n\n## References\n\n- fixture source\n' > "$home/data/$id/report.md"
@@ -598,8 +598,8 @@ EOF
   (cd "$home" && tasks-axi add "$id" "Investigate relocated answer replay" --kind scout \
     --repo sample --start --file "$data/backlog.md" >/dev/null) \
     || fail "could not create the relocated answer-before-replay fixture"
-  fm_write_meta "$home/state/$id.meta" \
-    "window=firstmate:fm-$id" "worktree=$wt" "project=$home/projects/sample" \
+  write_task_meta "$home/state/$id.meta" "$id" \
+    "worktree=$wt" "project=$home/projects/sample" \
     "harness=codex" "kind=scout" "mode=scout" "spawn_gen=fixture-$id"
   printf 'done: report complete\n' > "$home/state/$id.status"
   printf '# Relocated interrupted cleanup\n\nThe captain call remains open.\n\n## References\n\n- fixture source\n' > "$data/$id/report.md"
@@ -652,9 +652,8 @@ SH
     || fail "session start could not replay relocated cleanup after the answer: $bootstrap"
   assert_absent "$home/state/$id.meta" "session start left the relocated task record behind"
   assert_absent "$home/state/$id.backlog-close" "session start left the relocated pending record behind"
-  json=$(PATH="$home/fakebin:$PATH" FM_HOME="$home" FM_DATA_OVERRIDE="$data" \
-    FM_BEARINGS_NOW=2026-07-14T12:00:00Z "$BEARINGS" --json) \
-    || fail "Bearings failed after the relocated answer-before-replay lifecycle"
+  json=$(run_landed "$home" "$data") \
+    || fail "fleet snapshot failed after the relocated answer-before-replay lifecycle"
   printf '%s' "$json" | jq -e --arg id "$id" \
     '.landed | any(.id == $id) | not' >/dev/null \
     || fail "the unsupported relocated report was published as a landed delivery: $json"
@@ -727,8 +726,8 @@ test_teardown_retains_a_gerrit_captain_call_with_its_change_url() {
   fm_git_worktree "$repo" "$wt" fm/held-gerrit
   tasks_in "$home" add "$id" "Ship the held Gerrit change" --kind ship \
     --repo sample --start >/dev/null || fail "could not create the held Gerrit fixture"
-  fm_write_meta "$home/state/$id.meta" \
-    "window=firstmate:fm-$id" "endpoint_task_id=$id" "worktree=$wt" \
+  write_task_meta "$home/state/$id.meta" "$id" \
+    "worktree=$wt" \
     "project=$repo" "harness=codex" "kind=ship" "mode=no-mistakes" \
     "pr=$gerrit_url" "spawn_gen=fixture-$id"
   printf 'done: change landed\n' > "$home/state/$id.status"

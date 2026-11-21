@@ -380,8 +380,9 @@ rules_err=$(jq -r --argjson verified_harnesses "$VERIFIED_HARNESSES" --arg provi
 
 missing_provider=$(jq -r '
   def profiles($v): if ($v | type) == "array" then $v elif ($v | type) == "object" then [$v] else [] end;
-  ((.rules // [])[] | profiles(.use)[] | select(has("provider") | not) | "use profiles require provider: \(.harness)"),
-  (profiles(.default // null)[] | select(has("provider") | not) | "default profiles require provider: \(.harness)")
+  [((.rules // [])[] | profiles(.use)[] | select(has("provider") | not) | "use profiles require provider: \(.harness)"),
+   (profiles(.default // null)[] | select(has("provider") | not) | "default profiles require provider: \(.harness)")]
+  | join("; ")
 ' "$RULES")
 [ -z "$missing_provider" ] || die "malformed rules file: $RULES_PATH - $missing_provider"
 

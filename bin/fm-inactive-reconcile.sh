@@ -1,118 +1,5 @@
 #!/usr/bin/env bash
 # fm-inactive-reconcile.sh - bounded reconciliation of suspicious inactive terminal outcomes.
-#
-# Usage:
-#   fm-inactive-reconcile.sh scan [--startup]
-#   fm-inactive-reconcile.sh report <task-id>
-#   fm-inactive-reconcile.sh acknowledge <fingerprint>
-#
-# This is an adjunct to the existing watcher poll loop and session-start path,
-# not a watcher, daemon, PR poll, or forge client of its own.
-# In a secondmate home every `scan` invocation, which is every watcher poll,
-# first runs the LEDGER-FIRST parent delivery: a direct child whose status
-# ledger ends in a whole `done:` or `failed:` line has stated its own outcome,
-# so that line is published on the parent channel at once from this
-# unstamped payload:
-#   <state> [key=child-outcome-<child>-<state>-<fp8>]: child <child> <state>: <note> [pr=<url>] [mode=<mode>] [yolo=<posture>] [report=data/<child>/report.md]
-# carrying the child's recorded PR, delivery mode, merge posture, and scout
-# report pointer, without consulting fm-crew-state.sh. A ship `done:` is
-# published only when bin/fm-dod-lib.sh accepts the named head, so an
-# unpushed copy is not reported upstream as ready. The cadence path uses
-# fm-crew-state.sh, which applies the same gate: a no-mistakes
-# pre-validation `done: {summary}` still reads done (the pipeline handoff),
-# while a CI-ready or direct-PR/local-only done whose head lives only in the
-# disposable copy reads blocked and is not a terminal inactive outcome.
-# A line still being appended (no trailing newline yet)
-# is left for the next poll. This is what keeps a mate's PR-ready, finding,
-# and failure outcomes from depending on the mate model appending them
-# (docs/secondmate-parent-channel.md). A main home has no parent channel and
-# skips this path: its watcher already signals every child status line.
-# `report <task-id>` runs that same delivery for one child on behalf of a
-# caller that already holds the child's meta lock, which bin/fm-teardown.sh
-# does before it removes the child's record; it exits 0 when the line is
-# delivered or nothing is owed, and non-zero when the parent channel could not
-# be written, so teardown refuses instead of discarding an undelivered outcome.
-# The cadence-gated scan below then evaluates at most once per
-# FM_INACTIVE_RECONCILE_SECS (default 900, valid 60..1800) per home, except
-# that --startup performs the same scan immediately in the locked session
-# start's deferred worker. Each scan uses an aggregate
-# FM_INACTIVE_RECONCILE_BUDGET_SECS deadline (default 10, valid 1..30) and
-# resumes after its last visited child on the next scan.
-# The scan enforces that budget itself through a whole-second deadline, and the
-# first due child of every scan is always visited with at least a one-second
-# state-read bound: whole-second arithmetic can otherwise round a small budget
-# to zero mid-scan, and an invocation that exits having visited nothing would
-# advance the durable cursor past a child it never examined. A process-group
-# kill one second after the budget remains as a backstop for a scan wedged in
-# an unbounded wait (for example a live-held wake-queue lock), so the clean
-# deadline path is not racing its own backstop.
-#
-# It considers only a direct ordinary crewmate whose newest meta, status, or
-# turn-ended mtime is older than that interval and whose last status is not
-# captain-held. In a secondmate home a child whose ledger already ends in a
-# terminal done or failed line belongs to the ledger-first path above and is
-# skipped here, so one outcome is never reported twice. It then uses
-# fm-crew-state.sh as the sole current-state source.
-# Only a done or failed state is suspicious enough to create a durable terminal
-# outcome record or wake the supervisor.
-# A terminal outcome is a CAPTAIN-FACING claim, so two rules bound what may be
-# built from that read, owned by terminal_outcome_corroborated and
-# terminal_outcome_pr below. A state the reader sourced from the STATUS LOG is
-# manufactured only when the crew's own last self-declared word (done, failed,
-# or the configured paused verb) does not contradict it; a state sourced from
-# the pipeline's own RUN STEP outranks that word outright, so the routine ship
-# shape (`done:` written, the run then fails, the crew goes silent) still
-# reaches the captain. Its PR identity comes from the same record as its state -
-# the run's own published PR for a run-step state, that line's own ready-signal
-# PR for a status-log state, and never a separately recorded task PR; a scout
-# delivers no PR on either path, so it carries none. Together they
-# prevent one captain-facing record from combining claims from different runs.
-# A live agent withholds that verdict only while it is busy, or while its
-# incarnation postdates the terminal evidence (the spawn epoch in spawn_gen is
-# later than the last status line's [at=] epoch). An idle agent on the same
-# incarnation is a finished worker and keeps its record. The endpoint must read
-# `alive` through fm_backend_agent_state (bin/fm-backend.sh) and then `busy`
-# through fm_busy_classify_meta (bin/fm-busy-lib.sh); an unreadable or unknown
-# answer is never read as proof the agent is gone or idle and leaves the
-# verdict unchanged. Both reads share the scan budget left after the state
-# read (at least one second, like the first visit above), and hitting that
-# bound ends the visit like a state-read timeout.
-# Working, paused, parked, blocked, unknown, persistent secondmates, and
-# captain-held work retain their existing supervision semantics.
-#
-# A terminal-outcomes/<fingerprint>.pending record remains until its upstream
-# receipt is durable.
-# In a secondmate home, that receipt is an idempotent parent-channel append;
-# the ledger-first path and the inactive
-# path share the same receipt store.
-# In a main home, a presentation-stage record is acknowledged by fm-wake-drain
-# only after its corresponding inactive-outcome wake is handled.
-# A receipt is intentionally independent of .hb-surfaced-* bookkeeping.
-#
-# New fm-terminal-outcome.v1 receipts contain schema, fingerprint, task_id,
-# incarnation, state, outcome_key, origin, phase, pr, created_epoch, and
-# notice_emitted, plus optional status_head and ledger_claim fields. The
-# inactive-path fingerprint binds only the spawn incarnation, task id, terminal
-# state, and PR text, never the child's last status line, so a child that keeps
-# appending routine prose after one terminal outcome yields at most one parent
-# event across scans and restarts; the last line is retained in status_head as
-# evidence. The ledger-path fingerprint instead binds the incarnation, task id,
-# terminal state, literal `ledger` origin, and complete terminal ledger line.
-# When a terminal ledger append races just after the inactive path's final read,
-# ledger_claim binds that one ledger fingerprint to the already-delivered
-# inactive receipt so the two publishers cannot report one completion twice.
-# Pending atomically becomes reported after parent append or presented after
-# main-home acknowledgement. The atomic epoch/cursor marker's mtime gates scans,
-# and its cursor records the last child visited within the aggregate budget.
-#
-# A terminal verdict is withheld while the endpoint carries a live agent that is
-# busy, or whose spawn_gen epoch is later than the last status line's [at=]
-# epoch (a newer incarnation; an unknown epoch counts as not newer).
-#
-# The scan reads only durable local state, fm-crew-state.sh, and one endpoint
-# liveness and busy read per terminal candidate, bounded by the scan budget left
-# after the crew-state read; it never invokes
-# gh, gh-axi, curl, fm-pr-check.sh, fm-pr-poll.sh, or a state *.check.sh.
 set -u
 export LC_ALL=C
 
@@ -339,7 +226,7 @@ meta_incarnation() { # <meta>
   printf 'legacy-%s\n' "$(sha256_text "$identity")"
 }
 
-# Parse the canonical state line described by this script's header.
+# Parse the canonical line bin/fm-crew-state.sh prints.
 STATE_LINE_SEP=' · '
 
 state_line_source() { # <state-line>
@@ -366,10 +253,8 @@ state_line_note() { # <state-line>
   printf '%s' "$rest"
 }
 
-# Enforce the header's same-record pull-request contract. A scout never delivers
-# a PR, so it never carries one, exactly as pr_for_task rules for the
-# ledger-first path. Otherwise a status-log state carries a PR only in a mode's
-# ready-signal shape (`PR <url>`, `PR <url> checks green`, or Gerrit's
+# A scout never delivers a PR, so it never carries one. Otherwise a status-log
+# state carries a PR only in a mode's ready-signal shape (`PR <url>`, `PR <url> checks green`, or Gerrit's
 # `PR <url> published for review`) naming a review URL bin/fm-pr-lib.sh parses,
 # so a PR a worker merely mentioned in prose is never the delivery.
 terminal_outcome_pr() { # <state-line> <kind>
@@ -389,8 +274,7 @@ terminal_outcome_pr() { # <state-line> <kind>
   clean_field "$FM_PR_URL"
 }
 
-# Enforce the header's independent captain-facing corroboration contract. A
-# RUN-STEP state is the pipeline's own record of the run that just ended, and
+# A RUN-STEP state is the pipeline's own record of the run that just ended, and
 # rule 2b in bin/fm-crew-state.sh guarantees any terminal reading published this
 # way - done as well as failed - is either the attributed current run or an
 # honest unknown, so a crew's own earlier prose is the weaker witness and never
@@ -411,25 +295,6 @@ terminal_outcome_corroborated() { # <state> <last-status-line> <state-line>
     esac
   fi
   [ "$declared" = "$state" ]
-}
-
-# The task's delivered PR. Recorded meta pr= is the only authoritative source;
-# the fallback scrape accepts only a preferred terminal line in a mode's
-# ready-signal shape (`done: PR <url>` or `done: PR <url> checks green`,
-# optionally carrying an emission-time tag this scrape steps over without
-# reading), so a PR a worker merely mentioned in prose is never claimed as the
-# delivery.
-# A scout never delivers a PR, so it never carries one.
-pr_for_task() { # <meta> [preferred-line]
-  local meta=$1 preferred=${2:-} value
-  [ "$(meta_field "$meta" kind)" != scout ] || return 0
-  value=$(meta_field "$meta" pr)
-  if [ -z "$value" ] && [ -n "$preferred" ]; then
-    value=$(printf '%s\n' "$preferred" \
-      | sed -nE 's|^done( \[at=[^]]*\])?: PR (https?://[^[:space:])"]+/pull/[0-9]+)( checks green)?$|\2|p' \
-      | head -1 || true)
-  fi
-  clean_field "$value"
 }
 
 task_holds_live_work() { # <id> <meta> <timeout> <last-status-line>; 0 when the verdict must be withheld, 3 on timeout
@@ -591,6 +456,11 @@ acknowledge_notice() { # <fingerprint>
   record_field_set "$pending" notice_emitted 1
 }
 
+usage() {
+  printf 'usage: fm-inactive-reconcile.sh scan [--startup]\n'
+  printf '       fm-inactive-reconcile.sh acknowledge <fingerprint>\n'
+}
+
 mode=${1:-scan}
 case "$mode" in
   scan)
@@ -629,11 +499,10 @@ case "$mode" in
     acknowledge_notice "$2"
     ;;
   -h|--help)
-    sed -n '2,40{s/^# \{0,1\}//;p;}' "$0"
+    usage
     ;;
   *)
-    printf 'usage: fm-inactive-reconcile.sh scan [--startup]\n' >&2
-    printf '       fm-inactive-reconcile.sh acknowledge <fingerprint>\n' >&2
+    usage >&2
     exit 2
     ;;
 esac

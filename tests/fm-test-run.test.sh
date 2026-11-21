@@ -106,9 +106,8 @@ init_changed_fixture_repo() {
     fm-harness-adapter-instructions-live-e2e.test.sh \
     fm-harness-adapter-references.test.sh \
     fm-backend-herdr-smoke.test.sh \
-    fm-secondmate-safety.test.sh \
+    fm-on.test.sh \
     fm-session-start.test.sh \
-    fm-afk-pi-herdr-return-e2e.test.sh \
     fm-backend.test.sh \
     fm-pr-merge.test.sh \
     fm-procevent-quota.test.sh \
@@ -116,7 +115,7 @@ init_changed_fixture_repo() {
     fm-pi-watch-extension.test.sh \
     fm-pi-windows-shell-invocation.test.sh \
     fm-watcher-lock.test.sh \
-    fm-bearings-snapshot.test.sh \
+    fm-fleet-snapshot-view.test.sh \
     fm-control-herdr-smoke.test.sh \
     fm-unmapped-probe.test.sh; do
     printf '#!/usr/bin/env bash\n# tests/lib.sh\n' >"$repo/tests/$script"
@@ -136,7 +135,7 @@ init_changed_fixture_repo() {
   : >"$repo/tests/shared-probe-fixture.sh"
   : >"$repo/tests/unread-thing.sh"
   printf '# shared-probe-fixture.sh\n' >>"$repo/tests/fm-pr-merge.test.sh"
-  printf '# shared-probe-fixture.sh\n' >>"$repo/tests/fm-secondmate-safety.test.sh"
+  printf '# shared-probe-fixture.sh\n' >>"$repo/tests/fm-on.test.sh"
   # A nested fixture whose consuming suite names only the fixture directory,
   # the shape the tests/fixtures/<dir>/ arm is keyed for.
   mkdir -p "$repo/tests/fixtures/demo"
@@ -346,33 +345,6 @@ test_shell_line_ending_policy_selects_runner_contract() {
   pass "shell line-ending policy selects runner coverage"
 }
 
-test_changed_remote_inheritance_selects_generation_contract() {
-  local tmp repo listed source
-  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-inheritance.XXXXXX")
-  repo="$tmp/repo"
-  init_changed_fixture_repo "$repo"
-  printf '#!/usr/bin/env bash\n' >"$repo/tests/fm-remote-inherit-generation.test.sh"
-  chmod +x "$repo/tests/fm-remote-inherit-generation.test.sh"
-  for source in fm-remote-inherit-push.sh fm-remote-inherit.sh fm-secondmate-nudge-lib.sh; do
-    : >"$repo/bin/$source"
-  done
-  git -C "$repo" add .
-  git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm inheritance-fixture
-  for source in fm-remote-inherit-push.sh fm-remote-inherit.sh fm-secondmate-nudge-lib.sh; do
-    printf '\n' >>"$repo/bin/$source"
-    listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
-    assert_contains "$listed" "tests/fm-remote-inherit-generation.test.sh" \
-      "$source change must select the generation regression"
-    assert_contains "$listed" "tests/fm-secondmate-safety.test.sh" \
-      "$source change must retain secondmate coverage"
-    assert_not_contains "$listed" "tests/fm-ask-user-authority.test.sh" \
-      "$source change must not select the whole pure-contract-unit family"
-    git -C "$repo" checkout -q -- "bin/$source"
-  done
-  rm -rf "$tmp"
-  pass "changed inheritance sender, receiver and counter select the focused generation contract"
-}
-
 test_changed_dependency_selection_and_unmapped_failure() {
   local tmp repo listed rc
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-changed.XXXXXX")
@@ -382,16 +354,16 @@ test_changed_dependency_selection_and_unmapped_failure() {
   printf '\n' >>"$repo/tests/lib.sh"
   listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
   assert_contains "$listed" "tests/fm-pr-merge.test.sh" "shared helper selects pr-forge dependents"
-  assert_contains "$listed" "tests/fm-secondmate-safety.test.sh" "shared helper selects secondmate dependents"
-  assert_contains "$listed" "tests/fm-bearings-snapshot.test.sh" "shared helper selects snapshot dependents"
+  assert_contains "$listed" "tests/fm-on.test.sh" "shared helper selects remote-transport dependents"
+  assert_contains "$listed" "tests/fm-fleet-snapshot-view.test.sh" "shared helper selects snapshot dependents"
   git -C "$repo" add tests/lib.sh
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm helper-change
 
   printf '\n' >>"$repo/tests/git-config-helpers.sh"
   listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
   assert_contains "$listed" "tests/fm-pr-merge.test.sh" "git-config helper selects lib.sh dependents"
-  assert_contains "$listed" "tests/fm-secondmate-safety.test.sh" "git-config helper selects secondmate dependents"
-  assert_contains "$listed" "tests/fm-bearings-snapshot.test.sh" "git-config helper selects snapshot dependents"
+  assert_contains "$listed" "tests/fm-on.test.sh" "git-config helper selects remote-transport dependents"
+  assert_contains "$listed" "tests/fm-fleet-snapshot-view.test.sh" "git-config helper selects snapshot dependents"
   git -C "$repo" add tests/git-config-helpers.sh
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm git-config-helper-change
 
@@ -807,7 +779,7 @@ test_family_proofs_run_in_separate_concurrent_phases() {
   cp "$ROOT/bin/fm-timeout-lib.sh" "$repo/bin/fm-timeout-lib.sh"
   chmod +x "$repo/bin/fm-test-run.sh"
   for script in \
-    fm-calm-pi-extension.test.sh fm-brief.test.sh \
+    fm-calm-pi-extension.test.sh fm-dod-lib.test.sh \
     fm-pr-check-security.test.sh fm-teardown.test.sh; do
     cat >"$repo/tests/$script" <<'SH'
 #!/usr/bin/env bash
@@ -819,7 +791,7 @@ SH
 
   (cd "$repo" && bin/fm-test-run.sh \
       tests/fm-pr-check-security.test.sh tests/fm-calm-pi-extension.test.sh \
-      tests/fm-teardown.test.sh tests/fm-brief.test.sh --jobs 4) \
+      tests/fm-teardown.test.sh tests/fm-dod-lib.test.sh --jobs 4) \
     >"$tmp/out" 2>"$tmp/err" \
     || fail "cross-family phase fixture failed: $(cat "$tmp/err")"
 
@@ -1429,7 +1401,7 @@ test_portable_serial_shard_lane_refusals() {
 test_changed_shards_split_by_measured_weight_not_name_order() {
   local tmp repo script shard want got union full rc
   local -a scripts=(
-    tests/fm-remote-secondmate-lifecycle-e2e.test.sh
+    tests/fm-watch-triage.test.sh
     tests/fm-lint.test.sh
     tests/fm-spawn-dispatch-profile.test.sh
     tests/fm-test-run.test.sh
@@ -1461,7 +1433,7 @@ test_changed_shards_split_by_measured_weight_not_name_order() {
   shard=1
   while [ "$shard" -le 6 ]; do
     case "$shard" in
-      1) want=tests/fm-remote-secondmate-lifecycle-e2e.test.sh ;;
+      1) want=tests/fm-watch-triage.test.sh ;;
       2) want=tests/fm-spawn-dispatch-profile.test.sh ;;
       3) want=tests/fm-test-run.test.sh ;;
       4) want=tests/fm-lint.test.sh ;;
@@ -1633,8 +1605,8 @@ test_changed_shared_fixture_selects_its_readers() {
   listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
   assert_contains "$listed" "tests/fm-pr-merge.test.sh" \
     "shared test fixture selects its pr-forge reader"
-  assert_contains "$listed" "tests/fm-secondmate-safety.test.sh" \
-    "shared test fixture selects its secondmate reader"
+  assert_contains "$listed" "tests/fm-on.test.sh" \
+    "shared test fixture selects its remote-transport reader"
   case "$listed" in
     *fm-unmapped-probe.test.sh*)
       fail "shared test fixture selection widened past its readers: $listed" ;;
@@ -2072,7 +2044,6 @@ test_task_marker_refuses_the_primary_checkout
 test_changed_runner_surfaces_select_their_family
 test_changed_workflow_selects_readers_not_invoked_families
 test_shell_line_ending_policy_selects_runner_contract
-test_changed_remote_inheritance_selects_generation_contract
 test_changed_dependency_selection_and_unmapped_failure
 test_changed_bin_reference_selects_per_script_not_per_family
 test_changed_uses_bounded_automatic_concurrency

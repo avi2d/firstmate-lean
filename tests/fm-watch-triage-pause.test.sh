@@ -31,7 +31,7 @@ test_nonterminal_stale_not_working_surfaced() {
   out="$dir/watch.out"; drain_out="$dir/drain.out"; capture_file="$dir/pane.txt"
   window="test:fm-stopped"
   printf 'idle prompt, finished' > "$capture_file"
-  printf 'window=%s\nkind=ship\n' "$window" > "$state/stopped.meta"
+  printf 'window=%s\nbackend=herdr\nkind=ship\n' "$window" > "$state/stopped.meta"
   # Non-terminal status (the crew never wrote a captain-relevant verb), .seen-*
   # primed so the signal scan does not pre-empt the stale path.
   printf 'working: implementing\n' > "$state/stopped.status"
@@ -44,7 +44,7 @@ test_nonterminal_stale_not_working_surfaced() {
   export FM_FAKE_CREW_STATE='state: unknown · source: none · no current-state source available'
 
   # Even with a high wedge threshold, a not-provably-working stale surfaces at once.
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_ESCALATE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
@@ -72,7 +72,7 @@ test_nonterminal_stale_paused_absorbed_then_resurfaced() {
   out="$dir/watch.out"; drain_out="$dir/drain.out"; capture_file="$dir/pane.txt"
   window="test:fm-held"
   printf 'idle, holding for upstream' > "$capture_file"
-  printf 'window=%s\nkind=ship\n' "$window" > "$state/held.meta"
+  printf 'window=%s\nbackend=herdr\nkind=ship\n' "$window" > "$state/held.meta"
   statusf="$state/held.status"
   # A DECLARED pause (not captain-relevant), .seen-* primed so the signal scan does
   # not pre-empt the stale path.
@@ -87,8 +87,8 @@ test_nonterminal_stale_paused_absorbed_then_resurfaced() {
 
   # Phase A: a fresh pause (status file just written) under a high re-surface
   # threshold is absorbed - no wake, no wedge timer.
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
-    FM_FAKE_TMUX_CURRENT_COMMAND=zsh \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
+    FM_FAKE_PANE_CURRENT_COMMAND=zsh \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
@@ -112,8 +112,8 @@ test_nonterminal_stale_paused_absorbed_then_resurfaced() {
   sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-held_status"
   : > "$out"
   printf 'idle, holding for upstream (token 2)' > "$capture_file"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
-    FM_FAKE_TMUX_CURRENT_COMMAND=zsh \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
+    FM_FAKE_PANE_CURRENT_COMMAND=zsh \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
@@ -138,7 +138,7 @@ test_own_work_wait_keeps_first_alert_then_long_cadence() {
     out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/own-work.status"
     window="test:fm-own-work"; key=$(watch_window_key "$window")
     printf 'idle worker awaiting its own %s\n' "$wait_kind" > "$capture_file"
-    printf 'window=%s\nkind=scout\nharness=grok\nbackend=tmux\n' "$window" > "$state/own-work.meta"
+    printf 'window=%s\nkind=scout\nharness=grok\nbackend=herdr\n' "$window" > "$state/own-work.meta"
     printf 'paused: waiting for my %s to finish; resume on completion\n' "$wait_kind" > "$statusf"
     # Age before the first observation: backdating later can change the birth
     # time on macOS and accidentally turn this into a replacement declaration.
@@ -147,8 +147,8 @@ test_own_work_wait_keeps_first_alert_then_long_cadence() {
     printf '%s' "$(hash_text "$(cat "$capture_file")")" > "$state/.hash-$key"
     printf '1\n' > "$state/.count-$key"
 
-    PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
-      FM_FAKE_TMUX_CURRENT_COMMAND=grok \
+    PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
+      FM_FAKE_PANE_CURRENT_COMMAND=grok \
       FM_FAKE_CREW_STATE='state: paused · source: status-log · waiting for own work' \
       watch_bg "$state" "$fakebin" "$out" env FM_PAUSE_RESURFACE_SECS=999
     pid=$!
@@ -160,8 +160,8 @@ test_own_work_wait_keeps_first_alert_then_long_cadence() {
     # past the long pause cadence. Neither re-arm may add a second alert.
     for round in 1 2; do
       printf '%s\n' $(( $(date +%s) - 500 )) > "$state/.stale-since-$key"
-      PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
-        FM_FAKE_TMUX_CURRENT_COMMAND=grok \
+      PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
+        FM_FAKE_PANE_CURRENT_COMMAND=grok \
         FM_FAKE_CREW_STATE='state: paused · source: status-log · waiting for own work' \
         watch_bg "$state" "$fakebin" "$dir/recheck.out" env \
           FM_STALE_ESCALATE_SECS=240 FM_PAUSE_RESURFACE_SECS=999
@@ -177,8 +177,8 @@ test_own_work_wait_keeps_first_alert_then_long_cadence() {
     # Both the unchanged declaration and its first alert must be older than
     # the 240s cadence for a forgotten wait to get its bounded recheck.
     set_mtime "$(( $(date +%s) - 500 ))" "$state/.paused-resurfaced-$key"
-    PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
-      FM_FAKE_TMUX_CURRENT_COMMAND=grok \
+    PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
+      FM_FAKE_PANE_CURRENT_COMMAND=grok \
       FM_FAKE_CREW_STATE='state: paused · source: status-log · waiting for own work' \
       watch_bg "$state" "$fakebin" "$dir/long-cadence.out" env \
         FM_STALE_ESCALATE_SECS=1 FM_PAUSE_RESURFACE_SECS=240
@@ -191,13 +191,13 @@ test_own_work_wait_keeps_first_alert_then_long_cadence() {
   dir=$(make_case own-work-undeclared); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/own-work.status"
   printf 'idle worker without a declared wait\n' > "$capture_file"
-  printf 'window=%s\nkind=scout\nharness=grok\nbackend=tmux\n' "$window" > "$state/own-work.meta"
+  printf 'window=%s\nkind=scout\nharness=grok\nbackend=herdr\n' "$window" > "$state/own-work.meta"
   printf 'working: implementing\n' > "$statusf"
   sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-own-work_status"
   printf '%s' "$(hash_text "$(cat "$capture_file")")" > "$state/.hash-$key"
   printf '1\n' > "$state/.count-$key"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
-    FM_FAKE_TMUX_CURRENT_COMMAND=grok \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
+    FM_FAKE_PANE_CURRENT_COMMAND=grok \
     FM_FAKE_CREW_STATE='state: unknown · source: none · no current-state source available' \
     watch_bg "$state" "$fakebin" "$out" env FM_STALE_ESCALATE_SECS=999
   pid=$!
@@ -220,7 +220,7 @@ test_exited_declared_pause_is_bounded_but_live_gate_surfaces() {
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/held.status"
   window="test:fm-held"
   printf 'idle bare shell after agent exit\n' > "$capture_file"
-  printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/held.meta"
+  printf 'window=%s\nkind=ship\nharness=grok\nbackend=herdr\n' "$window" > "$state/held.meta"
   printf 'paused: held per captain while an external decision is pending\n' > "$statusf"
   back=$(( $(date +%s) - 500 ))
   if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$statusf"
@@ -233,8 +233,8 @@ test_exited_declared_pause_is_bounded_but_live_gate_surfaces() {
 
   round=1
   while [ "$round" -le 6 ]; do
-    PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
-      FM_FAKE_TMUX_CURRENT_COMMAND=zsh FM_FAKE_CREW_STATE='state: stopped · source: pane · bare shell' \
+    PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
+      FM_FAKE_PANE_CURRENT_COMMAND=zsh FM_FAKE_CREW_STATE='state: stopped · source: pane · bare shell' \
       FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
       FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" >> "$out" &
     pid=$!
@@ -266,7 +266,7 @@ test_exited_declared_pause_is_bounded_but_live_gate_surfaces() {
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/held.status"
   window="test:fm-held"
   printf 'idle bare shell after captain-held transfer\n' > "$capture_file"
-  printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/held.meta"
+  printf 'window=%s\nkind=ship\nharness=grok\nbackend=herdr\n' "$window" > "$state/held.meta"
   printf 'captain-held [key=route]: tracked by held-decision-route\n' > "$statusf"
   back=$(( $(date +%s) - 500 ))
   if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$statusf"
@@ -276,8 +276,8 @@ test_exited_declared_pause_is_bounded_but_live_gate_surfaces() {
   pane_hash=$(hash_text "idle bare shell after captain-held transfer")
   printf '%s' "$pane_hash" > "$state/.hash-$key"
   printf '1\n' > "$state/.count-$key"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
-    FM_FAKE_TMUX_CURRENT_COMMAND=zsh FM_FAKE_CREW_STATE='state: stopped · source: pane · bare shell' \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
+    FM_FAKE_PANE_CURRENT_COMMAND=zsh FM_FAKE_CREW_STATE='state: stopped · source: pane · bare shell' \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
@@ -291,7 +291,7 @@ test_exited_declared_pause_is_bounded_but_live_gate_surfaces() {
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/gate.status"
   window="test:fm-gate"
   printf 'idle external-decision gate\n' > "$capture_file"
-  printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/gate.meta"
+  printf 'window=%s\nkind=ship\nharness=grok\nbackend=herdr\n' "$window" > "$state/gate.meta"
   printf 'paused: waiting at an active external-decision gate\n' > "$statusf"
   sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-gate_status"
   key=$(watch_window_key "$window")
@@ -301,8 +301,8 @@ test_exited_declared_pause_is_bounded_but_live_gate_surfaces() {
 
   # First sight must surface promptly so a live external-decision gate is not
   # hidden behind the pause cadence.
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
-    FM_FAKE_TMUX_CURRENT_COMMAND=grok FM_FAKE_CREW_STATE='state: paused · source: status-log · waiting at an active external-decision gate' \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
+    FM_FAKE_PANE_CURRENT_COMMAND=grok FM_FAKE_CREW_STATE='state: paused · source: status-log · waiting at an active external-decision gate' \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" >> "$out" &
   pid=$!
@@ -314,8 +314,8 @@ test_exited_declared_pause_is_bounded_but_live_gate_surfaces() {
   # the pause cadence and discard any residual wedge timer instead of emitting
   # a second possible-wedge wake.
   printf '%s\n' $(( $(date +%s) - 500 )) > "$state/.stale-since-$key"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
-    FM_FAKE_TMUX_CURRENT_COMMAND=grok FM_FAKE_CREW_STATE='state: paused · source: status-log · waiting at an active external-decision gate' \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
+    FM_FAKE_PANE_CURRENT_COMMAND=grok FM_FAKE_CREW_STATE='state: paused · source: status-log · waiting at an active external-decision gate' \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_ESCALATE_SECS=240 FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" >> "$out" &
   pid=$!
@@ -351,7 +351,7 @@ test_absorbed_replacement_wait_does_not_inherit_the_old_throttle() {
     out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/held.status"
     window="test:fm-held"
     printf 'idle after agent exit\n' > "$capture_file"
-    printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/held.meta"
+    printf 'window=%s\nkind=ship\nharness=grok\nbackend=herdr\n' "$window" > "$state/held.meta"
     printf '%s\n' "$initial" > "$statusf"
     back=$(( $(date +%s) - 500 ))
     if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$statusf"
@@ -361,8 +361,8 @@ test_absorbed_replacement_wait_does_not_inherit_the_old_throttle() {
     printf '%s' "$(hash_text 'idle after agent exit')" > "$state/.hash-$key"
     printf '1\n' > "$state/.count-$key"
 
-    PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
-      FM_FAKE_TMUX_CURRENT_COMMAND=zsh FM_FAKE_CREW_STATE='state: stopped · source: pane · bare shell' \
+    PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
+      FM_FAKE_PANE_CURRENT_COMMAND=zsh FM_FAKE_CREW_STATE='state: stopped · source: pane · bare shell' \
       FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
       FM_PAUSE_RESURFACE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
       FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" >> "$out" &
@@ -373,8 +373,8 @@ test_absorbed_replacement_wait_does_not_inherit_the_old_throttle() {
     printf '%s\n' "$replacement" >> "$statusf"
     sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-held_status"
     printf 'idle after replacement wait\n' > "$capture_file"
-    PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
-      FM_FAKE_TMUX_CURRENT_COMMAND=zsh FM_FAKE_CREW_STATE='state: stopped · source: pane · bare shell' \
+    PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
+      FM_FAKE_PANE_CURRENT_COMMAND=zsh FM_FAKE_CREW_STATE='state: stopped · source: pane · bare shell' \
       FM_WATCH_HANDLING_SUCCESSOR=1 \
       FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
       FM_PAUSE_RESURFACE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
@@ -405,8 +405,8 @@ test_absorbed_replacement_wait_does_not_inherit_the_old_throttle() {
 # reach the stale path. Returns 1 when the watcher does the other thing.
 parked_watch_round() {  # <state> <fakebin> <out> <capture> <window> <exit|absorb>
   local state=$1 fakebin=$2 out=$3 capture=$4 window=$5 mode=$6 pid cycles=0
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture" \
-    FM_FAKE_TMUX_CURRENT_COMMAND=grok \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture" \
+    FM_FAKE_PANE_CURRENT_COMMAND=grok \
     FM_FAKE_CREW_STATE='state: paused · source: status-log · parked' \
     FM_WATCH_HANDLING_SUCCESSOR=1 \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
@@ -449,7 +449,7 @@ test_live_declared_wait_churn_honors_the_resurface_throttle() {
     dir=$(make_case "$name"); state="$dir/state"; fakebin="$dir/fakebin"
     out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/parked.status"
     window="test:fm-parked"
-    printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/parked.meta"
+    printf 'window=%s\nkind=ship\nharness=grok\nbackend=herdr\n' "$window" > "$state/parked.meta"
     printf '%s\n' "$status_line" > "$statusf"
     sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-parked_status"
     key=$(watch_window_key "$window")
@@ -530,7 +530,7 @@ test_live_paused_until_controls_recheck_time() {
   dir=$(make_case live-paused-until); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/parked.status"
   window="test:fm-parked"
-  printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/parked.meta"
+  printf 'window=%s\nkind=ship\nharness=grok\nbackend=herdr\n' "$window" > "$state/parked.meta"
   future=$(iso_utc_at "$(( $(date +%s) + 7200 ))")
   printf 'paused: rate limit until %s | owner=ci | recheck=2099-01-01\n' "$future" > "$statusf"
   sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-parked_status"
@@ -608,7 +608,7 @@ make_hold_home() {  # <name> <status-line> <hold|nohold>
   if [ "$hold" = hold ]; then
     run_hold "$dir" hold held-merge --reason 'awaiting the captain on the merge' || return 1
   fi
-  printf 'window=test:fm-held-merge\nkind=ship\nharness=grok\nbackend=tmux\n' \
+  printf 'window=test:fm-held-merge\nkind=ship\nharness=grok\nbackend=herdr\n' \
     > "$state/held-merge.meta"
   printf '%s\n' "$line" > "$state/held-merge.status"
   printf '%s' "$(seen_sig "$state/held-merge.status")" > "$state/.seen-held-merge_status"
@@ -624,8 +624,8 @@ make_hold_home() {  # <name> <status-line> <hold|nohold>
 HOLD_WATCH_PID=
 hold_watch_launch() {  # <dir> <out> <capture>
   local dir=$1 out=$2 capture=$3
-  PATH="$dir/fakebin:$PATH" FM_FAKE_TMUX_WINDOW=test:fm-held-merge \
-    FM_FAKE_TMUX_CAPTURE="$capture" FM_FAKE_TMUX_CURRENT_COMMAND=zsh \
+  PATH="$dir/fakebin:$PATH" FM_FAKE_PANE_WINDOW=test:fm-held-merge \
+    FM_FAKE_PANE_CAPTURE="$capture" FM_FAKE_PANE_CURRENT_COMMAND=zsh \
     FM_FAKE_CREW_STATE='state: stopped · source: pane · bare shell' \
     FM_WATCH_HANDLING_SUCCESSOR=1 \
     FM_HOME="$dir" FM_DATA_OVERRIDE="$dir/data" FM_CONFIG_OVERRIDE="$dir/config" \
@@ -827,124 +827,12 @@ test_reheld_captain_call_starts_its_own_resurface_window() {
 }
 
 
-test_secondmate_paused_resurfaces_in_normal_mode() {
-  local dir state fakebin out capture_file statusf window key pane_hash sig pid back
-  dir=$(make_case secondmate-paused-resurface); state="$dir/state"; fakebin="$dir/fakebin"
-  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/secondmate-held.status"
-  window="test:fm-secondmate-held"
-  printf 'idle awaiting external\n' > "$capture_file"
-  printf 'window=%s\nkind=secondmate\n' "$window" > "$state/secondmate-held.meta"
-  printf 'paused: awaiting the upstream release\nThe release window opens tomorrow.\n\n' > "$statusf"
-  back=$(( $(date +%s) - 500 ))
-  if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$statusf"
-  else touch -m -d "@$back" "$statusf"; fi
-  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-secondmate-held_status"
-  key=$(watch_window_key "$window")
-  pane_hash=$(hash_text "idle awaiting external")
-  printf '%s' "$pane_hash" > "$state/.hash-$key"
-  printf '1\n' > "$state/.count-$key"
-  export FM_FAKE_CREW_STATE='state: paused · source: status-log · awaiting the upstream release'
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
-    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
-  pid=$!
-  wait_for_exit "$pid" 100 || fail "watcher did not re-surface a paused secondmate"
-  grep -F "stale: $window" "$out" >/dev/null || fail "paused secondmate did not emit a stale recheck"
-  grep -F "awaiting external" "$out" >/dev/null || fail "paused secondmate recheck omitted its external-wait reason"
-  grep -F "awaiting the captain" "$out" >/dev/null && fail "paused secondmate recheck named the captain instead of its external dependency"
-  grep -F "possible wedge" "$out" >/dev/null && fail "paused secondmate was mislabeled a wedge"
-  unset FM_FAKE_CREW_STATE
-  pass "a declared paused secondmate re-surfaces on the bounded normal-mode cadence"
-}
-
-# A captain hold is the other declared wait, but unlike paused: it has no
-# current-state mapping, so a held mate reports `unknown` rather than `paused`.
-# The bounded re-surface must still reach it, or a mate's hold rots invisibly:
-# nothing else re-reads a quiet mate's endpoint.
-test_secondmate_captain_held_resurfaces_in_normal_mode() {
-  local dir state fakebin out capture_file statusf window key pane_hash sig pid back
-  dir=$(make_case secondmate-held-resurface); state="$dir/state"; fakebin="$dir/fakebin"
-  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/secondmate-hold.status"
-  window="test:fm-secondmate-hold"
-  printf 'idle awaiting the captain\n' > "$capture_file"
-  printf 'window=%s\nkind=secondmate\n' "$window" > "$state/secondmate-hold.meta"
-  printf 'captain-held [key=route]: tracked by task-decision-route\n' > "$statusf"
-  back=$(( $(date +%s) - 500 ))
-  if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$statusf"
-  else touch -m -d "@$back" "$statusf"; fi
-  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-secondmate-hold_status"
-  key=$(watch_window_key "$window")
-  pane_hash=$(hash_text "idle awaiting the captain")
-  printf '%s' "$pane_hash" > "$state/.hash-$key"
-  printf '1\n' > "$state/.count-$key"
-  export FM_FAKE_CREW_STATE='state: unknown · source: none · no current-state source available'
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
-    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
-  pid=$!
-  wait_for_exit "$pid" 100 || fail "watcher did not re-surface a captain-held secondmate"
-  grep -F "stale: $window" "$out" >/dev/null || fail "captain-held secondmate did not emit a stale recheck"
-  grep -F "awaiting the captain" "$out" >/dev/null || fail "captain-held secondmate recheck did not name the captain as the blocker: $(cat "$out")"
-  grep -F "awaiting external" "$out" >/dev/null && fail "captain-held secondmate recheck claimed an external wait"
-  grep -F "possible wedge" "$out" >/dev/null && fail "captain-held secondmate was mislabeled a wedge"
-  unset FM_FAKE_CREW_STATE
-  pass "a captain-held secondmate re-surfaces on the bounded normal-mode cadence"
-}
-
-test_secondmate_nonpaused_stale_remains_suppressed() {
-  local dir state fakebin out capture_file statusf window key pane_hash sig pid
-  dir=$(make_case secondmate-stale-suppressed); state="$dir/state"; fakebin="$dir/fakebin"
-  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/secondmate-working.status"
-  window="test:fm-secondmate-working"
-  printf 'idle while the parent supervises\n' > "$capture_file"
-  printf 'window=%s\nkind=secondmate\n' "$window" > "$state/secondmate-working.meta"
-  printf 'working: the parent supervises this secondmate\n' > "$statusf"
-  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-secondmate-working_status"
-  key=$(watch_window_key "$window")
-  pane_hash=$(hash_text "idle while the parent supervises")
-  printf '%s' "$pane_hash" > "$state/.hash-$key"
-  printf '1\n' > "$state/.count-$key"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
-    FM_STATE_OVERRIDE="$state" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
-  pid=$!
-  if ! wait_poll_cycle "$state" "$pid"; then
-    reap "$pid"; fail "watcher surfaced an ordinary secondmate stale pane: $(cat "$out")"
-  fi
-  [ ! -s "$out" ] || { reap "$pid"; fail "ordinary secondmate stale pane printed a wake reason: $(cat "$out")"; }
-  reap "$pid"
-  pass "a non-paused secondmate retains normal stale suppression"
-}
-
-test_secondmate_unpause_clears_pause_tracking() {
-  local dir state fakebin out statusf window key pid
-  dir=$(make_case secondmate-unpause-clears); state="$dir/state"; fakebin="$dir/fakebin"
-  out="$dir/watch.out"; statusf="$state/secondmate-resumed.status"; window="test:fm-secondmate-resumed"
-  printf 'window=%s\nkind=secondmate\n' "$window" > "$state/secondmate-resumed.meta"
-  printf 'working: upstream landed\n' > "$statusf"
-  printf '%s' "$(seen_sig "$statusf")" > "$state/.seen-secondmate-resumed_status"
-  key=$(watch_window_key "$window")
-  : > "$state/.paused-$key"
-  : > "$state/.paused-rechecked-$key"
-  : > "$state/.paused-resurfaced-$key"
-  : > "$state/.stale-$key"
-  : > "$state/.stale-since-$key"
-  : > "$state/.wedge-escalations-$key"
-  watch_bg "$state" "$fakebin" "$out"
-  pid=$!
-  wait_poll_cycle "$state" "$pid" || fail "watcher exited while reconciling a resumed secondmate: $(cat "$out")"
-  [ ! -e "$state/.paused-$key" ] || { reap "$pid"; fail "resumed secondmate retained the pause marker"; }
-  [ ! -e "$state/.stale-$key" ] || { reap "$pid"; fail "resumed secondmate retained stale tracking"; }
-  [ ! -e "$state/.wedge-escalations-$key" ] || { reap "$pid"; fail "resumed secondmate retained wedge tracking"; }
-  reap "$pid"
-  pass "a resumed secondmate clears pause and stale tracking before stale exemption"
-}
-
 test_nonterminal_stale_pause_transitions_reclassify_unchanged_hash() {
   local dir state fakebin out capture_file window key pane_hash sig pid i
   dir=$(make_case nonterminal-stale-pause-transition); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; window="test:fm-transition"
   printf 'idle awaiting external\n' > "$capture_file"
-  printf 'window=%s\nkind=ship\n' "$window" > "$state/transition.meta"
+  printf 'window=%s\nbackend=herdr\nkind=ship\n' "$window" > "$state/transition.meta"
   printf 'paused: awaiting the upstream release | owner=ci | recheck=2099-01-01\n' > "$state/transition.status"
   sig=$(seen_sig "$state/transition.status"); printf '%s' "$sig" > "$state/.seen-transition_status"
   key=$(watch_window_key "$window")
@@ -955,8 +843,8 @@ test_nonterminal_stale_pause_transitions_reclassify_unchanged_hash() {
   printf '%s\n' $(( $(date +%s) - 500 )) > "$state/.stale-since-$key"
   export FM_FAKE_CREW_STATE='state: paused · source: status-log · awaiting the upstream release'
 
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
-    FM_FAKE_TMUX_CURRENT_COMMAND=zsh \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
+    FM_FAKE_PANE_CURRENT_COMMAND=zsh \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
@@ -977,7 +865,7 @@ test_nonterminal_stale_pause_transitions_reclassify_unchanged_hash() {
   sig=$(seen_sig "$state/transition.status"); printf '%s' "$sig" > "$state/.seen-transition_status"
   FM_FAKE_CREW_STATE='state: working · source: run-step · validating (running)'
   : > "$out"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_ESCALATE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
@@ -1001,7 +889,7 @@ test_nonterminal_paused_rechecks_authoritative_state() {
   dir=$(make_case nonterminal-paused-recheck); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; window="test:fm-pause-recheck"
   printf 'idle awaiting external\n' > "$capture_file"
-  printf 'window=%s\nkind=ship\n' "$window" > "$state/pause-recheck.meta"
+  printf 'window=%s\nbackend=herdr\nkind=ship\n' "$window" > "$state/pause-recheck.meta"
   printf 'paused: awaiting the upstream release | owner=ci | recheck=2099-01-01\n' > "$state/pause-recheck.status"
   sig=$(seen_sig "$state/pause-recheck.status"); printf '%s' "$sig" > "$state/.seen-pause-recheck_status"
   key=$(watch_window_key "$window")
@@ -1012,7 +900,7 @@ test_nonterminal_paused_rechecks_authoritative_state() {
   : > "$state/.paused-$key"
   export FM_FAKE_CREW_STATE='state: working · source: run-step · validating (running)'
 
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_ESCALATE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
@@ -1031,7 +919,7 @@ test_paused_unchanged_across_polls_skips_its_recheck() {
   dir=$(make_case paused-unchanged-skips-recheck); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; window="test:fm-paused-quiet"
   printf 'idle awaiting external\n' > "$capture_file"
-  printf 'window=%s\nkind=ship\nbackend=tmux\n' "$window" > "$state/paused-quiet.meta"
+  printf 'window=%s\nkind=ship\nbackend=herdr\n' "$window" > "$state/paused-quiet.meta"
   printf 'paused: awaiting the upstream release | owner=ci | recheck=2099-01-01\n' > "$state/paused-quiet.status"
   sig=$(seen_sig "$state/paused-quiet.status"); printf '%s' "$sig" > "$state/.seen-paused-quiet_status"
   key=$(watch_window_key "$window")
@@ -1044,45 +932,45 @@ test_paused_unchanged_across_polls_skips_its_recheck() {
   date +%s > "$state/.paused-rechecked-$key"
   export FM_FAKE_CREW_STATE='state: paused · source: status-log · awaiting the upstream release'
   export FM_FAKE_CREW_STATE_LOG="$dir/crew-state.log"
-  export FM_FAKE_TMUX_CURRENT_COMMAND=bash
-  export FM_FAKE_TMUX_CALL_LOG="$dir/tmux-calls.log"
+  export FM_FAKE_PANE_CURRENT_COMMAND=bash
+  export FM_FAKE_PANE_CALL_LOG="$dir/herdr-calls.log"
   : > "$FM_FAKE_CREW_STATE_LOG"
-  : > "$FM_FAKE_TMUX_CALL_LOG"
-  mv "$fakebin/tmux" "$fakebin/tmux.real"
-  cat > "$fakebin/tmux" <<'SH'
+  : > "$FM_FAKE_PANE_CALL_LOG"
+  mv "$fakebin/herdr" "$fakebin/herdr.real"
+  cat > "$fakebin/herdr" <<'SH'
 #!/usr/bin/env bash
-[ -z "${FM_FAKE_TMUX_CALL_LOG:-}" ] || printf '%s\n' "$*" >> "$FM_FAKE_TMUX_CALL_LOG"
-exec "$(dirname "$0")/tmux.real" "$@"
+[ -z "${FM_FAKE_PANE_CALL_LOG:-}" ] || printf '%s\n' "$*" >> "$FM_FAKE_PANE_CALL_LOG"
+exec "$(dirname "$0")/herdr.real" "$@"
 SH
-  chmod +x "$fakebin/tmux"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  chmod +x "$fakebin/herdr"
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_ESCALATE_SECS=999 FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_SECONDMATE_LIVENESS_SECS=99999999 "$WATCH" > "$out" &
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
   # One full cycle observes the admitted pause; the evidence is a probe of
   # either kind (a full reconciliation, or the bare liveness probe).
   i=0
   while [ "$i" -lt 100 ] && kill -0 "$pid" 2>/dev/null; do
-    [ -s "$FM_FAKE_CREW_STATE_LOG" ] || [ "$(grep -c '^display-message' "$FM_FAKE_TMUX_CALL_LOG")" -gt 0 ] && break
+    [ -s "$FM_FAKE_CREW_STATE_LOG" ] || [ "$(grep -c '^pane get' "$FM_FAKE_PANE_CALL_LOG")" -gt 0 ] && break
     sleep 0.1
     i=$((i + 1))
   done
   kill -0 "$pid" 2>/dev/null || { reap "$pid"; fail "watcher exited on an admitted paused stale pane: $(cat "$out")"; }
   wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "watcher exited while a paused wait stood unchanged: $(cat "$out")"; }
   crew_first=$(wc -l < "$FM_FAKE_CREW_STATE_LOG" 2>/dev/null || echo 0)
-  probes_first=$(grep -c '^display-message' "$FM_FAKE_TMUX_CALL_LOG" 2>/dev/null || true)
+  probes_first=$(grep -c '^pane get' "$FM_FAKE_PANE_CALL_LOG" 2>/dev/null || true)
   # Two more consecutive cycles on the unchanged wait must spend no new probe.
   wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "watcher exited while a paused wait stood unchanged: $(cat "$out")"; }
   wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "watcher exited while a paused wait stood unchanged: $(cat "$out")"; }
   [ "$(wc -l < "$FM_FAKE_CREW_STATE_LOG" 2>/dev/null || echo 0)" = "$crew_first" ] \
     || { reap "$pid"; fail "an unchanged paused wait was re-read from authoritative crew state on a consecutive poll"; }
-  [ "$(grep -c '^display-message' "$FM_FAKE_TMUX_CALL_LOG" 2>/dev/null || true)" = "$probes_first" ] \
+  [ "$(grep -c '^pane get' "$FM_FAKE_PANE_CALL_LOG" 2>/dev/null || true)" = "$probes_first" ] \
     || { reap "$pid"; fail "an unchanged paused wait was re-probed at its endpoint on a consecutive poll"; }
   [ ! -s "$out" ] || { reap "$pid"; fail "an unchanged paused wait printed a wake reason: $(cat "$out")"; }
   [ ! -s "$state/.wake-queue" ] || { reap "$pid"; fail "an unchanged paused wait enqueued a wake"; }
   [ -e "$state/.paused-$key" ] || { reap "$pid"; fail "an unchanged paused wait lost its pause marker"; }
   reap "$pid"
-  unset FM_FAKE_CREW_STATE FM_FAKE_CREW_STATE_LOG FM_FAKE_TMUX_CURRENT_COMMAND FM_FAKE_TMUX_CALL_LOG
+  unset FM_FAKE_CREW_STATE FM_FAKE_CREW_STATE_LOG FM_FAKE_PANE_CURRENT_COMMAND FM_FAKE_PANE_CALL_LOG
   pass "an unchanged paused wait is not rechecked on consecutive polls: the cached verdict spends no crew-state read and no endpoint probe"
 }
 
@@ -1091,7 +979,7 @@ test_paused_live_agent_unchanged_across_polls_skips_its_recheck() {
   dir=$(make_case paused-live-unchanged-skips-recheck); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; window="test:fm-paused-live"
   printf 'idle awaiting external\n' > "$capture_file"
-  printf 'window=%s\nkind=ship\nbackend=tmux\n' "$window" > "$state/paused-live.meta"
+  printf 'window=%s\nkind=ship\nbackend=herdr\n' "$window" > "$state/paused-live.meta"
   printf 'paused: awaiting the upstream release | owner=ci | recheck=2099-01-01\n' > "$state/paused-live.status"
   sig=$(seen_sig "$state/paused-live.status"); printf '%s' "$sig" > "$state/.seen-paused-live_status"
   key=$(watch_window_key "$window")
@@ -1107,46 +995,46 @@ test_paused_live_agent_unchanged_across_polls_skips_its_recheck() {
   date +%s > "$state/.paused-rechecked-$key"
   export FM_FAKE_CREW_STATE='state: paused · source: status-log · awaiting the upstream release'
   export FM_FAKE_CREW_STATE_LOG="$dir/crew-state.log"
-  export FM_FAKE_TMUX_CURRENT_COMMAND=claude
-  export FM_FAKE_TMUX_CALL_LOG="$dir/tmux-calls.log"
+  export FM_FAKE_PANE_CURRENT_COMMAND=claude
+  export FM_FAKE_PANE_CALL_LOG="$dir/herdr-calls.log"
   : > "$dir/crew-state.log"
-  : > "$dir/tmux-calls.log"
-  mv "$fakebin/tmux" "$fakebin/tmux.real"
-  cat > "$fakebin/tmux" <<'SH'
+  : > "$dir/herdr-calls.log"
+  mv "$fakebin/herdr" "$fakebin/herdr.real"
+  cat > "$fakebin/herdr" <<'SH'
 #!/usr/bin/env bash
-[ -z "${FM_FAKE_TMUX_CALL_LOG:-}" ] || printf '%s\n' "$*" >> "$FM_FAKE_TMUX_CALL_LOG"
-exec "$(dirname "$0")/tmux.real" "$@"
+[ -z "${FM_FAKE_PANE_CALL_LOG:-}" ] || printf '%s\n' "$*" >> "$FM_FAKE_PANE_CALL_LOG"
+exec "$(dirname "$0")/herdr.real" "$@"
 SH
-  chmod +x "$fakebin/tmux"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  chmod +x "$fakebin/herdr"
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_ESCALATE_SECS=999 FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_SECONDMATE_LIVENESS_SECS=99999999 "$WATCH" > "$out" &
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
   # One full cycle observes the admitted pause beside its live agent; the
   # evidence is a probe of either kind (a full reconciliation, or the bare
   # liveness probe).
   i=0
   while [ "$i" -lt 100 ] && kill -0 "$pid" 2>/dev/null; do
-    [ -s "$FM_FAKE_CREW_STATE_LOG" ] || [ "$(grep -c '^display-message' "$FM_FAKE_TMUX_CALL_LOG")" -gt 0 ] && break
+    [ -s "$FM_FAKE_CREW_STATE_LOG" ] || [ "$(grep -c '^pane get' "$FM_FAKE_PANE_CALL_LOG")" -gt 0 ] && break
     sleep 0.1
     i=$((i + 1))
   done
   kill -0 "$pid" 2>/dev/null || { reap "$pid"; fail "watcher exited on an admitted paused stale pane beside a live agent: $(cat "$out")"; }
   wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "watcher exited while a paused wait beside a live agent stood unchanged: $(cat "$out")"; }
   crew_first=$(wc -l < "$FM_FAKE_CREW_STATE_LOG" 2>/dev/null || echo 0)
-  probes_first=$(grep -c '^display-message' "$FM_FAKE_TMUX_CALL_LOG" 2>/dev/null || true)
+  probes_first=$(grep -c '^pane get' "$FM_FAKE_PANE_CALL_LOG" 2>/dev/null || true)
   # Two more consecutive cycles on the unchanged wait must spend no new probe.
   wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "watcher exited while a paused wait beside a live agent stood unchanged: $(cat "$out")"; }
   wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "watcher exited while a paused wait beside a live agent stood unchanged: $(cat "$out")"; }
   [ "$(wc -l < "$FM_FAKE_CREW_STATE_LOG" 2>/dev/null || echo 0)" = "$crew_first" ] \
     || { reap "$pid"; fail "an unchanged paused wait beside a live agent was re-read from authoritative crew state on a consecutive poll"; }
-  [ "$(grep -c '^display-message' "$FM_FAKE_TMUX_CALL_LOG" 2>/dev/null || true)" = "$probes_first" ] \
+  [ "$(grep -c '^pane get' "$FM_FAKE_PANE_CALL_LOG" 2>/dev/null || true)" = "$probes_first" ] \
     || { reap "$pid"; fail "an unchanged paused wait beside a live agent was re-probed at its endpoint on a consecutive poll"; }
   [ ! -s "$out" ] || { reap "$pid"; fail "an unchanged paused wait beside a live agent printed a wake reason: $(cat "$out")"; }
   [ ! -s "$state/.wake-queue" ] || { reap "$pid"; fail "an unchanged paused wait beside a live agent enqueued a wake"; }
   [ -e "$state/.paused-$key" ] || { reap "$pid"; fail "an unchanged paused wait beside a live agent lost its pause marker"; }
   reap "$pid"
-  unset FM_FAKE_CREW_STATE FM_FAKE_CREW_STATE_LOG FM_FAKE_TMUX_CURRENT_COMMAND FM_FAKE_TMUX_CALL_LOG
+  unset FM_FAKE_CREW_STATE FM_FAKE_CREW_STATE_LOG FM_FAKE_PANE_CURRENT_COMMAND FM_FAKE_PANE_CALL_LOG
   pass "an unchanged paused wait beside a live agent is not rechecked on consecutive polls: the cached live verdict spends no crew-state read and no endpoint probe"
 }
 
@@ -1155,7 +1043,7 @@ test_paused_throttled_resurface_keeps_the_old_recheck_clock() {
   dir=$(make_case paused-throttled-keeps-clock); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; window="test:fm-paused-throttle"
   printf 'idle awaiting external\n' > "$capture_file"
-  printf 'window=%s\nkind=ship\nbackend=tmux\n' "$window" > "$state/paused-throttle.meta"
+  printf 'window=%s\nkind=ship\nbackend=herdr\n' "$window" > "$state/paused-throttle.meta"
   printf 'paused: awaiting the upstream release\n' > "$state/paused-throttle.status"
   sig=$(seen_sig "$state/paused-throttle.status"); printf '%s' "$sig" > "$state/.seen-paused-throttle_status"
   key=$(watch_window_key "$window")
@@ -1169,11 +1057,11 @@ test_paused_throttled_resurface_keeps_the_old_recheck_clock() {
   date +%s > "$state/.paused-rechecked-$key"
   export FM_FAKE_CREW_STATE='state: paused · source: status-log · awaiting the upstream release'
   export FM_FAKE_CREW_STATE_LOG="$dir/crew-state.log"
-  export FM_FAKE_TMUX_CURRENT_COMMAND=claude
+  export FM_FAKE_PANE_CURRENT_COMMAND=claude
   : > "$dir/crew-state.log"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_ESCALATE_SECS=999 FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_SECONDMATE_LIVENESS_SECS=99999999 "$WATCH" > "$out" &
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
   wait_for_exit "$pid" 100 || { reap "$pid"; fail "the first sight of a live declared pause did not surface: $(cat "$out")"; }
   [ "$(wc -l < "$FM_FAKE_CREW_STATE_LOG")" -eq 1 ] \
@@ -1187,9 +1075,9 @@ test_paused_throttled_resurface_keeps_the_old_recheck_clock() {
   rm -f "$state/.stale-$key"
   aged=$(( $(date +%s) - 100 ))
   set_mtime "$aged" "$state/.paused-rechecked-$key"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_ESCALATE_SECS=999 FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_SECONDMATE_LIVENESS_SECS=99999999 "$WATCH" > "$out" &
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
   wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "watcher exited on a throttled re-surface: $(cat "$out")"; }
   wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "watcher exited on a throttled re-surface: $(cat "$out")"; }
@@ -1201,7 +1089,7 @@ test_paused_throttled_resurface_keeps_the_old_recheck_clock() {
   [ ! -s "$state/.wake-queue" ] || { reap "$pid"; fail "a throttled re-surface with unchanged inputs enqueued a wake"; }
   [ -e "$state/.paused-$key" ] || { reap "$pid"; fail "a throttled re-surface with unchanged inputs lost its pause marker"; }
   reap "$pid"
-  unset FM_FAKE_CREW_STATE FM_FAKE_CREW_STATE_LOG FM_FAKE_TMUX_CURRENT_COMMAND
+  unset FM_FAKE_CREW_STATE FM_FAKE_CREW_STATE_LOG FM_FAKE_PANE_CURRENT_COMMAND
   pass "a throttled re-surface with unchanged inputs neither reconciles nor renews the slow-interval clock: the clock still belongs to the last reconciliation"
 }
 
@@ -1210,7 +1098,7 @@ test_paused_untagged_signature_record_is_a_cache_miss() {
   dir=$(make_case paused-untagged-sig-miss); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; window="test:fm-paused-untag"
   printf 'idle awaiting external\n' > "$capture_file"
-  printf 'window=%s\nkind=ship\nbackend=tmux\n' "$window" > "$state/paused-untag.meta"
+  printf 'window=%s\nkind=ship\nbackend=herdr\n' "$window" > "$state/paused-untag.meta"
   printf 'paused: awaiting the upstream release | owner=ci | recheck=2099-01-01\n' > "$state/paused-untag.status"
   sig=$(seen_sig "$state/paused-untag.status"); printf '%s' "$sig" > "$state/.seen-paused-untag_status"
   key=$(watch_window_key "$window")
@@ -1223,23 +1111,23 @@ test_paused_untagged_signature_record_is_a_cache_miss() {
   : > "$state/.paused-$key"
   date +%s > "$state/.paused-rechecked-$key"
   last=$(status_declared_wait_line "$state/paused-untag.status")
-  printf 'status:%s\nendpoint:tmux:%s' "$last" "$window" > "$state/.paused-sig-$key"
+  printf 'status:%s\nendpoint:herdr:%s' "$last" "$window" > "$state/.paused-sig-$key"
   export FM_FAKE_CREW_STATE='state: paused · source: status-log · awaiting the upstream release'
   export FM_FAKE_CREW_STATE_LOG="$dir/crew-state.log"
-  export FM_FAKE_TMUX_CURRENT_COMMAND=bash
-  export FM_FAKE_TMUX_CALL_LOG="$dir/tmux-calls.log"
+  export FM_FAKE_PANE_CURRENT_COMMAND=bash
+  export FM_FAKE_PANE_CALL_LOG="$dir/herdr-calls.log"
   : > "$dir/crew-state.log"
-  : > "$dir/tmux-calls.log"
-  mv "$fakebin/tmux" "$fakebin/tmux.real"
-  cat > "$fakebin/tmux" <<'SH'
+  : > "$dir/herdr-calls.log"
+  mv "$fakebin/herdr" "$fakebin/herdr.real"
+  cat > "$fakebin/herdr" <<'SH'
 #!/usr/bin/env bash
-[ -z "${FM_FAKE_TMUX_CALL_LOG:-}" ] || printf '%s\n' "$*" >> "$FM_FAKE_TMUX_CALL_LOG"
-exec "$(dirname "$0")/tmux.real" "$@"
+[ -z "${FM_FAKE_PANE_CALL_LOG:-}" ] || printf '%s\n' "$*" >> "$FM_FAKE_PANE_CALL_LOG"
+exec "$(dirname "$0")/herdr.real" "$@"
 SH
-  chmod +x "$fakebin/tmux"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  chmod +x "$fakebin/herdr"
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_ESCALATE_SECS=999 FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_SECONDMATE_LIVENESS_SECS=99999999 "$WATCH" > "$out" &
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
   wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "watcher exited on an untagged signature record: $(cat "$out")"; }
   wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "watcher exited on an untagged signature record: $(cat "$out")"; }
@@ -1250,7 +1138,7 @@ SH
   [ ! -s "$out" ] || { reap "$pid"; fail "an untagged signature record printed a wake reason: $(cat "$out")"; }
   [ ! -s "$state/.wake-queue" ] || { reap "$pid"; fail "an untagged signature record enqueued a wake"; }
   reap "$pid"
-  unset FM_FAKE_CREW_STATE FM_FAKE_CREW_STATE_LOG FM_FAKE_TMUX_CURRENT_COMMAND FM_FAKE_TMUX_CALL_LOG
+  unset FM_FAKE_CREW_STATE FM_FAKE_CREW_STATE_LOG FM_FAKE_PANE_CURRENT_COMMAND FM_FAKE_PANE_CALL_LOG
   pass "an untagged signature record is a cache miss: it reconciles and earns a tagged record"
 }
 
@@ -1259,7 +1147,7 @@ test_captain_held_unchanged_across_polls_skips_its_recheck() {
   dir=$(make_case captain-held-unchanged-skips-recheck); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; window="test:fm-held-quiet"
   printf 'idle bare shell after captain-held transfer\n' > "$capture_file"
-  printf 'window=%s\nkind=ship\nbackend=tmux\n' "$window" > "$state/held-quiet.meta"
+  printf 'window=%s\nkind=ship\nbackend=herdr\n' "$window" > "$state/held-quiet.meta"
   printf 'captain-held [key=route]: awaiting the routing call\n' > "$state/held-quiet.status"
   sig=$(seen_sig "$state/held-quiet.status"); printf '%s' "$sig" > "$state/.seen-held-quiet_status"
   key=$(watch_window_key "$window")
@@ -1273,36 +1161,36 @@ test_captain_held_unchanged_across_polls_skips_its_recheck() {
   date +%s > "$state/.paused-rechecked-$key"
   export FM_FAKE_CREW_STATE='state: none · source: status-log · no current-state mapping'
   export FM_FAKE_CREW_STATE_LOG="$dir/crew-state.log"
-  export FM_FAKE_TMUX_CURRENT_COMMAND=bash
-  export FM_FAKE_TMUX_CALL_LOG="$dir/tmux-calls.log"
+  export FM_FAKE_PANE_CURRENT_COMMAND=bash
+  export FM_FAKE_PANE_CALL_LOG="$dir/herdr-calls.log"
   : > "$dir/crew-state.log"
-  : > "$dir/tmux-calls.log"
-  mv "$fakebin/tmux" "$fakebin/tmux.real"
-  cat > "$fakebin/tmux" <<'SH'
+  : > "$dir/herdr-calls.log"
+  mv "$fakebin/herdr" "$fakebin/herdr.real"
+  cat > "$fakebin/herdr" <<'SH'
 #!/usr/bin/env bash
-[ -z "${FM_FAKE_TMUX_CALL_LOG:-}" ] || printf '%s\n' "$*" >> "$FM_FAKE_TMUX_CALL_LOG"
-exec "$(dirname "$0")/tmux.real" "$@"
+[ -z "${FM_FAKE_PANE_CALL_LOG:-}" ] || printf '%s\n' "$*" >> "$FM_FAKE_PANE_CALL_LOG"
+exec "$(dirname "$0")/herdr.real" "$@"
 SH
-  chmod +x "$fakebin/tmux"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  chmod +x "$fakebin/herdr"
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_ESCALATE_SECS=999 FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_SECONDMATE_LIVENESS_SECS=99999999 "$WATCH" > "$out" &
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
   i=0
   while [ "$i" -lt 100 ] && kill -0 "$pid" 2>/dev/null; do
-    [ -s "$FM_FAKE_CREW_STATE_LOG" ] || [ "$(grep -c '^display-message' "$FM_FAKE_TMUX_CALL_LOG")" -gt 0 ] && break
+    [ -s "$FM_FAKE_CREW_STATE_LOG" ] || [ "$(grep -c '^pane get' "$FM_FAKE_PANE_CALL_LOG")" -gt 0 ] && break
     sleep 0.1
     i=$((i + 1))
   done
   kill -0 "$pid" 2>/dev/null || { reap "$pid"; fail "watcher exited on an admitted captain-held stale pane: $(cat "$out")"; }
   wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "watcher exited while a captain-held transfer stood unchanged: $(cat "$out")"; }
   crew_first=$(wc -l < "$FM_FAKE_CREW_STATE_LOG" 2>/dev/null || echo 0)
-  probes_first=$(grep -c '^display-message' "$FM_FAKE_TMUX_CALL_LOG" 2>/dev/null || true)
+  probes_first=$(grep -c '^pane get' "$FM_FAKE_PANE_CALL_LOG" 2>/dev/null || true)
   wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "watcher exited while a captain-held transfer stood unchanged: $(cat "$out")"; }
   wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "watcher exited while a captain-held transfer stood unchanged: $(cat "$out")"; }
   [ "$(wc -l < "$FM_FAKE_CREW_STATE_LOG" 2>/dev/null || echo 0)" = "$crew_first" ] \
     || { reap "$pid"; fail "an unchanged captain-held transfer was re-read from authoritative crew state on a consecutive poll"; }
-  [ "$(grep -c '^display-message' "$FM_FAKE_TMUX_CALL_LOG" 2>/dev/null || true)" = "$probes_first" ] \
+  [ "$(grep -c '^pane get' "$FM_FAKE_PANE_CALL_LOG" 2>/dev/null || true)" = "$probes_first" ] \
     || { reap "$pid"; fail "an unchanged captain-held transfer was re-probed at its endpoint on a consecutive poll"; }
   [ "$(head -n 1 "$state/.paused-sig-$key")" = paused ] \
     || { reap "$pid"; fail "an unchanged captain-held transfer did not keep its tagged paused record"; }
@@ -1310,7 +1198,7 @@ SH
   [ ! -s "$state/.wake-queue" ] || { reap "$pid"; fail "an unchanged captain-held transfer enqueued a wake"; }
   [ -e "$state/.paused-$key" ] || { reap "$pid"; fail "an unchanged captain-held transfer lost its pause marker"; }
   reap "$pid"
-  unset FM_FAKE_CREW_STATE FM_FAKE_CREW_STATE_LOG FM_FAKE_TMUX_CURRENT_COMMAND FM_FAKE_TMUX_CALL_LOG
+  unset FM_FAKE_CREW_STATE FM_FAKE_CREW_STATE_LOG FM_FAKE_PANE_CURRENT_COMMAND FM_FAKE_PANE_CALL_LOG
   pass "an unchanged captain-held transfer is not rechecked on consecutive polls: the cached verdict spends no crew-state read and no endpoint probe"
 }
 
@@ -1319,7 +1207,7 @@ test_paused_status_change_rechecks_before_the_slow_interval() {
   dir=$(make_case paused-change-rechecks-at-once); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; window="test:fm-paused-shift"
   printf 'idle awaiting external\n' > "$capture_file"
-  printf 'window=%s\nkind=ship\nbackend=tmux\n' "$window" > "$state/paused-shift.meta"
+  printf 'window=%s\nkind=ship\nbackend=herdr\n' "$window" > "$state/paused-shift.meta"
   printf 'paused: awaiting the upstream release | owner=ci | recheck=2099-01-01\n' > "$state/paused-shift.status"
   sig=$(seen_sig "$state/paused-shift.status"); printf '%s' "$sig" > "$state/.seen-paused-shift_status"
   key=$(watch_window_key "$window")
@@ -1330,24 +1218,24 @@ test_paused_status_change_rechecks_before_the_slow_interval() {
   date +%s > "$state/.paused-rechecked-$key"
   export FM_FAKE_CREW_STATE='state: paused · source: status-log · awaiting the upstream release'
   export FM_FAKE_CREW_STATE_LOG="$dir/crew-state.log"
-  export FM_FAKE_TMUX_CURRENT_COMMAND=bash
-  export FM_FAKE_TMUX_CALL_LOG="$dir/tmux-calls.log"
+  export FM_FAKE_PANE_CURRENT_COMMAND=bash
+  export FM_FAKE_PANE_CALL_LOG="$dir/herdr-calls.log"
   : > "$dir/crew-state.log"
-  : > "$dir/tmux-calls.log"
-  mv "$fakebin/tmux" "$fakebin/tmux.real"
-  cat > "$fakebin/tmux" <<'SH'
+  : > "$dir/herdr-calls.log"
+  mv "$fakebin/herdr" "$fakebin/herdr.real"
+  cat > "$fakebin/herdr" <<'SH'
 #!/usr/bin/env bash
-[ -z "${FM_FAKE_TMUX_CALL_LOG:-}" ] || printf '%s\n' "$*" >> "$FM_FAKE_TMUX_CALL_LOG"
-exec "$(dirname "$0")/tmux.real" "$@"
+[ -z "${FM_FAKE_PANE_CALL_LOG:-}" ] || printf '%s\n' "$*" >> "$FM_FAKE_PANE_CALL_LOG"
+exec "$(dirname "$0")/herdr.real" "$@"
 SH
-  chmod +x "$fakebin/tmux"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  chmod +x "$fakebin/herdr"
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_ESCALATE_SECS=999 FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_SECONDMATE_LIVENESS_SECS=99999999 "$WATCH" > "$out" &
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
   i=0
   while [ "$i" -lt 100 ] && kill -0 "$pid" 2>/dev/null; do
-    [ -s "$FM_FAKE_CREW_STATE_LOG" ] || [ "$(grep -c '^display-message' "$FM_FAKE_TMUX_CALL_LOG")" -gt 0 ] && break
+    [ -s "$FM_FAKE_CREW_STATE_LOG" ] || [ "$(grep -c '^pane get' "$FM_FAKE_PANE_CALL_LOG")" -gt 0 ] && break
     sleep 0.1
     i=$((i + 1))
   done
@@ -1366,7 +1254,7 @@ SH
   [ ! -s "$state/.wake-queue" ] || { reap "$pid"; fail "a changed paused wait enqueued a wake"; }
   [ -e "$state/.paused-$key" ] || { reap "$pid"; fail "a changed paused wait lost its pause marker"; }
   reap "$pid"
-  unset FM_FAKE_CREW_STATE FM_FAKE_CREW_STATE_LOG FM_FAKE_TMUX_CURRENT_COMMAND FM_FAKE_TMUX_CALL_LOG
+  unset FM_FAKE_CREW_STATE FM_FAKE_CREW_STATE_LOG FM_FAKE_PANE_CURRENT_COMMAND FM_FAKE_PANE_CALL_LOG
   pass "a changed paused status is reconciled at once, without waiting for the slow interval"
 }
 
@@ -1375,7 +1263,7 @@ test_paused_authoritative_working_preserves_wedge_timer() {
   dir=$(make_case paused-working-preserves-wedge-timer); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; window="test:fm-paused-working"
   printf 'idle awaiting external\n' > "$capture_file"
-  printf 'window=%s\nkind=ship\n' "$window" > "$state/paused-working.meta"
+  printf 'window=%s\nbackend=herdr\nkind=ship\n' "$window" > "$state/paused-working.meta"
   printf 'paused: awaiting the upstream release | owner=ci | recheck=2099-01-01\n' > "$state/paused-working.status"
   sig=$(seen_sig "$state/paused-working.status"); printf '%s' "$sig" > "$state/.seen-paused-working_status"
   key=$(watch_window_key "$window")
@@ -1386,7 +1274,7 @@ test_paused_authoritative_working_preserves_wedge_timer() {
   : > "$state/.paused-$key"
   export FM_FAKE_CREW_STATE='state: working · source: run-step · validating (running)'
 
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_ESCALATE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
@@ -1405,7 +1293,7 @@ test_paused_authoritative_working_preserves_wedge_timer() {
   # pane's declared-wait exception above, which the two paths used to disagree on.
   echo $(( $(date +%s) - 500 )) > "$state/.stale-since-$key"
   : > "$out"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_WATCH_HANDLING_SUCCESSOR=1 \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_ESCALATE_SECS=240 \
     FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
@@ -1426,7 +1314,7 @@ test_paused_authoritative_working_preserves_wedge_timer() {
   sig=$(seen_sig "$state/paused-working.status"); printf '%s' "$sig" > "$state/.seen-paused-working_status"
   echo $(( $(date +%s) - 500 )) > "$state/.stale-since-$key"
   : > "$out"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+  PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_WATCH_HANDLING_SUCCESSOR=1 \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_ESCALATE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
@@ -1436,187 +1324,6 @@ test_paused_authoritative_working_preserves_wedge_timer() {
   [ ! -e "$state/.stale-since-$key" ] || fail "wedge timer remained after authoritative working escalation"
   unset FM_FAKE_CREW_STATE
   pass "a paused status overridden by authoritative working preserves its wedge timer, is rechecked rather than wedge-escalated while the declaration stands, and escalates once it is lifted"
-}
-
-test_captain_held_never_rechecked_while_away_record_exists() {
-  local dir state fakebin out capture_file statusf window key pane_hash sig pid back
-  dir=$(make_case away-record-held-secondmate); state="$dir/state"; fakebin="$dir/fakebin"
-  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/secondmate-hold.status"
-  window="test:fm-secondmate-hold"
-  printf 'idle awaiting the captain\n' > "$capture_file"
-  printf 'window=%s\nkind=secondmate\n' "$window" > "$state/secondmate-hold.meta"
-  printf 'captain-held [key=route]: tracked by task-decision-route\n' > "$statusf"
-  back=$(( $(date +%s) - 500 ))
-  if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$statusf"
-  else touch -m -d "@$back" "$statusf"; fi
-  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-secondmate-hold_status"
-  key=$(watch_window_key "$window")
-  pane_hash=$(hash_text "idle awaiting the captain")
-  printf '%s' "$pane_hash" > "$state/.hash-$key"
-  printf '1\n' > "$state/.count-$key"
-  write_away_record "$state"
-  export FM_FAKE_CREW_STATE='state: unknown · source: none · no current-state source available'
-  # Phase A: the record exists, the hold is well past the cadence, and the
-  # watcher still absorbs it across whole poll cycles: no wake, no throttle.
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
-    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
-  pid=$!
-  if ! wait_poll_cycle "$state" "$pid" || ! wait_poll_cycle "$state" "$pid"; then
-    reap "$pid"; fail "watcher rechecked a captain-held item while the away-posture record exists: $(cat "$out")"
-  fi
-  [ ! -s "$out" ] || fail "a captain-held recheck was printed while the away-posture record exists"
-  [ ! -s "$state/.wake-queue" ] || fail "a captain-held recheck was queued while the away-posture record exists"
-  [ ! -e "$state/.paused-resurfaced-$key" ] || fail "the recheck throttle was armed for an item that must never be rechecked"
-  grep -F 'never rechecked while the away-posture record exists' "$state/.watch-triage.log" >/dev/null \
-    || fail "the silent absorb did not name the away-posture rule in the triage log"
-  reap "$pid"
-  ack_stopped_cycle "$state" || fail "could not acknowledge the intentional phase-A stop"
-  # Phase B: archiving the record (the return) restores the bounded recheck.
-  archive_away_record "$state"
-  : > "$out"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
-    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
-  pid=$!
-  wait_for_exit "$pid" 100 || { reap "$pid"; fail "archiving the away-posture record did not restore the captain-held recheck"; }
-  grep -F "awaiting the captain" "$out" >/dev/null || fail "the restored recheck did not name the captain: $(cat "$out")"
-  unset FM_FAKE_CREW_STATE
-  pass "a captain-held item is never rechecked while the away-posture record exists, and the recheck returns once the record is archived"
-}
-
-# Quiet mode's record is a present captain (bin/fm-afk-contract.sh AWAY OR
-# QUIET), so it silences nothing: the same hold is rechecked with that record
-# live, both on the watcher's own cadence and through the one-shot handoff a
-# running quiet daemon owns.
-write_quiet_record() {  # <state>
-  if ! FM_HOME="$(dirname "$1")" FM_STATE_OVERRIDE="$1" FM_AFK_MODE=quiet "$ROOT/bin/fm-afk-contract.sh" enter --words 'keep routine wakes off my main' >/dev/null 2>&1; then
-    fail "could not write quiet mode's record in $1"
-  fi
-}
-
-test_captain_held_rechecked_under_a_quiet_record() {
-  local dir state fakebin out capture_file statusf window key back pid
-  dir=$(make_case quiet-record-held); state="$dir/state"; fakebin="$dir/fakebin"
-  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/secondmate-hold.status"
-  window="test:fm-secondmate-hold"
-  printf 'idle awaiting the captain\n' > "$capture_file"
-  printf 'window=%s\nkind=secondmate\n' "$window" > "$state/secondmate-hold.meta"
-  printf 'captain-held [key=route]: tracked by task-decision-route\n' > "$statusf"
-  back=$(( $(date +%s) - 500 ))
-  if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$statusf"
-  else touch -m -d "@$back" "$statusf"; fi
-  printf '%s' "$(seen_sig "$statusf")" > "$state/.seen-secondmate-hold_status"
-  key=$(watch_window_key "$window")
-  printf '%s' "$(hash_text "idle awaiting the captain")" > "$state/.hash-$key"
-  printf '1\n' > "$state/.count-$key"
-  write_quiet_record "$state"
-  export FM_FAKE_CREW_STATE='state: unknown · source: none · no current-state source available'
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
-    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
-  pid=$!
-  wait_for_exit "$pid" 100 || { reap "$pid"; fail "a captain-held item was not rechecked beside quiet mode's record"; }
-  unset FM_FAKE_CREW_STATE
-  grep -F "awaiting the captain" "$out" >/dev/null || fail "the recheck beside a quiet record did not name the captain: $(cat "$out")"
-  ! grep -F 'never rechecked while the away-posture record exists' "$state/.watch-triage.log" >/dev/null 2>&1 \
-    || fail "quiet mode's record silenced a captain-held item as if the captain were away: $(cat "$state/.watch-triage.log")"
-  [ -f "$state/.afk-contract" ] || fail "fixture: quiet mode's record is gone"
-  ack_stopped_cycle "$state" || fail "could not acknowledge the captain-held recheck"
-
-  dir=$(make_case quiet-daemon-held-oneshot); state="$dir/state"; fakebin="$dir/fakebin"
-  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/held-afk.status"
-  window="test:fm-held-afk"
-  printf 'idle awaiting the captain\n' > "$capture_file"
-  printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/held-afk.meta"
-  printf 'captain-held [key=route]: tracked by task-decision-route\n' > "$statusf"
-  printf '%s' "$(seen_sig "$statusf")" > "$state/.seen-held-afk_status"
-  key=$(watch_window_key "$window")
-  printf 'quiet\n' > "$state/.afk"
-  write_quiet_record "$state"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
-    FM_FAKE_TMUX_CURRENT_COMMAND=zsh \
-    FM_STATE_OVERRIDE="$state" FM_POLL=1 FM_SIGNAL_GRACE=1 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
-  pid=$!
-  wait_for_exit "$pid" 100 || { reap "$pid"; fail "the quiet daemon's one-shot never handed off a captain-held pane"; }
-  grep -F "stale: $window" "$state/.wake-queue" >/dev/null \
-    || fail "the quiet daemon's one-shot did not queue the captain-held pane for the daemon: $(cat "$state/.wake-queue" 2>/dev/null)"
-  pass "quiet mode's record silences no captain-held recheck, on the watcher's cadence or through a quiet daemon's one-shot"
-}
-
-test_live_captain_held_first_sight_silenced_by_away_record() {
-  local dir state fakebin out capture_file statusf window key sig pid
-  dir=$(make_case away-record-held-live); state="$dir/state"; fakebin="$dir/fakebin"
-  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/held-live.status"
-  window="test:fm-held-live"
-  printf 'parked at the decision gate\n' > "$capture_file"
-  printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/held-live.meta"
-  printf 'captain-held [key=route]: tracked by task-decision-route\n' > "$statusf"
-  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-held-live_status"
-  key=$(watch_window_key "$window")
-  write_away_record "$state"
-  # A LIVE agent at the gate: without the record pause_state_class answers none
-  # and the first sight surfaces (test_exited_declared_pause_is_bounded_but_live_gate_surfaces).
-  export FM_FAKE_CREW_STATE='state: unknown · source: none · no current-state source available'
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
-    FM_FAKE_TMUX_CURRENT_COMMAND=grok \
-    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
-  pid=$!
-  if ! wait_poll_cycle "$state" "$pid" || ! wait_poll_cycle "$state" "$pid" || ! wait_poll_cycle "$state" "$pid"; then
-    reap "$pid"; fail "a live captain-held pane surfaced on first sight while the away-posture record exists: $(cat "$out")"
-  fi
-  [ ! -s "$state/.wake-queue" ] || fail "a live captain-held pane was queued while the away-posture record exists"
-  [ -e "$state/.stale-$key" ] || fail "the silenced first sight did not advance the stale suppressor"
-  reap "$pid"
-  unset FM_FAKE_CREW_STATE
-  pass "a live captain-held pane is absorbed on first sight while the away-posture record exists"
-}
-
-test_backlog_hold_never_rechecked_while_away_record_exists() {
-  local dir out capture wakes
-  command -v tasks-axi >/dev/null 2>&1 \
-    || { echo "skip: tasks-axi not found (away-record backlog hold)"; return 0; }
-  dir=$(make_hold_home away-record-backlog-hold 'done: PR https://example.test/pr/9 checks green' hold) \
-    || fail "could not build the backlog-hold fixture"
-  out="$dir/watch.out"; capture="$dir/pane.txt"
-  write_away_record "$dir/state"
-  # Without the record the FIRST sight of a held delivery alarms
-  # (test_stale_churn_without_a_captain_call_still_alarms and its siblings). With
-  # it, even the first sight and every later hash are absorbed.
-  hold_watch_churn "$dir" "$out" "$capture" 'held delivery, pane tick' 3 \
-    || fail "watcher exited while churning a backlog-held delivery under the away-posture record: $(cat "$out")"
-  wakes=$(hold_stale_wakes "$dir/state")
-  [ "$wakes" -eq 0 ] || fail "a backlog-held delivery was rechecked $wakes time(s) while the away-posture record exists"
-  pass "a delivery the captain already holds is never rechecked while the away-posture record exists"
-}
-
-test_afk_one_shot_never_hands_off_captain_held_under_away_record() {
-  local dir state fakebin out capture_file statusf window key sig pid
-  dir=$(make_case away-record-held-afk-oneshot); state="$dir/state"; fakebin="$dir/fakebin"
-  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/held-afk.status"
-  window="test:fm-held-afk"
-  printf 'idle awaiting the captain\n' > "$capture_file"
-  printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/held-afk.meta"
-  printf 'captain-held [key=route]: tracked by task-decision-route\n' > "$statusf"
-  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-held-afk_status"
-  key=$(watch_window_key "$window")
-  date '+%s' > "$state/.afk"
-  write_away_record "$state"
-  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
-    FM_FAKE_TMUX_CURRENT_COMMAND=zsh \
-    FM_STATE_OVERRIDE="$state" FM_POLL=1 FM_SIGNAL_GRACE=1 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
-  pid=$!
-  if ! wait_poll_cycle "$state" "$pid" || ! wait_poll_cycle "$state" "$pid" || ! wait_poll_cycle "$state" "$pid"; then
-    reap "$pid"; fail "the daemon-owned one-shot handed off a captain-held pane while the away-posture record exists: $(cat "$out")"
-  fi
-  [ ! -s "$state/.wake-queue" ] || fail "the daemon-owned one-shot queued a captain-held pane while the away-posture record exists"
-  [ "$(cat "$state/.stale-$key" 2>/dev/null || true)" = "$(hash_text 'idle awaiting the captain')" ] \
-    || fail "the silenced one-shot did not advance the stale suppressor to the pane hash"
-  reap "$pid"
-  pass "the daemon-owned one-shot never hands off a captain-held pane while the away-posture record exists"
 }
 
 # --- declared waits are condition-aware: `until <UTC ISO 8601>` --------------
@@ -1629,7 +1336,7 @@ paused_until_fixture() {  # <name> <until-epoch> <status-age-secs>
   window="test:fm-until"
   statusf="$state/until.status"
   printf 'idle, waiting for the reset\n' > "$dir/pane.txt"
-  printf 'window=%s\nkind=secondmate\n' "$window" > "$state/until.meta"
+  printf 'window=%s\nbackend=herdr\nkind=ship\n' "$window" > "$state/until.meta"
   printf 'paused: rate limit resets, until %s, then resuming | owner=ci | recheck=2099-01-01\n' "$(iso_utc_at "$until")" > "$statusf"
   back=$(( $(date +%s) - age ))
   if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$statusf"
@@ -1643,8 +1350,8 @@ paused_until_fixture() {  # <name> <until-epoch> <status-age-secs>
 
 until_watch() {  # <dir> <cadence> -> pid in UNTIL_PID
   local dir=$1
-  PATH="$dir/fakebin:$PATH" FM_FAKE_TMUX_WINDOW=test:fm-until FM_FAKE_TMUX_CAPTURE="$dir/pane.txt" \
-    FM_FAKE_CREW_STATE='state: unknown · source: none · no current-state source available' \
+  PATH="$dir/fakebin:$PATH" FM_FAKE_PANE_WINDOW=test:fm-until FM_FAKE_PANE_CAPTURE="$dir/pane.txt" \
+    FM_FAKE_PANE_CURRENT_COMMAND=zsh FM_FAKE_CREW_STATE='state: unknown · source: none · no current-state source available' \
     FM_STATE_OVERRIDE="$dir/state" FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
     FM_PAUSE_RESURFACE_SECS="$2" FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$dir/watch.out" 2>&1 &
@@ -1712,7 +1419,7 @@ test_paused_until_that_passed_is_rechecked_before_the_cadence() {
 bg_job_paused_case() {  # <name> <status-line> -> dir
   local dir state window key
   dir=$(make_case "$1"); state="$dir/state"; window="test:fm-parked"
-  printf 'window=%s\nkind=scout\nharness=grok\nbackend=tmux\n' "$window" > "$state/parked.meta"
+  printf 'window=%s\nkind=scout\nharness=grok\nbackend=herdr\n' "$window" > "$state/parked.meta"
   printf '%s\n' "$2" > "$state/parked.status"
   printf '%s' "$(seen_sig "$state/parked.status")" > "$state/.seen-parked_status"
   key=$(watch_window_key "$window")
@@ -1823,10 +1530,6 @@ fm_test_run \
   test_stale_churn_without_a_captain_call_still_alarms \
   test_failed_wake_append_does_not_arm_the_captain_hold_throttle \
   test_reheld_captain_call_starts_its_own_resurface_window \
-  test_secondmate_paused_resurfaces_in_normal_mode \
-  test_secondmate_captain_held_resurfaces_in_normal_mode \
-  test_secondmate_nonpaused_stale_remains_suppressed \
-  test_secondmate_unpause_clears_pause_tracking \
   test_nonterminal_stale_pause_transitions_reclassify_unchanged_hash \
   test_nonterminal_paused_rechecks_authoritative_state \
   test_paused_unchanged_across_polls_skips_its_recheck \
@@ -1836,11 +1539,6 @@ fm_test_run \
   test_captain_held_unchanged_across_polls_skips_its_recheck \
   test_paused_status_change_rechecks_before_the_slow_interval \
   test_paused_authoritative_working_preserves_wedge_timer \
-  test_captain_held_never_rechecked_while_away_record_exists \
-  test_live_captain_held_first_sight_silenced_by_away_record \
-  test_backlog_hold_never_rechecked_while_away_record_exists \
-  test_afk_one_shot_never_hands_off_captain_held_under_away_record \
-  test_captain_held_rechecked_under_a_quiet_record \
   test_paused_until_near_future_is_quiet_before_the_cadence \
   test_paused_until_wrong_year_is_bounded_by_the_cadence \
   test_paused_until_that_passed_is_rechecked_before_the_cadence \

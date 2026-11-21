@@ -153,8 +153,7 @@ test_complete_accepts_a_migrated_inventory_on_beads() {
   bdrow "$beads" note fm-herald-github-delete \
     "migrated from data/backlog.md id herald-retire-decision-github-delete on 2026-09-04" \
     >/dev/null 2>&1 || fail "could not record the migration marker note"
-  fm_write_meta "$home/state/$scout.meta" \
-    "window=firstmate:fm-$scout" \
+  write_task_meta "$home/state/$scout.meta" "$scout" \
     "worktree=$home/projects/missing-$scout" \
     "project=$home/projects/sample" \
     "harness=codex" \
