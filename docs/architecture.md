@@ -217,6 +217,8 @@ The root package exports read-only schemas and decoders as `@avi2d/firstmate-run
 The decoders cover task metadata, status logs, PR poll sidecars, project and execution-home registries, and crew dispatch configuration.
 The schemas describe record contents only.
 The shell commands still own file safety, authorization, and state writes.
+`@avi2d/firstmate-runtime/status` classifies status text without reading the filesystem.
+The CI replay compares its event, wait, and current-status verdicts with the shell classifier on the same records.
 [`configuration.md`](configuration.md#runtime-backend-configbackend--fm_backend) owns new-spawn backend selection precedence and authorization.
 [Backend selection order](configuration.md#backend-selection-order) owns runtime marker precedence, explicit-only backends, and detection notices.
 Unknown backend names fail loudly.

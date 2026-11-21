@@ -4,7 +4,8 @@
   "type": "module",
   "packageManager": "bun@1.4.3",
   "exports": {
-    "./records": "./runtime/records.ts"
+    "./records": "./runtime/records.ts",
+    "./status": "./runtime/status.ts"
   },
   "scripts": {
     "build": "bash bin/fm-effect-run.sh --build",

@@ -111,7 +111,7 @@ jobs:
           bun-version: ${{ env.FM_CI_BUN_VERSION }}
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
-      - run: bun test runtime --pass-with-no-tests
+      - run: bun test runtime
       - run: bun run build
       - name: Compare the built command with its source
         run: bin/fm-effect-shadow.sh runtime/cli.ts bin/fm-effect-run.sh --help
