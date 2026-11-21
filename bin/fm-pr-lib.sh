@@ -1055,7 +1055,7 @@ fm_pr_github_read_record_with_gh_axi() {  # <host> <owner> <repo> <number>
   fi
   if ! state=$(printf '%s\n' "$output" | awk '
     $1 == "state:" { count++; value=$2 }
-    END { if (count == 1 && value != "") print value; else exit 1 }
+    END { if (count == 1 && value != "") print value; else { echo "watcher: DIAG exit 1 at fm-pr-lib.sh:$LINENO" >&2; exit 1; } }
   '); then
     return 1
   fi

@@ -504,10 +504,10 @@ inbox_steer_escalate_unavailable() {  # <window> <task> <record>
     fm_task_inbox_due_action "$STATE" "$task" >/dev/null || true
     return 0
   fi
-  fm_wake_append stale "$w" "$reason" || exit 1
+  fm_wake_append stale "$w" "$reason" || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
   if ! fm_task_inbox_record_escalated "$STATE" "$task" "$rec"; then
     echo "error: stale wake was queued for $task but its inbox escalation marker could not be written" >&2
-    exit 1
+    { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
   fi
   wake "$reason"
 }
@@ -579,7 +579,7 @@ inbox_steer_check() {  # <window> <task>
         fi
         if [ -d "${rec%/*}" ]; then
           reason="stale: $w (steering-inbox ladder bookkeeping unwritable: ${rec%/*}/.ring-state cannot be written while $rec stays unhandled; the doorbell cannot advance toward escalation - inspect the inbox directory)"
-          fm_wake_append stale "$w" "$reason" || exit 1
+          fm_wake_append stale "$w" "$reason" || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
           wake "$reason"
         fi
       fi
@@ -590,7 +590,7 @@ inbox_steer_check() {  # <window> <task>
       fm_task_inbox_ring "$backend" "$w" "$rec" "$(window_label "$w")" || ring_rc=$?
       if ! fm_task_inbox_clear_retry "$STATE" "$task" "$rec" && [ -f "$rec" ]; then
         reason="stale: $w (steering-inbox retry mark unremovable: ${rec%/*}/.retry-ring cannot be removed, so $rec would ring on every poll - inspect the inbox directory)"
-        fm_wake_append stale "$w" "$reason" || exit 1
+        fm_wake_append stale "$w" "$reason" || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
         wake "$reason"
       fi
       triage_log "steer-inbox retry ring: $task ${rec##*/} result=$ring_rc"
@@ -601,10 +601,10 @@ inbox_steer_check() {  # <window> <task>
         fm_task_inbox_due_action "$STATE" "$task" >/dev/null || true
         return 0
       fi
-      fm_wake_append stale "$w" "$reason" || exit 1
+      fm_wake_append stale "$w" "$reason" || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
       if ! fm_task_inbox_record_escalated "$STATE" "$task" "$rec"; then
         echo "error: stale wake was queued for $task but its inbox escalation marker could not be written" >&2
-        exit 1
+        { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
       fi
       wake "$reason"
       ;;
@@ -1105,7 +1105,7 @@ resurface_absorbed() {  # <window> <throttle-marker> <age> <reason> [scope] [min
     [ "$age" -ge "$min_age" ] || return 0
     [ "$(age_of "$throttle")" -ge "$PAUSE_RESURFACE_SECS" ] || return 0   # 999999 when no prior re-surface
   fi
-  fm_wake_append stale "$win" "$reason" || exit 1
+  fm_wake_append stale "$win" "$reason" || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
   if [ -n "$scope" ]; then printf '%s' "$scope" > "$throttle"; else date +%s > "$throttle"; fi
   wake "$reason"
 }
@@ -1467,7 +1467,7 @@ wedge_dead_record() {  # <window> <since-file> <triage-label> <idle-age> <pane-h
   # written ahead of a failed append outlives it, and the next sighting would then
   # absorb the retry - the one way this bound could swallow the report outright
   # rather than deliver it once.
-  fm_wake_append stale "$win" "$reason" || exit 1
+  fm_wake_append stale "$win" "$reason" || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
   printf '%s %s' "$agent_state" "$id" > "$marker"
   clear_write_tracking "$key"
   wake "$reason"
@@ -1602,10 +1602,10 @@ wedge_write_escalation_count() {  # <window> <window-key> <escalation-file> <sin
       _wedge_cap_rollback "$_wkey" "$escalation_file" "$since_file" 1 || _wrb_rm_status=$?
       if [ "$_wrb_rm_status" -eq 2 ]; then
         triage_log "wedge escalation counter write FAILED AND rollback AND sentinel write ALL FAILED on $win - the cap cannot be enforced and nothing could silence the wedge path; operator MUST intervene"
-        exit 1
+        { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
       fi
       triage_log "wedge escalation counter write FAILED on $win - cap state rolled back and the wedge path silenced (TTL $FM_ROLLBACK_SENTINEL_TTL_SECS), since a ceiling whose count cannot be recorded cannot stop the next poll's escalation; operator can rm the sentinel for immediate re-engagement"
-      exit 1
+      { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
     fi
   fi
 }
@@ -1840,10 +1840,10 @@ wedge_timer_check() {  # <window> <since-file> <triage-label> <escalation-count-
             triage_log "wedge cap for $win already has an unacknowledged PERMANENTLY-WEDGED wake queued; suppressing the duplicate terminal wake"
           elif [ "$_wrb_cap_status" -eq 4 ]; then
             triage_log "wedge cap could not hold the wake-queue append lock for $win, no cap marker written (next poll will retry)"
-            exit 1
+            { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
           elif [ "$_wrb_cap_status" -ne 0 ]; then
             triage_log "wedge fm_wake_append FAILED for cap on $win, no cap marker written (next poll will retry)"
-            exit 1
+            { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
           fi
           # A stream observation deferred its count until its guarded terminal
           # append was published; commit it before the cap marker supersedes it.
@@ -1853,9 +1853,9 @@ wedge_timer_check() {  # <window> <since-file> <triage-label> <escalation-count-
             _wrb_rm_status=0
             _wedge_cap_rollback "$_wkey" "$escalation_file" "$since_file" || _wrb_rm_status=$?
             case "$_wrb_rm_status" in
-              2) triage_log "wedge cap-marker write FAILED AND rollback AND sentinel write ALL FAILED on $win - no queue-flood suppression; operator MUST intervene"; exit 1 ;;
-              1) triage_log "wedge cap-marker write FAILED AND rollback ALSO FAILED on $win - sentinel set (TTL $FM_ROLLBACK_SENTINEL_TTL_SECS); no wake-amplification"; exit 1 ;;
-              *) triage_log "wedge cap-marker write FAILED on $win - cap state rolled back"; exit 1 ;;
+              2) triage_log "wedge cap-marker write FAILED AND rollback AND sentinel write ALL FAILED on $win - no queue-flood suppression; operator MUST intervene"; { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; } ;;
+              1) triage_log "wedge cap-marker write FAILED AND rollback ALSO FAILED on $win - sentinel set (TTL $FM_ROLLBACK_SENTINEL_TTL_SECS); no wake-amplification"; { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; } ;;
+              *) triage_log "wedge cap-marker write FAILED on $win - cap state rolled back"; { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; } ;;
             esac
           fi
           wedge_episode_end "$_wkey" 1
@@ -1872,9 +1872,9 @@ wedge_timer_check() {  # <window> <since-file> <triage-label> <escalation-count-
             _wrb_rm_status=0
             _wedge_cap_rollback "$_wkey" "$escalation_file" "$since_file" || _wrb_rm_status=$?
             case "$_wrb_rm_status" in
-              2) triage_log "wedge escalation-counter reset FAILED AND rollback AND sentinel write ALL FAILED on $win - the counter stays saturated once the marker's horizon elapses; operator MUST intervene"; exit 1 ;;
-              1) triage_log "wedge escalation-counter reset FAILED AND rollback ALSO FAILED on $win - sentinel set (TTL $FM_ROLLBACK_SENTINEL_TTL_SECS); no wake-amplification"; exit 1 ;;
-              *) triage_log "wedge escalation-counter reset FAILED on $win - escalation count rolled back; the cap marker stands, so this window stays silent until its horizon (FM_CAP_HORIZON_SECS) elapses or an episode-ending route releases it (an operator can delete the marker to re-engage at once)"; exit 1 ;;
+              2) triage_log "wedge escalation-counter reset FAILED AND rollback AND sentinel write ALL FAILED on $win - the counter stays saturated once the marker's horizon elapses; operator MUST intervene"; { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; } ;;
+              1) triage_log "wedge escalation-counter reset FAILED AND rollback ALSO FAILED on $win - sentinel set (TTL $FM_ROLLBACK_SENTINEL_TTL_SECS); no wake-amplification"; { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; } ;;
+              *) triage_log "wedge escalation-counter reset FAILED on $win - escalation count rolled back; the cap marker stands, so this window stays silent until its horizon (FM_CAP_HORIZON_SECS) elapses or an episode-ending route releases it (an operator can delete the marker to re-engage at once)"; { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; } ;;
             esac
           fi
           triage_log "wedge permanently capped: $win (escalation $n, max $FM_WEDGE_MAX_ESCALATIONS, hash ${hash:0:12})"
@@ -1891,10 +1891,10 @@ wedge_timer_check() {  # <window> <since-file> <triage-label> <escalation-count-
             clear_write_tracking "$_wkey"
             return 0
           fi
-          [ "$append_status" -eq 0 ] || exit 1
+          [ "$append_status" -eq 0 ] || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
           wedge_write_escalation_count "$win" "$_wkey" "$escalation_file" "$since_file" "$n"
         else
-          fm_wake_append stale "$win" "$reason" || exit 1
+          fm_wake_append stale "$win" "$reason" || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
         fi
         # The ladder's own step, not an episode end: this pane is still wedged,
         # so the idle timer restarts for the next rung of the same escalation
@@ -2457,7 +2457,7 @@ surface_nonterminal_stale() {  # <window> <hash> [dialog-name]
   fi
   if [ "$throttled" -ne 0 ]; then
     reason=$(stale_reason_naming_dialog "stale: $win" "$dialog")
-    fm_wake_append stale "$win" "$reason" || exit 1
+    fm_wake_append stale "$win" "$reason" || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
     stale_wait_record "$key"
   fi
   printf '%s' "$h" > "$STATE/.stale-$key"
@@ -2711,7 +2711,7 @@ fm_active_check_stop() {
 # its trap because bash ignores a direct SIGINT while a child runs.
 watcher_stop_signals() {
   trap - HUP TERM
-  trap 'exit 1' INT
+  trap '{ echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }' INT
 }
 
 run_check_capture() {
@@ -2731,7 +2731,7 @@ run_check_capture() {
   FM_ACTIVE_CHECK_PGID=$FM_ACTIVE_CHECK_PID
   set +m
   watcher_stop_signals
-  [ -z "$FM_CHECK_SIGNAL_PENDING" ] || exit 1
+  [ -z "$FM_CHECK_SIGNAL_PENDING" ] || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
   pgid=$(ps -o pgid= -p "$FM_ACTIVE_CHECK_PID" 2>/dev/null | tr -d '[:space:]')
   if [ -n "$pgid" ] && [ "$pgid" != "$FM_ACTIVE_CHECK_PGID" ]; then
     fm_active_check_stop || true
@@ -2778,7 +2778,7 @@ watcher_waited() {  # <command...>
   FM_ACTIVE_CHECK_PGID=$FM_ACTIVE_CHECK_PID
   set +m
   watcher_stop_signals
-  [ -z "$FM_CHECK_SIGNAL_PENDING" ] || exit 1
+  [ -z "$FM_CHECK_SIGNAL_PENDING" ] || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
   pgid=$(ps -o pgid= -p "$FM_ACTIVE_CHECK_PID" 2>/dev/null | tr -d '[:space:]')
   if [ -n "$pgid" ] && [ "$pgid" != "$FM_ACTIVE_CHECK_PGID" ]; then
     fm_active_check_stop || true
@@ -3066,7 +3066,7 @@ fi
 # child's stdout and recognises `watcher: FAILED` as the typed failure line.
 if ! fm_procevent_launch_confirm_seconds >/dev/null; then
   echo "watcher: FAILED - FM_PROCEVENT_LAUNCH_CONFIRM_SECONDS must be whole seconds from $FM_PROCEVENT_LAUNCH_CONFIRM_MIN_SECONDS to $FM_PROCEVENT_LAUNCH_CONFIRM_MAX_SECONDS"
-  exit 1
+  { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
 fi
 
 # evict_stalled_holder <pid>: retire a live lock holder whose beacon stalled past
@@ -3095,13 +3095,13 @@ while ! fm_lock_try_acquire "$WATCH_LOCK" "$STARTUP_LOCK_BOUND"; do
     # failure. No blocking pid means the write failed, not contention.
     if [ -z "${FM_LOCK_HELD_PID:-}" ]; then
       echo "watcher: FAILED - could not publish downtime marker $WATCHER_DOWNTIME_MARKER"
-      exit 1
+      { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
     fi
     # A live holder is the typed startup failure; a dying or clearing one is
     # worth another pass of the claim loop.
     if fm_pid_alive "$FM_LOCK_HELD_PID"; then
       echo "watcher: FAILED - startup lock $FM_LOCK_HELD_PATH held by live pid $FM_LOCK_HELD_PID"
-      exit 1
+      { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
     fi
     continue
   fi
@@ -3119,11 +3119,11 @@ while ! fm_lock_try_acquire "$WATCH_LOCK" "$STARTUP_LOCK_BOUND"; do
           continue
         fi
         echo "watcher: lock held by live pid $FM_LOCK_HELD_PID but heartbeat is stale for ${beat_age}s (>${WATCHER_STALE_GRACE}s); inspect or stop that watcher before re-arming." >&2
-        exit 1
+        { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
       fi
     elif [ "$(fm_path_age "$WATCH_LOCK")" -ge "$WATCHER_STALE_GRACE" ]; then
       echo "watcher: lock held by live pid $FM_LOCK_HELD_PID but no heartbeat exists; inspect or stop that watcher before re-arming." >&2
-      exit 1
+      { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
     fi
     echo "watcher: already running pid $FM_LOCK_HELD_PID"
   else
@@ -3255,7 +3255,7 @@ if [ -z "$FM_WATCH_DELIVERY_IDENTITY" ] \
   || ! printf '%s\n' "$WATCH_PATH" > "$WATCH_LOCK/watcher-path" 2>/dev/null \
   || ! printf '%s\n' "$FM_WATCH_DELIVERY_IDENTITY" > "$WATCH_LOCK/pid-identity" 2>/dev/null; then
   echo "watcher: FAILED - could not publish watcher identity in $WATCH_LOCK"
-  exit 1
+  { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
 fi
 
 # A bounded startup recovery-lock failure reports the typed line the arm relays; a
@@ -3266,7 +3266,7 @@ startup_lock_failed() {
   else
     echo "watcher: recovery state $1; retaining stale lock evidence" >&2
   fi
-  exit 1
+  { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
 }
 WATCHER_RECOVERY_PENDING=0
 if [ -n "${FM_LOCK_RECOVERED_PID:-}" ]; then
@@ -3308,7 +3308,7 @@ lane_capacity_publish_detached() {
 # Finish only identity-bound retirement receipts before any check can run.
 if ! fm_pr_poll_retirement_recover_all "$STATE" "$SCRIPT_DIR/fm-pr-poll.sh"; then
   reason="check: rejected unauthenticated PR poll retirement receipts:$FM_PR_POLL_RETIREMENT_REJECTED"
-  fm_wake_append check pr-poll-retirement "$reason" || exit 1
+  fm_wake_append check pr-poll-retirement "$reason" || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
   touch "$STATE/.last-check"
   wake "$reason"
 fi
@@ -3335,16 +3335,16 @@ rerecord_device_shifted_pr_poll() {  # <id>
   local id=$1
   fm_pr_poll_registration_device_shifted "$STATE" "$id" "$SCRIPT_DIR/fm-pr-poll.sh" || return 1
   PR_POLL_CONTROL_LOCK="$STATE/.control-$id.lock"
-  fm_lock_acquire_wait "$PR_POLL_CONTROL_LOCK" || exit 1
+  fm_lock_acquire_wait "$PR_POLL_CONTROL_LOCK" || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
   PR_POLL_PUBLISH_LOCK="$STATE/.pr-poll-publish-$id.lock"
-  fm_lock_acquire_wait "$PR_POLL_PUBLISH_LOCK" || exit 1
+  fm_lock_acquire_wait "$PR_POLL_PUBLISH_LOCK" || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
   if fm_pr_poll_registration_rerecord_device "$STATE" "$id" "$SCRIPT_DIR/fm-pr-poll.sh"; then
     triage_log "re-recorded PR poll identity for $id after its state volume device number changed"
   else
     triage_log "PR poll identity for $id was not re-recorded; the locked proof or rewrite did not hold"
   fi
-  pr_poll_publish_release || exit 1
-  pr_poll_control_release || exit 1
+  pr_poll_publish_release || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
+  pr_poll_control_release || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
   return 0
 }
 
@@ -3357,7 +3357,7 @@ resurface_after_downtime() {
   if [ "${FM_WATCH_HANDLING_SUCCESSOR:-0}" = 1 ]; then
     if ! fm_recovery_marker_arm_check "$WATCHER_DOWNTIME_MARKER"; then
       echo "watcher: recovery state could not be consumed safely" >&2
-      exit 1
+      { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
     fi
     [ "$FM_RECOVERY_MARKER_ACTION" = recover ] || return 0
     [ "$FM_RECOVERY_MARKER_QUEUED" = 1 ] || return 0
@@ -3366,7 +3366,7 @@ resurface_after_downtime() {
   if [ "$WATCHER_RECOVERY_PENDING" -ne 1 ]; then
     if ! fm_recovery_marker_arm_check "$WATCHER_DOWNTIME_MARKER"; then
       echo "watcher: recovery state could not be consumed safely" >&2
-      exit 1
+      { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
     fi
     [ "$FM_RECOVERY_MARKER_ACTION" = recover ] || return 0
   fi
@@ -3382,10 +3382,10 @@ while :; do
     && { ! fm_pid_alive "$FM_CODEX_PARK_OWNER_PID" \
       || [ "$(fm_pid_identity "$FM_CODEX_PARK_OWNER_PID" 2>/dev/null)" != "${FM_CODEX_PARK_OWNER_IDENTITY:-}" ]; }; then
     echo 'watcher: exiting - native Codex park owner is gone' >&2
-    exit 1
+    { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
   fi
   # Scoped to this process alone: no other watcher is signalled.
-  ! watcher_world_gone_report || exit 1
+  ! watcher_world_gone_report || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
 
   # Self-eviction: if the singleton lock no longer names this process, a second
   # watcher has taken over (e.g. a transient duplicate from a racy arm). Stand
@@ -3419,7 +3419,7 @@ while :; do
 
   open_decision_reminder_tick || {
     echo 'watcher: open-decision reminder check failed' >&2
-    exit 1
+    { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
   }
   [ -z "$OPEN_DECISION_REMINDER" ] || wake "$OPEN_DECISION_REMINDER"
 
@@ -3464,13 +3464,13 @@ while :; do
     # below runs in this same sweep (bin/fm-pr-check.sh owns the scan).
     pr_register_reason=
     if [ -e "$CONFIG/pr-register-scan" ]; then
-      FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" run_check_capture "$SCRIPT_DIR/fm-pr-check.sh" scan || exit 1
+      FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" run_check_capture "$SCRIPT_DIR/fm-pr-check.sh" scan || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
     else
-      FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" run_check_capture "$SCRIPT_DIR/fm-pr-check.sh" scan --remote || exit 1
+      FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" run_check_capture "$SCRIPT_DIR/fm-pr-check.sh" scan --remote || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
     fi
     if [ -n "$FM_CHECK_RESULT" ]; then
       pr_register_reason="check: pr-register: $FM_CHECK_RESULT"
-      fm_wake_append check pr-register "$pr_register_reason" || exit 1
+      fm_wake_append check pr-register "$pr_register_reason" || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
     fi
     for c in "$STATE"/*.check.sh; do
       [ -e "$c" ] || continue
@@ -3486,18 +3486,18 @@ while :; do
         path=$FM_PR_POLL_SNAPSHOT_PATH
         number=$FM_PR_POLL_SNAPSHOT_NUMBER
         PR_POLL_CONTROL_LOCK="$STATE/.control-$id.lock"
-        fm_lock_acquire_wait "$PR_POLL_CONTROL_LOCK" || exit 1
+        fm_lock_acquire_wait "$PR_POLL_CONTROL_LOCK" || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
         if ! fm_pr_poll_snapshot_matches "$STATE" "$id" "$SCRIPT_DIR/fm-pr-poll.sh"; then
-          pr_poll_control_release || exit 1
+          pr_poll_control_release || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
           triage_log "PR poll for $id changed before its validated check; skipping the stale snapshot"
           continue
         fi
         run_check_capture "$SCRIPT_DIR/fm-pr-poll.sh" --validated \
-          "$provider" "$url" "$host" "$path" "$number" || exit 1
+          "$provider" "$url" "$host" "$path" "$number" || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
         out=$FM_CHECK_RESULT
       elif fm_custom_check_snapshot_prepare "$STATE" "$id"; then
         custom_snapshot=$FM_CUSTOM_CHECK_SNAPSHOT
-        run_check_capture "$custom_snapshot" || exit 1
+        run_check_capture "$custom_snapshot" || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
         out=$FM_CHECK_RESULT
         fm_custom_check_snapshot_cleanup
       else
@@ -3521,17 +3521,17 @@ while :; do
             "$merge_authority" || merge_outcome_rc=$?
           if [ "$merge_outcome_rc" -ne 0 ]; then
             triage_log "merge outcome for $id could not be recorded (rc=$merge_outcome_rc)"
-            exit 1
+            { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
           fi
           if [ -n "$merge_authority_record_identity" ] \
             && ! fm_merge_authority_remove_if_matches "$STATE" "$id" \
               "$provider" "$host" "$path" "$number" "$merge_authority" \
               "$merge_authority_record_identity"; then
             triage_log "published merge outcome for $id but could not retire its authority record"
-            exit 1
+            { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
           fi
           retire_merged_pr_poll "$id"
-          pr_poll_control_release || exit 1
+          pr_poll_control_release || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
           touch "$STATE/.last-check"
           if [ "$FM_MERGE_OUTCOME_ALREADY_RECORDED" = true ]; then
             triage_log "absorbed duplicate merged PR poll result for $id"
@@ -3539,16 +3539,16 @@ while :; do
           fi
           wake "$reason"
         fi
-        pr_poll_control_release || exit 1
-        fm_wake_append check "$c" "$reason" || exit 1
+        pr_poll_control_release || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
+        fm_wake_append check "$c" "$reason" || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
         touch "$STATE/.last-check"
         wake "$reason"
       fi
-      pr_poll_control_release || exit 1
+      pr_poll_control_release || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
     done
     if [ -n "$rejected_checks" ]; then
       reason="check: rejected unauthenticated state checks:$rejected_checks"
-      fm_wake_append check unauthenticated-state-checks "$reason" || exit 1
+      fm_wake_append check unauthenticated-state-checks "$reason" || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
       touch "$STATE/.last-check"
       wake "$reason"
     fi
@@ -3560,8 +3560,8 @@ while :; do
       while IFS= read -r stalled_item || [ -n "$stalled_item" ]; do
         [ -n "$stalled_item" ] || continue
         reason="check: stalled-qa: $(stalled_qa_item_reason "$stalled_item")" || continue
-        fm_wake_append check stalled-qa "$reason" || exit 1
-        stalled_qa_record_escalated "$STATE" "$stalled_item" || exit 1
+        fm_wake_append check stalled-qa "$reason" || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
+        stalled_qa_record_escalated "$STATE" "$stalled_item" || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
         touch "$STATE/.last-check"
         wake "$reason"
       done <<EOF
@@ -3623,7 +3623,7 @@ EOF
     # shellcheck disable=SC2086  # same space-separated status-path list
     if [ "$signal_actionable" -eq 0 ] \
       || { ! signal_crew_provably_working $files && ! signal_turnend_panes_churned $files; }; then
-      queue_signal_rows "$pending" || exit 1
+      queue_signal_rows "$pending" || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
       # The wake signature advances for every file in this batch, including one
       # whose span could not be classified: it has now been reported, and this is
       # what bounds an unreadable log to one report per distinct file state. Only
@@ -3665,7 +3665,7 @@ EOF
 $FM_SIGNAL_SURFACE_ENDPOINTS
 EOF
       if [ "$signal_commit_error" -ne 0 ]; then
-        queue_signal_rows "$pending" || exit 1
+        queue_signal_rows "$pending" || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
         wake "$reason"
       fi
       triage_log "absorbed benign $reason"
@@ -3753,7 +3753,7 @@ EOF
               triage_log "absorbed stale (open captain call already surfaced for this status): $w"
             else
               stale_reason=$(stale_reason_naming_dialog "stale: $w" "$dialog")
-              fm_wake_append stale "$w" "$stale_reason" || exit 1
+              fm_wake_append stale "$w" "$stale_reason" || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
               stale_wait_record "$key"
               printf '%s' "$h" > "$sf"
               # Pre-cap shape kept the count here (keep-count contract).
@@ -3910,7 +3910,7 @@ EOF
       "$SCRIPT_DIR/fm-finished-cleanup.sh" sweep 2>&1) || finished_cleanup="finished cleanup failed: $finished_cleanup"
     if [ -n "$finished_cleanup" ]; then
       reason="check: finished-cleanup: $(printf '%s' "$finished_cleanup" | fm_wake_clean_field)"
-      fm_wake_append check finished-cleanup "$reason" || exit 1
+      fm_wake_append check finished-cleanup "$reason" || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
       touch "$STATE/.last-heartbeat"
       wake "$reason"
     fi
@@ -3933,7 +3933,7 @@ EOF
     if [ -n "$overdue_line" ]; then
       reason="check: wake-queue-overdue: $overdue_line"
       if ! fm_wake_queued_keys check | grep -qx wake-queue-overdue; then
-        fm_wake_append check wake-queue-overdue "$reason" || exit 1
+        fm_wake_append check wake-queue-overdue "$reason" || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
       fi
       touch "$STATE/.last-heartbeat"
       wake "$reason"
@@ -3946,18 +3946,18 @@ EOF
       # Enqueue first, then record every status log surfaced through its end so the
       # next heartbeat does not re-fire it (enqueue-before-suppress preserved);
       # this wake sends firstmate to the whole fleet, so every log is read.
-      fm_wake_append heartbeat heartbeat heartbeat || exit 1
+      fm_wake_append heartbeat heartbeat heartbeat || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
       touch "$STATE/.last-heartbeat"
       mark_all_captain_relevant_surfaced || true
       wake "heartbeat" actionable
     else
       if ! mark_all_captain_relevant_surfaced; then
-        fm_wake_append heartbeat heartbeat heartbeat || exit 1
+        fm_wake_append heartbeat heartbeat heartbeat || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
         touch "$STATE/.last-heartbeat"
         wake "heartbeat"
       fi
       if ready_capacity_wake_fires; then
-        fm_wake_append check ready-capacity "$READY_CAPACITY_REASON" || exit 1
+        fm_wake_append check ready-capacity "$READY_CAPACITY_REASON" || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
         printf '%s\n' "$READY_CAPACITY_IDS" > "$STATE/.ready-capacity-notified"
         touch "$STATE/.last-heartbeat"
         wake "$READY_CAPACITY_REASON"
@@ -3973,8 +3973,8 @@ EOF
     while IFS= read -r wait_item || [ -n "$wait_item" ]; do
       [ -n "$wait_item" ] || continue
       reason="check: wait-declaration: $(wait_declaration_item_reason "$wait_item")" || continue
-      fm_wake_append check wait-declaration "$reason" || exit 1
-      wait_declaration_record_raised "$STATE" "$wait_item" || exit 1
+      fm_wake_append check wait-declaration "$reason" || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
+      wait_declaration_record_raised "$STATE" "$wait_item" || { echo "watcher: DIAG exit 1 at fm-watch.sh:$LINENO" >&2; exit 1; }
       wake "$reason"
     done <<EOF
 $wait_items

@@ -159,7 +159,7 @@ handle_push_transition() {  # <backend> <session> <record>
   # and leave the bounded re-surface to the watcher's own pause cadence.
   if status_is_paused_or_captain_held "$(status_declared_wait_line "$STATE/$task.status")"; then
     triage_log "absorbed push $to (declared wait, awaiting external or captain): $window"
-    fm_backend_commit_transition "$backend" "$STATE" "$session" "$record" || exit 1
+    fm_backend_commit_transition "$backend" "$STATE" "$session" "$record" || { echo "watcher: DIAG exit 1 at fm-push-transition-lib.sh:$LINENO" >&2; exit 1; }
     return
   fi
   span_record=$(status_span_first_actionable_record "$STATE/$task.status" \
@@ -169,8 +169,8 @@ handle_push_transition() {  # <backend> <session> <record>
   esac
   note=$(fm_backend_transition_note "$backend" "$record" 2>/dev/null || true)
   reason="stale: $window ($backend: agent $to${detail:+ ($detail)} - waiting on human${note:+: $note}, escalated immediately, not via wedge timer)"
-  fm_wake_append stale "$window" "$reason" || exit 1
-  fm_backend_commit_transition "$backend" "$STATE" "$session" "$record" || exit 1
+  fm_wake_append stale "$window" "$reason" || { echo "watcher: DIAG exit 1 at fm-push-transition-lib.sh:$LINENO" >&2; exit 1; }
+  fm_backend_commit_transition "$backend" "$STATE" "$session" "$record" || { echo "watcher: DIAG exit 1 at fm-push-transition-lib.sh:$LINENO" >&2; exit 1; }
   mark_surfaced "$STATE/$task.status" "$surface_end" "$surface_ident"
   wake "$reason"
 }
