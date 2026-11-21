@@ -41,7 +41,7 @@ jobs:
             [ $((i % 12)) -eq "$SHARD" ] || continue
             timeout 1200 bash "$f" > "$RUNNER_TEMP/out" 2>&1; rc=$?
             echo "DIAG $f WHOLE rc=$rc"
-            grep -E -B3 '^DIAGFAIL ' "$RUNNER_TEMP/out" | grep -E '^(DIAGFAIL|not ok|error|.*No such file|.*command not found)' | cut -c1-400 | sed 's/^/  | /'
+            awk -f .github/diag/pick.awk "$RUNNER_TEMP/out"
             [ "$rc" -eq 0 ] || tail -5 "$RUNNER_TEMP/out" | cut -c1-400 | sed 's/^/  T /'
           done < .github/diag/files.txt
           exit 0
