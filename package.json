@@ -3,6 +3,9 @@
   "private": true,
   "type": "module",
   "packageManager": "bun@1.4.3",
+  "exports": {
+    "./records": "./runtime/records.ts"
+  },
   "scripts": {
     "build": "bash bin/fm-effect-run.sh --build",
     "typecheck": "tsc --noEmit"
