@@ -294,12 +294,18 @@ SH
 }
 
 make_no_timeout_toolbin() {  # <dir> -> echoes toolbin path
-  local dir=$1 tb="$1/notimeoutbin" tool real
+  local tb="$1/notimeoutbin" dir tool name
   mkdir -p "$tb"
-  for tool in bash git grep sed head cut tail dirname perl; do
-    real=$(command -v "$tool" || true)
-    [ -n "$real" ] || fail "missing tool for no-timeout path: $tool"
-    ln -s "$real" "$tb/$tool"
+  for dir in /usr/local/bin /usr/bin /bin; do
+    for tool in "$dir"/*; do
+      name=${tool##*/}
+      case "$name" in timeout|gtimeout) continue ;; esac
+      [ -x "$tool" ] && [ ! -e "$tb/$name" ] && ln -s "$tool" "$tb/$name"
+    done
+  done
+  for tool in bash git jq perl python3; do
+    [ -e "$tb/$tool" ] || ln -s "$(command -v "$tool")" "$tb/$tool" \
+      || fail "missing tool for no-timeout path: $tool"
   done
   printf '%s\n' "$tb"
 }

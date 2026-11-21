@@ -627,8 +627,15 @@ add_stat_error() {
   local case_dir=$1
   cat > "$case_dir/fakebin/stat" <<'SH'
 #!/usr/bin/env bash
-echo "stat: simulated failure" >&2
-exit 1
+for arg in "$@"; do
+  case "$arg" in
+    */index.lock)
+      echo "stat: simulated failure" >&2
+      exit 1
+      ;;
+  esac
+done
+exec /usr/bin/stat "$@"
 SH
   chmod +x "$case_dir/fakebin/stat"
 }
