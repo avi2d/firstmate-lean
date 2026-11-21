@@ -162,6 +162,8 @@ PRIMARY_HARNESS=$("$SCRIPT_DIR/fm-harness.sh" 2>/dev/null || printf unknown)
 . "$SCRIPT_DIR/fm-hold-reason-lib.sh"
 # shellcheck source=bin/fm-project-tiers-lib.sh
 . "$SCRIPT_DIR/fm-project-tiers-lib.sh"
+. "$SCRIPT_DIR/fm-backlog-transition-lib.sh"
+. "$SCRIPT_DIR/fm-remote-registry-lib.sh"
 
 # One tasks-axi compatibility verdict per session start. The probe costs three
 # tasks-axi subprocesses and this digest needs the same answer twice - here for
@@ -803,6 +805,57 @@ blocked rows. Work under way skips the endpoint check.
 EOF
 fi
 
+fm_session_start_remote_endpoint() {
+  local meta=$1 id=$2 window=$3 route state target gen remote_info remote_target remote_session remote_worktree remote_project remote_kind remote_harness expected_session lock tmp line
+  route=$(fm_meta_get "$meta" remote_route)
+  target=$(fm_meta_get "$meta" remote_target)
+  gen=$(fm_meta_get "$meta" spawn_gen)
+  endpoint="endpoint: launch unconfirmed (route=$route window=$window)"
+  [ "$READ_ONLY" -eq 0 ] && [ -n "$route" ] || return 0
+  state=$(fm_run_timed 15 "$SCRIPT_DIR/fm-on.sh" "$route" fm-remote-worker-control.sh state "$id" 2>/dev/null) || return 0
+  if [ "$target" != pending ]; then
+    case "$state" in
+      alive) endpoint="endpoint: alive (backend=remote window=$window)" ;;
+      dead|missing) endpoint="endpoint: dead (backend=remote window=$window)" ;;
+      *) endpoint="endpoint: unknown (backend=remote window=$window)" ;;
+    esac
+    return 0
+  fi
+  [ "$state" = alive ] && [ -n "$gen" ] && [ "$(fm_meta_get "$meta" remote_backend)" = herdr ] || return 0
+  [ "$(fm_remote_registry_field "$DATA/remote-homes.md" "$route" root)" = "$(fm_meta_get "$meta" remote_root)" ] || return 0
+  remote_info=$(fm_run_timed 15 "$SCRIPT_DIR/fm-on.sh" "$route" fm-remote-worker-control.sh route "$id" 2>/dev/null) || return 0
+  [ "$(printf '%s\n' "$remote_info" | sed -n 's/^backend=//p')" = herdr ] || return 0
+  remote_target=$(printf '%s\n' "$remote_info" | sed -n 's/^target=//p')
+  remote_session=$(printf '%s\n' "$remote_info" | sed -n 's/^herdr_session=//p')
+  remote_worktree=$(printf '%s\n' "$remote_info" | sed -n 's/^worktree=//p')
+  remote_project=$(printf '%s\n' "$remote_info" | sed -n 's/^project=//p')
+  remote_kind=$(printf '%s\n' "$remote_info" | sed -n 's/^kind=//p')
+  remote_harness=$(printf '%s\n' "$remote_info" | sed -n 's/^harness=//p')
+  expected_session=$(fm_remote_registry_field "$DATA/remote-homes.md" "$route" session) || return 0
+  [ "$remote_session" = "$expected_session" ] && [ "$remote_kind" = "$(fm_meta_get "$meta" kind)" ] &&
+    [ "$remote_harness" = "$(fm_meta_get "$meta" harness)" ] &&
+    [ "$remote_project" = "$(fm_meta_get "$meta" project)" ] || return 0
+  case "$remote_target" in "$remote_session":?*) ;; *) return 0 ;; esac
+  case "$remote_worktree" in /*) ;; *) return 0 ;; esac
+  endpoint="endpoint: alive (backend=remote window=$window)"
+  lock=$(fm_meta_lock_path "$meta") || return 0
+  fm_lock_try_acquire "$lock" || return 0
+  if [ "$(fm_meta_get "$meta" spawn_gen)" != "$gen" ] || [ "$(fm_meta_get "$meta" remote_target)" != pending ] ||
+    [ "$(fm_meta_get "$meta" remote_route)" != "$route" ]; then
+    fm_lock_release "$lock"
+    return 0
+  fi
+  tmp=$(mktemp "$STATE/.$id.remote-recovery.XXXXXX") || { fm_lock_release "$lock"; return 0; }
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in worktree=*|project=*|remote_target=*|remote_herdr_session=*|remote_pending_reason=*) ;; *) printf '%s\n' "$line" >> "$tmp" ;; esac
+  done < "$meta"
+  printf 'worktree=%s\nproject=%s\nremote_target=%s\nremote_herdr_session=%s\n' "$remote_worktree" "$remote_project" "$remote_target" "$remote_session" >> "$tmp"
+  if ! fm_backend_validate_task_endpoint "$tmp" "$id" || ! fm_backlog_atomic_transition publish "$tmp" "$meta" "task record" "$STATE"; then
+    rm -f "$tmp"
+  fi
+  fm_lock_release "$lock"
+}
+
 # --- 6. fleet-state digest ---------------------------------------------
 # Before CONTEXT: a harness cuts an oversized digest from the tail, and live
 # fleet identity is what that cut must never take.
@@ -824,7 +877,7 @@ if [ "$READ_ONLY" -eq 0 ] && [ -f "$DATA/remote-homes.md" ] && [ ! -L "$DATA/rem
       continue
     fi
     route=$FM_REMOTE_REGISTRY_ID
-    if capacity_out=$(fm_run_timed 5 "$SCRIPT_DIR/fm-on.sh" "$route" fm-session-start.sh --heavy-limit 2>&1); then
+    if capacity_out=$(fm_run_timed 15 "$SCRIPT_DIR/fm-on.sh" "$route" fm-session-start.sh --heavy-limit 2>&1); then
       printf '%s: %s\n' "$route" "$capacity_out"
     else
       printf '%s: heavy worker limit unavailable\n' "$route"
@@ -845,7 +898,9 @@ for meta in "$STATE"/*.meta; do
   fi
   window=$(fm_meta_get "$meta" window)
   target=$(fm_backend_target_of_meta "$meta")
-  if [ -n "$window" ]; then
+  if [ -n "$(fm_meta_get "$meta" remote_host)" ]; then
+    fm_session_start_remote_endpoint "$meta" "$id" "$window"
+  elif [ -n "$window" ]; then
     backend=$(fm_backend_of_meta "$meta")
     endpoint_rc=0
     fm_session_start_endpoint_read "$backend" "${target:-$window}" "fm-$id" || endpoint_rc=$?
