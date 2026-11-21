@@ -28,9 +28,10 @@ A call without `--command` is a usage error and exits 2.
 
 The wrapper discovers the code root from its own location.
 The active firstmate home is `${FM_HOME:-<code-root>}`.
-It passes both roots and the exact command string to the Node policy owner.
+It passes both roots and the exact command string to the policy in the shared guard bundle.
+If Bun cannot run the policy, the wrapper invokes the same policy directly with Node.
 
-The wrapper fast-allows a command without invoking the Node policy owner only when the command cannot contain the `fm-watch` byte sequence even after the classifier's decoders run.
+The wrapper fast-allows a command without invoking the policy only when the command cannot contain the `fm-watch` byte sequence even after the classifier's decoders run.
 The fast path may allow only when both of these hold:
 
 1. The stripped text lacks the `fm-watch` watcher substring, after mirroring the classifier's cheapest byte normalizations - dropping line-continuation and escape backslashes, quotes, and newlines.
@@ -47,7 +48,7 @@ The marker guard closes the static gap anyway because it is cheap and provable p
 Tripwire: if a third strict-superset gap is ever found after this marker generalization, that falsifies the "provable per encoding class" claim and the decision flips to Option B - drop the prefilter and always invoke the classifier.
 Deeper decode-required obfuscation beyond the coupled marker set stays the classifier's and the post-arm liveness guards' responsibility.
 
-Missing Node, a missing classifier, or an invalid classifier response fail open with exit 0 and no output.
+An unavailable classifier or an invalid classifier response fails open with exit 0 and no output.
 This transport behavior prevents a broken hook from denying every shell tool call.
 Malformed or unsupported shell syntax that contains a protected command is a semantic classification result and fails closed.
 

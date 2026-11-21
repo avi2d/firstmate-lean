@@ -930,6 +930,7 @@ function invokedDirectly() {
   const entry = process.argv[1];
   if (!entry) return false;
   const self = fileURLToPath(import.meta.url);
+  if (path.basename(self) !== "fm-arm-command-policy.mjs") return false;
   try {
     return realpathSync(entry) === realpathSync(self);
   } catch {
@@ -937,9 +938,9 @@ function invokedDirectly() {
   }
 }
 
-if (invokedDirectly()) {
+export function runArmPolicy(argv) {
   try {
-    const args = parseArguments(process.argv.slice(2));
+    const args = parseArguments(argv);
     if (!args.root || !args.home) throw new Error("--root and --home are required");
     if (!args.command) {
       process.stdout.write("allow\n");
@@ -956,3 +957,5 @@ if (invokedDirectly()) {
     process.exitCode = 1;
   }
 }
+
+if (invokedDirectly()) runArmPolicy(process.argv.slice(2));

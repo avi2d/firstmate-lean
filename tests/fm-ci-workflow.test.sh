@@ -178,7 +178,7 @@ workflow_jobs() {
 # must join a tier, so no one-off timeout value appears outside these lists.
 LINT_TIER_JOBS='lint'
 STATIC_TIER_JOBS='static'
-FAST_TIER_JOBS='test-coverage tests-timing-aggregate'
+FAST_TIER_JOBS='effect-runtime test-coverage tests-timing-aggregate'
 NORMAL_TIER_JOBS='tests-portable-parallel-1 tests-portable-parallel-2 tests-portable-serial macos-stock-bash'
 HEAVY_TIER_JOBS='tests-herdr'
 ALL_TIER_JOBS="$LINT_TIER_JOBS $STATIC_TIER_JOBS $FAST_TIER_JOBS $NORMAL_TIER_JOBS $HEAVY_TIER_JOBS"
