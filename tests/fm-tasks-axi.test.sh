@@ -300,6 +300,29 @@ write_backlog_md_ticket() {
   printf '%s\n' '---' "id: $2" 'title: Fixture ticket' "status: $3" '---' '' > "$1"
 }
 
+test_numbered_ticket_does_not_ship_on_legacy_slug_or_number_only() {
+  local home="$TMP_ROOT/named-branch" project="$TMP_ROOT/naming-repo" wt="$TMP_ROOT/naming-copy"
+  local id=example-site-2 legacy=blog-page-work branch out
+  make_backlog_md_home "$home"
+  printf '%s\n' '---' "id: $id" 'title: "Example-site: Blog reading page updates"' \
+    'status: Queued' 'labels:' "  - old:$legacy" '---' > "$home/data/backlog/tasks/task-old-filename.md"
+  out=$(FM_HOME="$home" bash "$WRAPPER" show "$id") || fail "$out"
+  assert_contains "$out" "  id: $id" "numbered ID did not find the ticket by front matter"
+  out=$(FM_HOME="$home" bash "$WRAPPER" show "$legacy") && fail "the old label resolved as a task ID"
+  assert_contains "$out" 'code: NOT_FOUND' "old label did not return not found"
+
+  FM_HOME="$home" bash "$ROOT/bin/fm-brief.sh" "$id" example-site --mode local-only --branch-prefix work/ >/dev/null \
+    || fail "could not scaffold the numbered task"
+  branch=$(sed -n 's/^Ship branch: //p' "$home/data/$id/brief.md")
+  [ "$branch" = work/example-site-2-blog-reading-page ] || fail "wrong ship branch: $branch"
+  fm_git_init_commit "$project" || fail "could not initialize disposable repository"
+  git -C "$project" worktree add -q --detach "$wt" HEAD || fail "could not create disposable worktree"
+  git -C "$wt" checkout -qb "$branch" -- || fail "could not check out the brief's branch"
+  [ "$(git -C "$wt" branch --show-current)" = "$branch" ] || fail "worktree did not switch to the brief's branch"
+  grep -qF "old:$legacy" "$home/data/backlog/tasks/task-old-filename.md" || fail "old label was removed"
+  pass "the numbered ticket names the ship branch without changing backlog identity"
+}
+
 test_backlog_md_mint_counts_drafts_and_archive_without_reusing_ids() {
   local home="$TMP_ROOT/backlog-md-numbering" out rc=0
   make_backlog_md_home "$home"
@@ -491,6 +514,7 @@ if [ "${FM_TEST_BACKLOG_MESSAGE_LOCK_ONLY:-0}" = 1 ]; then
 fi
 
 test_backlog_md_mint_counts_drafts_and_archive_without_reusing_ids
+test_numbered_ticket_does_not_ship_on_legacy_slug_or_number_only
 test_backlog_md_keeps_drafts_visible_without_making_them_dispatchable
 test_backlog_md_lifecycle_preserves_a_running_slug_id
 test_numbered_followup_replay_does_not_allocate_another_id_after_archiving backlog-md

@@ -797,6 +797,25 @@ teardown_task lock-contended "$HOME_DIR" > "$TMP_ROOT/lock-contended-teardown.ou
   || fail "flat lock-contention fixture teardown failed: $(cat "$TMP_ROOT/lock-contended-teardown.err")"
 assert_focus_is "$CAPTAIN_FOCUS" "bounded presentation lock flat fallback teardown"
 pass "real Herdr lab: bounded lock contention warns and falls back flat without projection or focus drift"
+NAMED_ID=example-site-2
+NAMED_WORKER=example-site-2-blog-reading-page
+mkdir -p "$HOME_DIR/data/$NAMED_ID"
+printf '%s\n' "Worker name: $NAMED_WORKER" '# Task' "## Captain's intent" \
+  'Show the blog reading page.' '## Firstmate spec' 'Use the brief name.' \
+  "Ship branch: fm/$NAMED_WORKER" > "$HOME_DIR/data/$NAMED_ID/brief.md"
+spawn_task "$NAMED_ID" "$HOME_DIR" "$PROJECT_DIR" > "$TMP_ROOT/named.out" 2> "$TMP_ROOT/named.err" \
+  || fail "numbered spawn failed: $(cat "$TMP_ROOT/named.err")"
+NAMED_META="$HOME_DIR/state/$NAMED_ID.meta"
+remember_meta_worktree "$NAMED_META" >/dev/null
+NAMED_WSID=$(sed -n 's/^herdr_workspace_id=//p' "$NAMED_META")
+NAMED_LABEL=$(lab workspace get "$NAMED_WSID" | jq -er '.result.workspace.label')
+NAMED_TOKEN=$(sed -n 's/^projection_id=//p' "$HOME_DIR/state/$NAMED_ID.herdr-presentation")
+[ "$NAMED_LABEL" = "└ $NAMED_WORKER · p:$NAMED_TOKEN" ] || fail "workspace ignored the numbered brief name: $NAMED_LABEL"
+grep -Fxq "branch=fm/$NAMED_WORKER" "$NAMED_META" || fail "spawn kept the number-only branch"
+teardown_task "$NAMED_ID" "$HOME_DIR" > "$TMP_ROOT/named-teardown.out" 2> "$TMP_ROOT/named-teardown.err" \
+  || fail "numbered task teardown failed: $(cat "$TMP_ROOT/named-teardown.err")"
+pass "real Herdr lab: the numbered brief names its workspace and branch, and teardown still uses the ticket ID"
+
 PROJECTION_ORDER_START=$(log_line_count)
 
 [ "$OFF_WT" = "$ON_WT" ] || fail "Treehouse did not reuse the same fixture worktree, so byte comparison is inconclusive"

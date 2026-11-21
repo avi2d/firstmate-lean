@@ -77,6 +77,8 @@ FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 # every backend so the decision cannot drift.
 # shellcheck source=bin/fm-composer-lib.sh
 . "$FM_BACKEND_HERDR_ROOT/bin/fm-composer-lib.sh"
+# shellcheck source=bin/fm-worker-name-lib.sh
+. "$FM_BACKEND_HERDR_ROOT/bin/fm-worker-name-lib.sh"
 
 # Shared, backend-neutral normalized-transition shape and the single-owner
 # status->action policy table (bin/fm-transition-lib.sh). This adapter's event
@@ -610,7 +612,7 @@ fm_backend_herdr_projection_journal_field() {  # <journal> <key>
 # journal or a version 2 exact projection binding without sourcing shell code.
 # Version 2 sets FM_BACKEND_HERDR_JOURNAL_* globals for same-process callers.
 fm_backend_herdr_projection_journal_snapshot() {  # <journal> <task-id>
-  local journal=$1 id=$2 lines expected_label expected_task_label exact
+  local journal=$1 id=$2 lines expected_task_label exact
   FM_BACKEND_HERDR_JOURNAL_VERSION=""
   FM_BACKEND_HERDR_JOURNAL_TASK_ID=""
   FM_BACKEND_HERDR_JOURNAL_PROJECTION_ID=""
@@ -667,10 +669,10 @@ fm_backend_herdr_projection_journal_snapshot() {  # <journal> <task-id>
   [ -n "$FM_BACKEND_HERDR_JOURNAL_PARENT_LABEL" ] \
     && [ -n "$FM_BACKEND_HERDR_JOURNAL_WORKSPACE_LABEL" ] \
     && [ -n "$FM_BACKEND_HERDR_JOURNAL_TASK_LABEL" ] || return 1
-  expected_label=$(fm_backend_herdr_projection_workspace_label "$id" "$FM_BACKEND_HERDR_JOURNAL_PROJECTION_ID")
   expected_task_label="fm-$id"
-  [ "$FM_BACKEND_HERDR_JOURNAL_WORKSPACE_LABEL" = "$expected_label" ] \
-    && [ "$FM_BACKEND_HERDR_JOURNAL_TASK_LABEL" = "$expected_task_label" ]
+  [ "$FM_BACKEND_HERDR_JOURNAL_TASK_LABEL" = "$expected_task_label" ] \
+    && fm_backend_herdr_projection_workspace_label_matches "$id" \
+      "$FM_BACKEND_HERDR_JOURNAL_PROJECTION_ID" "$FM_BACKEND_HERDR_JOURNAL_WORKSPACE_LABEL"
 }
 
 # fm_backend_herdr_projection_journal_token: validate and read either journal
@@ -764,8 +766,25 @@ fm_backend_herdr_projection_concise_task_label() {  # <task-id>
 # Format is literal U+2514 BOX DRAWINGS LIGHT UP AND RIGHT, one space, the
 # concise task label, then the unchanged · p:<full-22-char-token> suffix.
 # Labels and tokens remain non-authoritative correlators only.
-fm_backend_herdr_projection_workspace_label() {  # <task-id> <projection-id>
-  printf '└ %s · p:%s' "$(fm_backend_herdr_projection_concise_task_label "$1")" "$2"
+fm_backend_herdr_projection_workspace_label() {  # <task-id> <projection-id> [worker-name]
+  local id=$1 token=$2 name=${3:-$1}
+  if [ "$name" = "$id" ]; then
+    name=$(fm_backend_herdr_projection_concise_task_label "$id")
+  fi
+  printf '└ %s · p:%s' "$name" "$token"
+}
+
+fm_backend_herdr_projection_workspace_label_matches() {
+  local id=$1 token=$2 label=$3 name
+  [ "$label" != "$(fm_backend_herdr_projection_workspace_label "$id" "$token")" ] || return 0
+  case "$label" in
+    '└ '*" · p:$token")
+      name=${label#'└ '}
+      name=${name%" · p:$token"}
+      fm_worker_name_valid "$id" "$name"
+      ;;
+    *) return 1 ;;
+  esac
 }
 
 # fm_backend_herdr_presentation_session_lock_path: one account-private lock
