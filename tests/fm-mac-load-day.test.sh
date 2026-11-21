@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# The standing heavy cap follows the UTC hour on both machines, while a pinned
-# @heavy-limit wins at any hour and the load caps stay put.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -35,14 +33,14 @@ test_night_before_day_keeps_night_caps() {
   pass "05:59 UTC keeps the night caps of four on Mac and six on linux"
 }
 
-test_day_start_drops_to_day_caps() {
-  check_hour "$START_DAY" 3 4
-  pass "06:00 UTC drops to the day caps of three on Mac and four on linux"
+test_day_start_does_not_lower_caps() {
+  check_hour "$START_DAY" 4 6
+  pass "06:00 UTC keeps the same heavy caps"
 }
 
-test_day_end_keeps_day_caps() {
-  check_hour "$END_DAY" 3 4
-  pass "20:59 UTC keeps the day caps of three on Mac and four on linux"
+test_day_end_keeps_standing_caps() {
+  check_hour "$END_DAY" 4 6
+  pass "20:59 UTC keeps the same heavy caps"
 }
 
 test_night_start_restores_night_caps() {
@@ -62,9 +60,9 @@ test_linux_night_keeps_linux_caps() {
   pass "05:59 UTC keeps the linux caps of six heavy and 16 load on Linux"
 }
 
-test_linux_day_drops_to_linux_day_caps() {
-  check_linux_hour "$START_DAY" 4
-  pass "06:00 UTC drops to the linux day caps of four heavy and 16 load on Linux"
+test_linux_day_does_not_lower_cap() {
+  check_linux_hour "$START_DAY" 6
+  pass "06:00 UTC keeps the linux heavy and load caps"
 }
 
 test_load_caps_stay_put_by_day() {
@@ -89,10 +87,10 @@ test_pinned_heavy_limit_wins_by_day() {
 }
 
 test_night_before_day_keeps_night_caps
-test_day_start_drops_to_day_caps
-test_day_end_keeps_day_caps
+test_day_start_does_not_lower_caps
+test_day_end_keeps_standing_caps
 test_night_start_restores_night_caps
 test_linux_night_keeps_linux_caps
-test_linux_day_drops_to_linux_day_caps
+test_linux_day_does_not_lower_cap
 test_load_caps_stay_put_by_day
 test_pinned_heavy_limit_wins_by_day
