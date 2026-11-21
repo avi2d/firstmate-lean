@@ -199,7 +199,7 @@ case "${1:-} ${2:-}" in
   'agent get')
     printf '%s\n' '{"error":{"code":"agent_not_found"}}' ;;
   'pane process-info')
-    printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":4242,"foreground_processes":[]}}}\n' "${3:-}" ;;
+    printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":4242,"foreground_processes":[]}}}\n' "${4:-}" ;;
   'pane run')
     printf '%s\n' "${4# }" >> "$D/keys" ;;
   'pane send-text')

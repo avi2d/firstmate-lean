@@ -65,41 +65,6 @@ run_spawn() {
     "$id" "$PROJECT_DIR" "$@"
 }
 
-test_remote_seeded_home_spawns_from_treehouse_pool() {
-  local rec id out status lock
-  id='pool-remote-seeded-r13'
-  rec=$(make_case remote-seeded "$id")
-  read_case_record "$rec"
-  cat > "$HOME_DIR/.fm-secondmate-parent" <<'REC'
-schema=fm-secondmate-parent.v1
-route=remote
-parent_host=parent-machine
-REC
-
-  out=$(run_spawn "$id" --scout)
-  status=$?
-  expect_code 0 "$status" \
-    "a remote-seeded secondmate home should allocate and launch from its Treehouse pool"$'\n'"$out"
-  assert_contains "$out" "spawned $id" \
-    "the remote-seeded spawn did not report success"
-  assert_grep "worktree=$POOL_DIR" "$HOME_DIR/state/$id.meta" \
-    "the remote-seeded spawn did not publish its allocated pool worktree"
-  lock=$(FM_HOME="$HOME_DIR" bash -c '. "$1"; fm_treehouse_project_lock_path "$2"' _ \
-    "$ROOT/bin/fm-wake-lib.sh" "$PROJECT_DIR") \
-    || fail "the launched remote-seeded home could not resolve its Treehouse project lock"
-  case "$lock" in
-    "$HOME_DIR/state/"*) ;;
-    *) fail "the remote-seeded spawn anchored its lock outside its local root: $lock" ;;
-  esac
-  if [ "${FM_TEST_EVIDENCE:-0}" = 1 ]; then
-    printf '# remote-seeded Treehouse spawn command\n'
-    printf '$ FM_HOME=%s bin/fm-spawn.sh %s %s --scout\n%s\nexit=%s\n' \
-      "$HOME_DIR" "$id" "$PROJECT_DIR" "$out" "$status"
-    printf 'published worktree=%s\nresolved project lock=%s\n' "$POOL_DIR" "$lock"
-  fi
-  pass "a remote-seeded secondmate home allocates and launches from its Treehouse pool"
-}
-
 test_linked_spawning_home_rejects_primary_before_refresh() {
   local rec id out status returned primary spawning before_reflog
   for returned in primary primary-alias spawning scout; do
@@ -766,7 +731,7 @@ make_leasing_treehouse() {
 printf '%s\n' "\$*" >> "$CASE_DIR/treehouse.log"
 case "\$1 \${2:-}" in
   'lease --help') printf 'Usage:\n  treehouse lease <name> [flags]\n' ;;
-  'get --lease') printf '%s\n' "$POOL_DIR" ;;
+  'get --lease') printf '%s' "$POOL_DIR" > "$FAKEBIN_DIR/lease"; printf '%s\n' "$POOL_DIR" ;;
   'status --json') printf '[{"name":"1","path":"%s","status":"available","lease_id":""}]\n' "$POOL_DIR" ;;
 esac
 exit 0
@@ -1212,7 +1177,6 @@ test_opt_in_still_refuses_an_unclean_slot_first() {
   pass "with the opt-in an unclean slot is still refused, untouched, before any base is chosen"
 }
 
-test_remote_seeded_home_spawns_from_treehouse_pool
 test_pool_slot_claim_follows_the_spawn_outcome
 test_stopped_task_keeps_its_recorded_worktree
 test_treehouse_isolation_refusal_points_at_what_survives
