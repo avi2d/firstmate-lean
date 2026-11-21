@@ -86,7 +86,7 @@ run_check() {
 }
 
 tasks_count() {
-  PATH="$1/fakebin:$PATH" FM_HOME="$1" "$TASKS" list --state queued 2>/dev/null | grep -c '^  flake-' || true
+  PATH="$1/fakebin:$PATH" FM_HOME="$1" "$TASKS" list --state queued 2>/dev/null | grep -c '^  skills-' || true
 }
 
 test_help_and_usage() {
@@ -127,10 +127,10 @@ test_red_run_files_one_task_then_silence() {
   write_gh_fake "$home" red
   run_check "$home" "$home/out1.txt"
   out=$(cat "$home/out1.txt")
-  assert_contains "$out" "flake-skills-36312923331" "first pass names the filed task"
+  assert_contains "$out" "flake-watch: filed skills-1 " "first pass names the minted task"
   [ "$(wc -l < "$home/out1.txt" | tr -d '[:space:]')" = 1 ] || fail "first pass prints exactly one line: $out"
   [ "$(tasks_count "$home")" = 1 ] || fail "first pass files exactly one task"
-  body=$(PATH="$home/fakebin:$PATH" FM_HOME="$home" "$TASKS" show flake-skills-36312923331 2>&1)
+  body=$(PATH="$home/fakebin:$PATH" FM_HOME="$home" "$TASKS" show skills-1 2>&1)
   assert_contains "$body" "tests/e2e/claude-code-delivery.test.ts:182" "the task names line 182"
   assert_contains "$body" "3290208862" "the task names seed 3290208862"
   assert_contains "$body" "https://github.com/avi2d/skills/actions/runs/36312923331" "the task names the run URL"
@@ -156,8 +156,8 @@ test_expired_artifact_still_files_its_one_task() {
   home=$(make_home expired)
   write_gh_fake "$home" expired
   run_check "$home" "$home/out1.txt"
-  assert_contains "$(cat "$home/out1.txt")" "flake-skills-36312923331" "expired detail still files the run's task"
-  body=$(PATH="$home/fakebin:$PATH" FM_HOME="$home" "$TASKS" show flake-skills-36312923331 2>&1)
+  assert_contains "$(cat "$home/out1.txt")" "flake-watch: filed skills-1 " "expired detail still files the run's task"
+  body=$(PATH="$home/fakebin:$PATH" FM_HOME="$home" "$TASKS" show skills-1 2>&1)
   assert_contains "$body" "https://github.com/avi2d/skills/actions/runs/36312923331" "the fallback task names the run URL"
   run_check "$home" "$home/out2.txt"
   [ ! -s "$home/out2.txt" ] || fail "second pass must stay silent: $(cat "$home/out2.txt")"
@@ -177,18 +177,37 @@ test_unstarted_job_files_nothing_but_is_recorded_seen() {
   pass "fm-flake-watch: a job that never started files nothing and is recorded as seen"
 }
 
-test_existing_task_is_adopted_not_duplicated() {
+test_lost_seen_record_adopts_the_filed_task() {
   local home
   home=$(make_home adopted)
   write_gh_fake "$home" red
-  PATH="$home/fakebin:$PATH" FM_HOME="$home" "$TASKS" add flake-skills-36312923331 \
-    "skills flake red: tests/e2e/claude-code-delivery.test.ts:182 seed 3290208862" \
-    --kind ship --repo skills >/dev/null || fail "seeding the existing task must succeed"
-  run_check "$home" "$home/out.txt"
-  [ ! -s "$home/out.txt" ] || fail "an already-filed run must stay silent: $(cat "$home/out.txt")"
+  run_check "$home" "$home/out1.txt"
+  rm -f "$home/state/.flake-watch-seen"
+  run_check "$home" "$home/out2.txt"
+  [ ! -s "$home/out2.txt" ] || fail "an already-filed run must stay silent: $(cat "$home/out2.txt")"
   [ "$(tasks_count "$home")" = 1 ] || fail "an already-filed run is never duplicated"
   assert_contains "$(cat "$home/state/.flake-watch-seen")" "skills/36312923331" "the adopted run is recorded as seen"
-  pass "fm-flake-watch: an existing task for the run is adopted, never duplicated"
+  pass "fm-flake-watch: a run whose seen record is lost is adopted by its filed task, never duplicated"
+}
+
+test_legacy_run_task_is_adopted_not_duplicated() {
+  local home
+  home=$(make_home legacy)
+  write_gh_fake "$home" red
+  cat > "$home/data/backlog.md" <<'EOF'
+## In flight
+
+## Queued
+- [ ] flake-skills-36312923331 - skills flake red: tests/e2e/claude-code-delivery.test.ts:182 seed 3290208862 (repo: skills) (kind: ship)
+
+## Done
+EOF
+  run_check "$home" "$home/out.txt"
+  [ ! -s "$home/out.txt" ] || fail "a run with a run-named task must stay silent: $(cat "$home/out.txt")"
+  [ "$(PATH="$home/fakebin:$PATH" FM_HOME="$home" "$TASKS" list --state queued 2>/dev/null | grep -c '^  [a-z]')" = 1 ] \
+    || fail "a run-named task is never duplicated by a minted one"
+  assert_contains "$(cat "$home/state/.flake-watch-seen")" "skills/36312923331" "the adopted run is recorded as seen"
+  pass "fm-flake-watch: a task named after the run is adopted, never duplicated"
 }
 
 test_help_and_usage
@@ -197,7 +216,8 @@ test_red_run_files_one_task_then_silence
 test_green_week_files_nothing
 test_expired_artifact_still_files_its_one_task
 test_unstarted_job_files_nothing_but_is_recorded_seen
-test_existing_task_is_adopted_not_duplicated
+test_lost_seen_record_adopts_the_filed_task
+test_legacy_run_task_is_adopted_not_duplicated
 
 write_slow_gh_fake() {
   local home=$1
