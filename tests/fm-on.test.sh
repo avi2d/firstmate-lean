@@ -113,6 +113,8 @@ shift 2
 case "$entry" in \'/*/bin/fm-remote-entrypoint.sh\') ;; *) exit 92 ;; esac
 case "${FM_FAKE_SSH_MODE:-normal}" in
   unreachable) exit 255 ;;
+  # dash drops the exported function the git-less cases override git with.
+  bash) exec bash -c "$entry $*" ;;
   ambiguous)
     sh -c "$entry $*"
     exit 255
@@ -476,7 +478,7 @@ out=$(
     builtin command "$@"
   }
   export -f command
-  fm_on ios fm-remote-doctor.sh 2>&1
+  FM_FAKE_SSH_MODE=bash fm_on ios fm-remote-doctor.sh 2>&1
 )
 set -e
 assert_contains "$out" 'mode=check' "the trusted doctor could not bootstrap while git was unavailable"
@@ -489,7 +491,7 @@ out=$(
     builtin command "$@"
   }
   export -f command
-  fm_on ios fm-remote-doctor.sh 2>&1
+  FM_FAKE_SSH_MODE=bash fm_on ios fm-remote-doctor.sh 2>&1
 )
 rc=$?
 set -e

@@ -757,8 +757,8 @@ test_pool_slot_claim_follows_the_spawn_outcome() {
   pass "a Treehouse slot claim names the launched task, refuses when unclaimable, and is dropped by a locked abort"
 }
 
-# A Treehouse whose only slot is free in its own eyes: `get` lands in that slot
-# (the fake pane path), `status` lists it unleased, and `lease` is recorded.
+# A Treehouse whose only slot is free in its own eyes: `get --lease` hands out
+# that slot, `status` lists it unleased, and `lease` is recorded.
 # The lease help line is real treehouse v3.1.2 output.
 make_leasing_treehouse() {
   cat > "$FAKEBIN_DIR/treehouse" <<SH
@@ -766,6 +766,7 @@ make_leasing_treehouse() {
 printf '%s\n' "\$*" >> "$CASE_DIR/treehouse.log"
 case "\$1 \${2:-}" in
   'lease --help') printf 'Usage:\n  treehouse lease <name> [flags]\n' ;;
+  'get --lease') printf '%s\n' "$POOL_DIR" ;;
   'status --json') printf '[{"name":"1","path":"%s","status":"available","lease_id":""}]\n' "$POOL_DIR" ;;
 esac
 exit 0
@@ -807,7 +808,7 @@ test_stopped_task_keeps_its_recorded_worktree() {
   out=$(run_spawn "$id" --mode no-mistakes --yolo off)
   status=$?
   expect_code 0 "$status" "a spawn into a copy no record names should launch"$'\n'"$out"
-  assert_grep "lease 1 --lease-holder $id" "$CASE_DIR/treehouse.log" \
+  assert_grep "get --lease --lease-holder $id" "$CASE_DIR/treehouse.log" \
     "a launched task did not lease its own slot"
   pass "a second spawn never receives the worktree a stopped task's record names, and a launched task leases its own"
 }
