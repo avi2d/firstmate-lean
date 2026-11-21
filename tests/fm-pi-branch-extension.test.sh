@@ -4700,7 +4700,7 @@ for (const reverse of [false, true]) {
         }
         const offer = branchOfferForWake(state, `stale: ${key}`, attendedHost);
         assert.equal(offer.eligible, eligible);
-        assert.equal(offer.corrupted, corrupted);
+        assert.equal(offer.scope.corrupted, corrupted);
       }
     };
     check(project.includes("/owner"), !project.includes("/owner"));

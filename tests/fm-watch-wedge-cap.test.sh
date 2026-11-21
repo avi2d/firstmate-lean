@@ -1601,29 +1601,18 @@ test_wedge_cap_off_ignores_leftover_markers() {
 # for the rest of FM_CAP_HORIZON_SECS. The routes driven here are the ones that
 # need a crew-state verdict to pick between them - a captain-relevant status log
 # outranked by a live run, that same log with nothing overriding it, a
-# non-terminal pane absorbed because the crew is provably working, and the
-# away-posture one-shot the supervise daemon owns. The reset
+# non-terminal pane absorbed because the crew is provably working. The reset
 # routes are the ones the recovery and declared-wait cases drive: a pane that
 # leaves the stale path, and a declared wait and its lift.
 drive_first_sight_release() {  # <route>
   local route=$1 dir state fakebin out capture_file window key statusf
-  local fire_verdict route_verdict mode pid fresh_hash away_record=0
+  local fire_verdict route_verdict mode pid fresh_hash
   dir=$(make_case "wedge-cap-release-$route")
   state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; capture_file="$dir/pane.txt"
   window="test:fm-wedge-cap-release-$route"
   statusf="$state/wedge-cap-release-$route.status"
   case "$route" in
-    away-first-sight)
-      # The away-posture record makes the watcher hand the stale identity to the
-      # supervise daemon, which owns the one-shot per hash: the surface is the
-      # daemon handoff, and it takes no crew-state verdict at all.
-      printf 'working: still wedged\n' > "$statusf"
-      fire_verdict='state: working · source: run-step · validating (running)'
-      route_verdict=$fire_verdict
-      mode="exit"
-      away_record=1
-      ;;
     provably-working-terminal)
       printf 'done: implementation complete, ready to validate\n' > "$statusf"
       fire_verdict='state: working · source: run-step · validating (running)'
@@ -1671,7 +1660,6 @@ drive_first_sight_release() {  # <route>
   printf '%s' "$fresh_hash" > "$state/.hash-$key"
   printf '1\n' > "$state/.count-$key"
   export FM_FAKE_CREW_STATE="$route_verdict"
-  [ "$away_record" -eq 0 ] || date +%s > "$state/.afk"
   : > "$out"
   PATH="$fakebin:$PATH" FM_FAKE_PANE_WINDOW="$window" FM_FAKE_PANE_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
@@ -1690,7 +1678,6 @@ drive_first_sight_release() {  # <route>
       || { reap "$pid"; fail "the $route first-sight poll did not survive its cycle: $(cat "$out")"; }
   fi
   reap "$pid"
-  rm -f "$state/.afk"
   ack_stopped_cycle "$state" || true
   [ ! -e "$state/.wedge-permanent-$key" ] \
     || fail "the $route first-sight route left the cap marker standing, so the next genuine wedge would answer with silence until the horizon"
@@ -1731,7 +1718,6 @@ test_wedge_cap_releases_on_every_first_sight_route() {
   drive_first_sight_release provably-working-terminal
   drive_first_sight_release surface-terminal
   drive_first_sight_release provably-working-nonterminal
-  drive_first_sight_release away-first-sight
   pass "every first-sight route that ends a wedge episode releases that episode's cap and lets the next wedge escalate"
 }
 

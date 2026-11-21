@@ -1596,11 +1596,11 @@ test_worker_launch_delivers_role_scope() {
       printf '%s\n' "$content" > "$brief"
     fi
     cp "$HOME_DIR/data/$id/brief.md" "$CASE_DIR/brief-before"
-    cat > "$FAKEBIN_DIR/codex" <<'SH'
+    cat > "$FAKEBIN_DIR/pi" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$@" > "$FM_ROLE_PROMPT"
 SH
-    chmod +x "$FAKEBIN_DIR/codex"
+    chmod +x "$FAKEBIN_DIR/pi"
     if [ "$kind" = scout ]; then
       out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --scout)
     else

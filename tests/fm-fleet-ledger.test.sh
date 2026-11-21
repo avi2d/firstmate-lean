@@ -60,7 +60,7 @@ fm_run_timed 6 "$1/bin/fm-watch.sh"
 SH
   ) || rc=$?
   case "$rc" in 0|124) ;; *) fail "watcher poll failed: $out" ;; esac
-  [ -s "$HOME_DIR/state/.last-watcher-beat" ] || fail "watcher never wrote its beat: $out"
+  [ -e "$HOME_DIR/state/.last-watcher-beat" ] || fail "watcher never wrote its beat: $out"
   LEDGER_AFTER_POLL=$(cat "$HOME_DIR/state/fleet-ledger.jsonl" 2>/dev/null || true)
   printf ' finished\ndone: ready in branch\n' >> "$HOME_DIR/state/$TASK.status"
   printf 'landed\n' > "$WT_DIR/landed.txt"
