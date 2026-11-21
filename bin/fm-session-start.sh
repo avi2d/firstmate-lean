@@ -162,8 +162,8 @@ PRIMARY_HARNESS=$("$SCRIPT_DIR/fm-harness.sh" 2>/dev/null || printf unknown)
 . "$SCRIPT_DIR/fm-hold-reason-lib.sh"
 # shellcheck source=bin/fm-project-tiers-lib.sh
 . "$SCRIPT_DIR/fm-project-tiers-lib.sh"
-. "$SCRIPT_DIR/fm-backlog-transition-lib.sh"
-. "$SCRIPT_DIR/fm-remote-registry-lib.sh"
+. "${SCRIPT_DIR%/bin}/bin/fm-backlog-transition-lib.sh"
+. "${SCRIPT_DIR%/bin}/bin/fm-remote-registry-lib.sh"
 
 # One tasks-axi compatibility verdict per session start. The probe costs three
 # tasks-axi subprocesses and this digest needs the same answer twice - here for
