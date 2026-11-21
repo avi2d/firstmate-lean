@@ -589,6 +589,17 @@ spawn_choose_machine() {  # <route> <host> <project>
   [ "$use_remote" = 1 ]
 }
 
+remote_launch_unconfirmed() {
+  local meta=$1 tmp=$2 reason=$3 line
+  : > "$tmp" || return 1
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in remote_pending_reason=*) ;; *) printf '%s\n' "$line" >> "$tmp" ;; esac
+  done < "$meta"
+  printf 'remote_pending_reason=%s\n' "$reason" >> "$tmp"
+  fm_backlog_atomic_transition publish "$tmp" "$meta" "task record" "$STATE" || return 1
+  printf 'note [at=%s]: remote launch unconfirmed: %s\n' "$(date +%s)" "$reason" >> "$STATE/$ID.status"
+}
+
 spawn_remote_worker() {
   local route=$1 project=$2 host=$3 root home session harness backend brief meta tmp out rc target remote_kind remote_harness remote_session worktree remote_project
   local mode_arg yolo_arg base_arg model_arg effort_arg transition=0 started_row=0 contract token forge=none pr=auto standing_forge standing_pr brief_branch remote_spawn_gen remote_account
@@ -721,7 +732,7 @@ spawn_remote_worker() {
     [ -z "$BASE_BRANCH" ] || printf 'base_branch=%s\n' "$BASE_BRANCH"
     [ -z "$DISPATCH_OVERRIDE" ] || printf 'dispatch_override=%s\n' "$DISPATCH_OVERRIDE"
     [ -z "$CLAUDE_ACCOUNT" ] || printf 'claude_account=%s\n' "$CLAUDE_ACCOUNT"
-    printf 'remote_host=%s\nremote_route=%s\nremote_root=%s\nremote_backend=%s\nremote_target=pending\n' "$host" "$route" "$root" "$backend"
+    printf 'remote_host=%s\nremote_route=%s\nremote_root=%s\nremote_backend=%s\nremote_target=pending\nremote_pending_reason=awaiting-launch-result\n' "$host" "$route" "$root" "$backend"
   } > "$tmp"
   fm_backlog_atomic_transition publish "$tmp" "$meta" "task record" "$STATE" || { echo "error: cannot publish remote task record: $FM_BACKLOG_TRANSITION_ERROR" >&2; return 1; }
   if [ "$transition" -eq 1 ] && ! fm_backlog_atomic_transition dispatch "$meta" "$DATA" "$ID" "$STATE"; then
@@ -748,6 +759,7 @@ spawn_remote_worker() {
   fi
   if [ "$rc" -ne 0 ]; then
     printf '%s\n' "$out" >&2
+    remote_launch_unconfirmed "$meta" "$tmp" "launch-exit-$rc" || true
     echo "error: remote launch outcome is unconfirmed; task record and backlog are preserved" >&2
     return "$rc"
   fi
@@ -758,9 +770,9 @@ spawn_remote_worker() {
   worktree=$(printf '%s\n' "$out" | sed -n 's/^worktree=//p')
   remote_project=$(printf '%s\n' "$out" | sed -n 's/^project=//p')
   remote_account=$(printf '%s\n' "$out" | sed -n 's/^claude_account=//p')
-  case "$target" in "$session":?*) ;; *) echo "error: remote launch returned an invalid target; record preserved" >&2; return 1 ;; esac
-  [ "$remote_session" = "$session" ] && [ "$remote_kind" = "$KIND" ] && [ "$remote_harness" = "$harness" ] && [ "$remote_account" = "$CLAUDE_ACCOUNT" ] || { echo "error: remote launch returned inconsistent identity; record preserved" >&2; return 1; }
-  case "$worktree:$remote_project" in /*:/*) ;; *) echo "error: remote launch returned invalid project paths; record preserved" >&2; return 1 ;; esac
+  case "$target" in "$session":?*) ;; *) remote_launch_unconfirmed "$meta" "$tmp" invalid-target || true; echo "error: remote launch returned an invalid target; record preserved" >&2; return 1 ;; esac
+  [ "$remote_session" = "$session" ] && [ "$remote_kind" = "$KIND" ] && [ "$remote_harness" = "$harness" ] && [ "$remote_account" = "$CLAUDE_ACCOUNT" ] || { remote_launch_unconfirmed "$meta" "$tmp" inconsistent-identity || true; echo "error: remote launch returned inconsistent identity; record preserved" >&2; return 1; }
+  case "$worktree:$remote_project" in /*:/*) ;; *) remote_launch_unconfirmed "$meta" "$tmp" invalid-project-paths || true; echo "error: remote launch returned invalid project paths; record preserved" >&2; return 1 ;; esac
   {
     printf 'window=remote:%s\nendpoint_task_id=%s\nworktree=%s\nproject=%s\n' "$ID" "$ID" "$worktree" "$remote_project"
     printf 'kind=%s\nharness=%s\nmodel=%s\neffort=%s\nspawn_gen=%s\n' "$KIND" "$harness" "${MODEL:-default}" "${EFFORT:-default}" "$remote_spawn_gen"
@@ -775,10 +787,11 @@ spawn_remote_worker() {
   } > "$tmp"
   if ! fm_backend_validate_task_endpoint "$tmp" "$ID"; then
     rm -f -- "$tmp"
+    remote_launch_unconfirmed "$meta" "$tmp" invalid-endpoint || true
     echo "error: remote launch returned an invalid endpoint; record preserved" >&2
     return 1
   fi
-  fm_backlog_atomic_transition publish "$tmp" "$meta" "task record" "$STATE" || { echo "error: remote worker launched but its final route could not be published" >&2; return 1; }
+  fm_backlog_atomic_transition publish "$tmp" "$meta" "task record" "$STATE" || { remote_launch_unconfirmed "$meta" "$tmp" publication-failed || true; echo "error: remote worker launched but its final route could not be published" >&2; return 1; }
   [ ! -e "$CONFIG/fleet-ledger" ] || FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG "$SCRIPT_DIR/fm-fleet-ledger.sh" dispatched "$ID" "$KIND" "$project" "$harness" "$MODEL" || true
   if ! "$SCRIPT_DIR/fm-procevent-remote-feed.sh" ensure-armed "$route" >/dev/null; then
     echo "error: remote worker $ID launched, but its status feed could not be armed; endpoint metadata is preserved" >&2
