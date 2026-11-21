@@ -5898,6 +5898,92 @@ test_local_only_pushed_branch_ignores_open_pr() {
   pass "a local-only task on a pushed branch is cleaned up whatever PR its branch has"
 }
 
+test_automatic_cleanup_preserves_dirty_merged_worker() {
+  local case_dir out
+  case_dir=$(make_case auto-dirty)
+  write_meta "$case_dir" direct-PR ship
+  printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
+  add_gh_pr_merged_for_head "$case_dir" "$(git -C "$case_dir/wt" rev-parse HEAD)"
+  printf '%s\n' dirty > "$case_dir/wt/uncommitted"
+  out=$(FM_HOME="$case_dir" FM_STATE_OVERRIDE="$case_dir/state" FM_DATA_OVERRIDE="$case_dir/data" \
+    FM_CONFIG_OVERRIDE="$case_dir/config" PATH="$case_dir/fakebin:$PATH" \
+    "$ROOT/bin/fm-finished-cleanup.sh" sweep 2>&1) || true
+  assert_present "$case_dir/state/task-x1.meta" "automatic cleanup removed a dirty worker"
+  assert_present "$case_dir/wt/uncommitted" "automatic cleanup discarded uncommitted work"
+  printf '%s\n' "$out" | grep -F 'REFUSED' >/dev/null || fail "automatic cleanup did not report its refusal: $out"
+  pass "automatic cleanup reports refusal and preserves a dirty merged worker"
+}
+
+test_automatic_cleanup_retires_merged_worker() {
+  local case_dir out
+  case_dir=$(make_case auto-merged)
+  write_meta "$case_dir" direct-PR ship
+  printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
+  add_gh_pr_merged_for_head "$case_dir" "$(git -C "$case_dir/wt" rev-parse HEAD)"
+  mv "$case_dir/fakebin/herdr" "$case_dir/fakebin/herdr-base"
+  cat > "$case_dir/fakebin/herdr" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-} ${2:-}" = 'pane close' ]; then
+  printf '%s\n' "$*" >> "$FM_FAKE_HERDR_CLOSE_LOG"
+  rm -f "$(dirname "$0")/pending-close"
+  exit 0
+fi
+exec "$(dirname "$0")/herdr-base" "$@"
+SH
+  chmod +x "$case_dir/fakebin/herdr"
+  touch "$case_dir/fakebin/pending-close"
+  out=$(FM_HOME="$case_dir" FM_STATE_OVERRIDE="$case_dir/state" FM_DATA_OVERRIDE="$case_dir/data" \
+    FM_CONFIG_OVERRIDE="$case_dir/config" FM_FAKE_HERDR_CLOSE_LOG="$case_dir/close.log" PATH="$case_dir/fakebin:$PATH" \
+    "$ROOT/bin/fm-finished-cleanup.sh" sweep 2>&1) || fail "automatic cleanup failed: $out"
+  assert_absent "$case_dir/state/task-x1.meta" "automatic cleanup left the merged worker open: $out"
+  assert_present "$case_dir/close.log" "automatic cleanup did not close the worker pane: $out"
+  pass "automatic cleanup retires a merged worker"
+}
+
+test_automatic_cleanup_keeps_unmerged_worker() {
+  local case_dir out
+  case_dir=$(make_case auto-unmerged)
+  write_meta "$case_dir" direct-PR ship
+  printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
+  add_gh_branch_pr_in_state "$case_dir" OPEN
+  out=$(FM_HOME="$case_dir" FM_STATE_OVERRIDE="$case_dir/state" FM_DATA_OVERRIDE="$case_dir/data" \
+    FM_CONFIG_OVERRIDE="$case_dir/config" PATH="$case_dir/fakebin:$PATH" \
+    "$ROOT/bin/fm-finished-cleanup.sh" sweep 2>&1) || fail "automatic cleanup scan failed: $out"
+  assert_present "$case_dir/state/task-x1.meta" "automatic cleanup removed an unmerged worker"
+  pass "automatic cleanup keeps an unmerged worker"
+}
+
+test_automatic_cleanup_keeps_scout_without_reviewed_decisions() {
+  local case_dir out
+  case_dir=$(make_case auto-scout-unreviewed)
+  write_meta "$case_dir" no-mistakes scout
+  mkdir -p "$case_dir/data/task-x1"
+  printf '%s\n' '# Report' '## References' > "$case_dir/data/task-x1/report.md"
+  out=$(FM_HOME="$case_dir" FM_STATE_OVERRIDE="$case_dir/state" FM_DATA_OVERRIDE="$case_dir/data" \
+    FM_CONFIG_OVERRIDE="$case_dir/config" PATH="$case_dir/fakebin:$PATH" \
+    "$ROOT/bin/fm-finished-cleanup.sh" sweep 2>&1) || fail "automatic cleanup scan failed: $out"
+  assert_present "$case_dir/state/task-x1.meta" "automatic cleanup removed an unreviewed scout"
+  pass "automatic cleanup keeps a scout whose decisions are not reviewed"
+}
+
+test_automatic_cleanup_retires_reviewed_scout() {
+  local case_dir out
+  case_dir=$(make_case auto-scout-reviewed)
+  write_meta "$case_dir" no-mistakes scout
+  prepare_scout_teardown "$case_dir"
+  out=$(FM_HOME="$case_dir" FM_STATE_OVERRIDE="$case_dir/state" FM_DATA_OVERRIDE="$case_dir/data" \
+    FM_CONFIG_OVERRIDE="$case_dir/config" PATH="$case_dir/fakebin:$PATH" \
+    "$ROOT/bin/fm-finished-cleanup.sh" sweep 2>&1) || fail "automatic cleanup failed: $out"
+  assert_absent "$case_dir/state/task-x1.meta" "automatic cleanup left a reviewed scout open: $out"
+  assert_present "$case_dir/data/task-x1/report.md" "automatic cleanup removed the scout report"
+  pass "automatic cleanup retires a reviewed scout without deleting its report"
+}
+
+test_automatic_cleanup_preserves_dirty_merged_worker
+test_automatic_cleanup_retires_merged_worker
+test_automatic_cleanup_keeps_unmerged_worker
+test_automatic_cleanup_keeps_scout_without_reviewed_decisions
+test_automatic_cleanup_retires_reviewed_scout
 test_scout_board_is_preserved_via_export
 test_scout_board_falls_back_to_plain_copy
 test_scout_board_copy_failure_refuses_cleanup

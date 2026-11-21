@@ -2621,6 +2621,24 @@ EOF
   pass "session start rejects Pi loaded markers from previous sessions"
 }
 
+test_startup_reports_configured_heavy_limit_instead_of_stale_value() {
+  local rec root home fakebin out
+  rec=$(new_world capacity-digest)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  printf '%s\n' '@heavy-limit 19' > "$home/config/project-capacity"
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_contains "$out" "heavy worker limit: 19" "startup did not report the configured limit"
+  printf '%s\n' '@heavy-limit 23' > "$home/config/project-capacity"
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_contains "$out" "heavy worker limit: 23" "startup reported a stale limit"
+  pass "startup reads the heavy limit from the machine configuration"
+}
+
+test_startup_reports_configured_heavy_limit_instead_of_stale_value
 test_context_digest_absent_empty_present
 test_lock_refusal_read_only_path
 test_lock_write_failure_read_only_path
