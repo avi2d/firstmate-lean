@@ -58,44 +58,16 @@ fm_machine_load_config() {  # <load-default> <heavy-default> <config-dir> [core-
   done < "$file"
 }
 
-# Work-hour starts share the machine with interactive use, so the standing
-# heavy cap drops from 06:00 up to but not including 21:00 UTC.
-fm_machine_load_now_hour() {
-  local now=${FM_MAC_LOAD_MOCK_NOW:-}
-  [ -n "$now" ] || now=$(date -u +%s) || return 1
-  FM_MACHINE_LOAD_HOUR=$(date -u -r "$now" +%H 2>/dev/null || date -u -d "@$now" +%H 2>/dev/null) || return 1
-  FM_MACHINE_LOAD_HOUR=${FM_MACHINE_LOAD_HOUR#0}
-  [ -n "$FM_MACHINE_LOAD_HOUR" ] || FM_MACHINE_LOAD_HOUR=0
-}
-
-fm_machine_load_heavy_default() {  # <day-default> <night-default>
-  FM_MACHINE_HEAVY_DEFAULT=$2
-  if ! fm_machine_load_now_hour; then
-    FM_MACHINE_LOAD_ERROR="the current UTC hour could not be read"
-    return 1
-  fi
-  if [ "$FM_MACHINE_LOAD_HOUR" -ge 6 ] && [ "$FM_MACHINE_LOAD_HOUR" -lt 21 ]; then
-    FM_MACHINE_HEAVY_DEFAULT=$1
-  fi
-}
-
 fm_mac_load_config() {  # <config-dir>
   FM_MAC_LOAD_LIMIT=10
   FM_MAC_HEAVY_LIMIT=4
   FM_MAC_CORE_BUDGET=6
   FM_MAC_LOAD_ERROR=
-  heavy_day=3 heavy_night=4
   if [ "$(uname -s)" = Linux ]; then
-    # A Linux host can also run the linux gate, so this gate borrows the
-    # linux budget there instead of refusing what that gate admits.
     FM_MAC_LOAD_LIMIT=16
-    heavy_day=4 heavy_night=6
+    FM_MAC_HEAVY_LIMIT=6
   fi
-  if ! fm_machine_load_heavy_default "$heavy_day" "$heavy_night"; then
-    FM_MAC_LOAD_ERROR=$FM_MACHINE_LOAD_ERROR
-    return 1
-  fi
-  if ! fm_machine_load_config "$FM_MAC_LOAD_LIMIT" "$FM_MACHINE_HEAVY_DEFAULT" "${1:-}" 6; then
+  if ! fm_machine_load_config "$FM_MAC_LOAD_LIMIT" "$FM_MAC_HEAVY_LIMIT" "${1:-}" 6; then
     FM_MAC_LOAD_LIMIT=$FM_MACHINE_LOAD_LIMIT
     FM_MAC_HEAVY_LIMIT=$FM_MACHINE_HEAVY_LIMIT
     FM_MAC_CORE_BUDGET=$FM_MACHINE_CORE_BUDGET
@@ -198,8 +170,7 @@ fm_mac_heavy_count() {  # <first-state> <own-id>
 # The linux load gate extends the Mac gate to a Linux host that two Firstmate
 # homes share without a common local root. Each home lists the other in
 # config/linux-load-siblings, so a heavy start waits while the five-minute
-# average is high or the standing heavy cap for the hour, four by day and six
-# by night, already runs across both homes.
+# average is high or the standing heavy cap already runs across both homes.
 
 # shellcheck disable=SC2034 # read by bin/fm-spawn.sh after sourcing.
 FM_LINUX_LOAD_DEFER_EXIT=75
@@ -210,11 +181,7 @@ fm_linux_load_config() {  # <config-dir>
   FM_LINUX_LOAD_LIMIT=16
   FM_LINUX_HEAVY_LIMIT=6
   FM_LINUX_LOAD_ERROR=
-  if ! fm_machine_load_heavy_default 4 6; then
-    FM_LINUX_LOAD_ERROR=$FM_MACHINE_LOAD_ERROR
-    return 1
-  fi
-  if ! fm_machine_load_config 16 "$FM_MACHINE_HEAVY_DEFAULT" "${1:-}"; then
+  if ! fm_machine_load_config 16 "$FM_LINUX_HEAVY_LIMIT" "${1:-}"; then
     FM_LINUX_LOAD_LIMIT=$FM_MACHINE_LOAD_LIMIT
     FM_LINUX_HEAVY_LIMIT=$FM_MACHINE_HEAVY_LIMIT
     FM_LINUX_LOAD_ERROR=$FM_MACHINE_LOAD_ERROR
