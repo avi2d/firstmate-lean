@@ -12,7 +12,7 @@ jobs:
   repeat:
     name: Repeat ${{ matrix.copy }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 80
     strategy:
       fail-fast: false
       matrix:
@@ -26,13 +26,12 @@ jobs:
           set -eu
           bin/fm-install-shellcheck.sh "$RUNNER_TEMP/bin"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-      - name: Repeat the PR check security suite with a traced watcher
+      - name: Repeat the PR check security suite with failure dumps
         run: |
           set -u
-          chmod +x .github/fm-diag-watch-trace.sh
-          export FM_DIAG_WATCH="$PWD/.github/fm-diag-watch-trace.sh"
+          export FM_DIAG_DUMP=1
           failed=0
-          for i in 1 2 3 4 5 6 7 8; do
+          for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
             if bin/fm-test-run.sh tests/fm-pr-check-security.test.sh; then
               echo "REPEAT pass $i"
             else

@@ -16,19 +16,19 @@ PR_CHECK="$ROOT/bin/fm-pr-check.sh"
 PR_MERGE="$ROOT/bin/fm-pr-merge.sh"
 POLL="$ROOT/bin/fm-pr-poll.sh"
 WATCH="$ROOT/bin/fm-watch.sh"
-if [ -n "${FM_DIAG_WATCH:-}" ]; then
-  export FM_DIAG_REAL_WATCH="$WATCH"
+if [ -n "${FM_DIAG_DUMP:-}" ]; then
   fail() {
     local t newest
     printf 'not ok - %s\n' "$1" >&2
-    newest=$(ls -t "$TMP_ROOT"/*/watch-trace.* 2>/dev/null | head -1)
+    newest=$(find "$TMP_ROOT" -mindepth 2 -maxdepth 2 -name watch.out -printf '%T@ %h\n' 2>/dev/null | sort -n | tail -1)
+    newest=${newest#* }
     if [ -n "$newest" ]; then
-      printf 'DIAG trace %s\n' "$newest" >&2
-      tail -n 150 "$newest" | cut -c1-300 >&2
-      for t in "${newest%/*}"/*.out "${newest%/*}"/*.err "${newest%/*}"/home/state/.watch-triage.log; do
+      printf 'DIAG case %s\n' "$newest" >&2
+      ls -la "$newest/home/state" >&2
+      for t in "$newest"/*.out "$newest"/*.err "$newest"/home/state/.*.log "$newest"/home/state/*.status; do
         [ -f "$t" ] || continue
         printf 'DIAG file %s\n' "$t" >&2
-        tail -n 40 "$t" | cut -c1-300 >&2
+        tail -n 40 "$t" | cut -c1-400 >&2
       done
     fi
     exit 1
