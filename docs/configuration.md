@@ -721,7 +721,6 @@ Publishing is best-effort and never changes what the watcher does; no spawn read
 No Firstmate script calls it.
 The script's header owns the report line, the published document's fields, the verdict, the beat freshness rules, the host-constraint thresholds, and the probe fallbacks.
 
-The child's own `done` line still reaches the parent through `bin/fm-inactive-reconcile.sh`.
 The flag is a home-local preference; [`bin/fm-pr-check.sh`](../bin/fm-pr-check.sh) owns the mechanics.
 
 ## Task status archive (config/status-archive)
