@@ -26,19 +26,19 @@ jobs:
           set -eu
           bin/fm-install-shellcheck.sh "$RUNNER_TEMP/bin"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-      - name: Repeat the two flaky suites
+      - name: Repeat the PR check security suite with a traced watcher
         run: |
           set -u
+          chmod +x .github/fm-diag-watch-trace.sh
+          export FM_DIAG_WATCH="$PWD/.github/fm-diag-watch-trace.sh"
           failed=0
-          for i in 1 2 3 4 5; do
-            for t in tests/fm-pr-check-security.test.sh tests/fm-watch-arm.test.sh; do
-              if bin/fm-test-run.sh "$t"; then
-                echo "REPEAT pass $i $t"
-              else
-                echo "REPEAT FAIL $i $t"
-                failed=$((failed + 1))
-              fi
-            done
+          for i in 1 2 3 4 5 6 7 8; do
+            if bin/fm-test-run.sh tests/fm-pr-check-security.test.sh; then
+              echo "REPEAT pass $i"
+            else
+              echo "REPEAT FAIL $i"
+              failed=$((failed + 1))
+            fi
           done
           echo "REPEAT failures=$failed"
           [ "$failed" -eq 0 ]
