@@ -210,7 +210,7 @@ assert_failed_execution_spawn_leaves_no_workspace() {
   out=$(run_lease_spawn "$dir" "$id")
   status=$?
   expect_code 1 "$status" "the task tab failure should abort the execution machine launch"$'\n'"$out"
-  assert_grep '^tab create ' "$dir/fake/herdr-log" "spawn never reached the injected tab failure"
+  grep -q '^tab create ' "$dir/fake/herdr-log" || fail "spawn never reached the injected tab failure"
   if [ "$projection" = on ]; then
     assert_contains "$out" "herdr presentation task-tab create failed" "spawn did not take the projected path"
   fi
