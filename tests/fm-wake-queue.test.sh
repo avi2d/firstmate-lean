@@ -152,8 +152,10 @@ test_heartbeat_reports_a_wake_older_than_one_cycle_as_a_watcher_failure() {
 
   old=$(( $(date +%s) - 1000 ))
   awk -F '\t' -v OFS='\t' -v old="$old" '{ $1 = old; print }' "$queue" > "$queue.tmp" && mv "$queue.tmp" "$queue"
+  FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_recovery_marker_begin_handling "$2"' _ "$lib" "$state/.watcher-down" \
+    || fail "could not mark the queued wake as being handled"
   PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 \
-    FM_HEARTBEAT=1 FM_WATCHER_STALE_GRACE=300 "$WATCH" > "$out" &
+    FM_WATCH_HANDLING_SUCCESSOR=1 FM_HEARTBEAT=1 FM_WATCHER_STALE_GRACE=300 "$WATCH" > "$out" &
   wait_for_exit "$!" 100 || fail "the heartbeat did not wake for a wake older than one watcher cycle: $(cat "$out")"
   grep -F "check: wake-queue-overdue: watcher: FAILED - 1 queued wake(s) not handled within one watcher cycle (300s): oldest seq 1 waited" "$out" >/dev/null \
     || fail "the heartbeat did not report the old wake as a watcher failure: $(cat "$out")"
