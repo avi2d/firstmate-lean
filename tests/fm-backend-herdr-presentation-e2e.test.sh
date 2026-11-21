@@ -1051,7 +1051,7 @@ for RESTART_ID in fm-hibit-resume-r1 wheelhouse-healing-r1; do
   NEW_RESTART_WSID=$(grep '^herdr_workspace_id=' "$RESTART_META" | cut -d= -f2-)
   NEW_RESTART_PANE=$(grep '^herdr_pane_id=' "$RESTART_META" | cut -d= -f2-)
   [ "$NEW_RESTART_WSID" = "$OLD_RESTART_WSID" ] \
-    || fail "$RESTART_ID reclaim flattened into a different workspace"
+    || fail "$RESTART_ID reclaim flattened into a different workspace: $(cat "$TMP_ROOT/$RESTART_ID-reclaim.err")"
   [ "$NEW_RESTART_PANE" != "$OLD_RESTART_PANE" ] \
     || fail "$RESTART_ID reclaim reused the old husk pane"
   [ "$(lab workspace get "$NEW_RESTART_WSID" | jq -r '.result.workspace.label')" = "$OLD_RESTART_LABEL" ] \
