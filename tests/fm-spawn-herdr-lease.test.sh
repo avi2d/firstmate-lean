@@ -200,22 +200,34 @@ test_failed_lease_refuses_without_a_record() {
   pass "a failed lease refuses the spawn and falls back to nothing"
 }
 
-test_failed_remote_flat_spawn_does_not_leave_a_home_workspace() {
-  local id=remote-flat-abort dir out status list
+assert_failed_execution_spawn_leaves_no_workspace() {
+  local id=$1 projection=$2 dir out status list
   dir=$(make_lease_case "$id")
   printf 'execution\n' > "$dir/home/.fm-exec-home"
-  printf 'off\n' > "$dir/home/config/herdr-presentation-spaces"
+  printf '%s\n' "$projection" > "$dir/home/config/herdr-presentation-spaces"
   printf 'manual\n' > "$dir/home/config/backlog-backend"
   : > "$dir/fake/fail-task-tab-create"
   out=$(run_lease_spawn "$dir" "$id")
   status=$?
   expect_code 1 "$status" "the task tab failure should abort the execution machine launch"$'\n'"$out"
   assert_grep '^tab create ' "$dir/fake/herdr-log" "spawn never reached the injected tab failure"
+  if [ "$projection" = on ]; then
+    assert_contains "$out" "herdr presentation task-tab create failed" "spawn did not take the projected path"
+  fi
   list=$(FM_FAKE_DIR="$dir/fake" "$dir/fakebin/herdr" workspace list --session fixture-lease)
   [ "$(jq -c '.result.workspaces' <<< "$list")" = '[]' ] || fail "failed launch left an idle workspace: $list"
   ! grep -q '^workspace create .* --label firstmate ' "$dir/fake/herdr-log" \
-    || fail "flat launch created a home-labelled workspace on an execution machine"
-  pass "failed flat launch on an execution machine neither creates a home workspace nor leaves an idle workspace"
+    || fail "launch created a home-labelled workspace on an execution machine"
+}
+
+test_failed_remote_flat_spawn_does_not_leave_a_home_workspace() {
+  assert_failed_execution_spawn_leaves_no_workspace remote-flat-abort off
+  pass "failed flat launch on an execution machine never creates a home workspace or leaves an idle workspace"
+}
+
+test_failed_remote_projection_does_not_leave_its_seeded_workspace() {
+  assert_failed_execution_spawn_leaves_no_workspace remote-projection-abort on
+  pass "failed projected launch on an execution machine removes the seeded workspace"
 }
 
 test_aborted_spawn_names_the_lease_it_keeps() {
@@ -312,6 +324,7 @@ test_never_moving_worktree_entry
 test_fresh_spawn_leases_and_moves_the_top_level_shell
 test_failed_lease_refuses_without_a_record
 test_failed_remote_flat_spawn_does_not_leave_a_home_workspace
+test_failed_remote_projection_does_not_leave_its_seeded_workspace
 test_aborted_spawn_names_the_lease_it_keeps
 test_rolled_back_spawn_after_launch_names_the_lease_it_keeps
 test_abort_keeps_the_lease_while_the_pane_is_present

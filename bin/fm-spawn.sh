@@ -789,10 +789,9 @@ spawn_remote_worker() {
 
 BACKEND=
 HERDR_LEASED=0
-HERDR_PROJECTION_ABORT_CLEANUP=0
-HERDR_PROJECTION_ABORT_SESSION=
-HERDR_PROJECTION_ABORT_TASK_PANE=
-HERDR_PROJECTION_ABORT_SEEDED_PANE=
+HERDR_ABORT_SESSION=
+HERDR_ABORT_TASK_PANE=
+HERDR_ABORT_SEEDED_PANE=
 HERDR_PRESENTATION_ORDER_LOCK=
 HERDR_PRESENTATION_ORDER_LOCK_HELD=0
 SPAWN_TASK_LOCK=
@@ -856,20 +855,19 @@ spawn_abort_cleanup() {
       fi
     fi
   fi
-  if [ "$HERDR_PROJECTION_ABORT_CLEANUP" = 1 ] &&
-    [ "$HERDR_PRESENTATION_ORDER_LOCK_HELD" != 1 ]; then
-    if ! spawn_herdr_presentation_order_lock_acquire "${HERDR_PROJECTION_ABORT_SESSION:-}"; then
-      echo "warning: herdr presentation focus lock unavailable; retaining the projection journal and refusing concurrent abort cleanup" >&2
-      HERDR_PROJECTION_ABORT_CLEANUP=0
-    fi
-  fi
-  if [ "$HERDR_PROJECTION_ABORT_CLEANUP" = 1 ]; then
-    HERDR_PROJECTION_ABORT_CLEANUP=0
-    if fm_backend_herdr_projection_cleanup_exact \
-      "$HERDR_PROJECTION_ABORT_SESSION" \
-      "$HERDR_PROJECTION_ABORT_TASK_PANE" \
-      "$HERDR_PROJECTION_ABORT_SEEDED_PANE"; then
-      SPAWN_ENDPOINT_CLOSED=1
+  if [ -n "$HERDR_ABORT_SESSION" ]; then
+    if [ "$HERDR_PRESENTATION_ORDER_LOCK_HELD" = 1 ] ||
+      spawn_herdr_presentation_order_lock_acquire "$HERDR_ABORT_SESSION"; then
+      if [ -n "$HERDR_ABORT_SEEDED_PANE" ] &&
+        [ "$(fm_backend_herdr_pane_presence_state "$HERDR_ABORT_SESSION" "$HERDR_ABORT_SEEDED_PANE")" = dead ]; then
+        HERDR_ABORT_SEEDED_PANE=
+      fi
+      if fm_backend_herdr_projection_cleanup_exact \
+        "$HERDR_ABORT_SESSION" "$HERDR_ABORT_TASK_PANE" "$HERDR_ABORT_SEEDED_PANE"; then
+        SPAWN_ENDPOINT_CLOSED=1
+      fi
+    else
+      echo "warning: Herdr session lock unavailable; refusing concurrent abort cleanup" >&2
     fi
   fi
   if [ "$HERDR_PRESENTATION_ORDER_LOCK_HELD" = 1 ]; then
@@ -1091,23 +1089,20 @@ spawn_herdr_project_task() {  # <session> <cwd> <launcher-pane> [project-path]
   if ! FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_projection_create_task \
     "$cwd" "$projection_label" "$W" "$session"; then
     if [ "${FM_BACKEND_HERDR_PROJECTION_CLEANUP_SAFE:-0}" = 1 ]; then
-      HERDR_PROJECTION_ABORT_CLEANUP=1
-      HERDR_PROJECTION_ABORT_SESSION=$FM_BACKEND_HERDR_PROJECTION_SESSION
-      HERDR_PROJECTION_ABORT_TASK_PANE=$FM_BACKEND_HERDR_PROJECTION_PANE_ID
-      HERDR_PROJECTION_ABORT_SEEDED_PANE=$FM_BACKEND_HERDR_PROJECTION_SEEDED_PANE_ID
+      HERDR_ABORT_SESSION=$FM_BACKEND_HERDR_PROJECTION_SESSION
+      HERDR_ABORT_TASK_PANE=$FM_BACKEND_HERDR_PROJECTION_PANE_ID
+      HERDR_ABORT_SEEDED_PANE=$FM_BACKEND_HERDR_PROJECTION_SEEDED_PANE_ID
     fi
     exit 1
   fi
   HERDR_PROJECTED=1
   HERDR_SES=$FM_BACKEND_HERDR_PROJECTION_SESSION
   HERDR_WORKSPACE_ID=$FM_BACKEND_HERDR_PROJECTION_WORKSPACE_ID
-  HERDR_SEEDED_DEFAULT_TAB_ID=$FM_BACKEND_HERDR_PROJECTION_SEEDED_TAB_ID
   HERDR_TAB_ID=$FM_BACKEND_HERDR_PROJECTION_TAB_ID
   HERDR_PANE_ID=$FM_BACKEND_HERDR_PROJECTION_PANE_ID
-  HERDR_PROJECTION_ABORT_CLEANUP=1
-  HERDR_PROJECTION_ABORT_SESSION=$HERDR_SES
-  HERDR_PROJECTION_ABORT_TASK_PANE=$HERDR_PANE_ID
-  HERDR_PROJECTION_ABORT_SEEDED_PANE=$FM_BACKEND_HERDR_PROJECTION_SEEDED_PANE_ID
+  HERDR_ABORT_SESSION=$HERDR_SES
+  HERDR_ABORT_TASK_PANE=$HERDR_PANE_ID
+  HERDR_ABORT_SEEDED_PANE=$FM_BACKEND_HERDR_PROJECTION_SEEDED_PANE_ID
   # Opt-in project groups (docs/herdr-backend.md "Project groups"): an empty
   # key keeps the block-end placement. Off costs one file test.
   order_key=
@@ -1129,6 +1124,37 @@ spawn_herdr_project_task() {  # <session> <cwd> <launcher-pane> [project-path]
   fi
   echo "warning: herdr presentation could not publish an exact restart binding; this task will use flat fallback after a restart" >&2
   return 0
+}
+
+spawn_herdr_create_flat_task() {  # <cwd> <session> <launcher-pane>
+  local cwd=$1 session=$2 launcher_pane=$3 workspace_cwd=$PROJ_ABS task_workspace_label='' task_ids
+  if [ -f "$FM_HOME/.fm-exec-home" ] && [ ! -L "$FM_HOME/.fm-exec-home" ]; then
+    task_workspace_label=$W
+    workspace_cwd=$cwd
+    fm_backend_herdr_version_check && fm_backend_herdr_server_ensure "$session" || return 1
+    if [ "$HERDR_PRESENTATION_ORDER_LOCK_HELD" != 1 ] &&
+      ! spawn_herdr_presentation_order_lock_acquire "$session"; then
+      echo "error: cannot create a task workspace without the Herdr session lock needed for rollback" >&2
+      return 1
+    fi
+  fi
+  HERDR_PANE_ID=$launcher_pane fm_backend_herdr_container_ensure \
+    "$workspace_cwd" launcher-home "$session" "$task_workspace_label" >/dev/null || return 1
+  HERDR_SES=$session
+  HERDR_WORKSPACE_ID=$FM_BACKEND_HERDR_WS_ID
+  if [ -n "$FM_BACKEND_HERDR_WS_SEEDED_PANE_ID" ]; then
+    HERDR_ABORT_SESSION=$session
+    HERDR_ABORT_SEEDED_PANE=$FM_BACKEND_HERDR_WS_SEEDED_PANE_ID
+  fi
+  if ! task_ids=$(fm_backend_herdr_create_task "$session:$HERDR_WORKSPACE_ID" "$W" "$cwd" \
+    "$FM_BACKEND_HERDR_WS_SEEDED_TAB_ID"); then
+    echo "error: could not create Herdr task tab '$W' in workspace $HERDR_WORKSPACE_ID" >&2
+    return 1
+  fi
+  read -r HERDR_TAB_ID HERDR_PANE_ID <<< "$task_ids"
+  if [ -n "$HERDR_ABORT_SESSION" ]; then
+    HERDR_ABORT_TASK_PANE=$HERDR_PANE_ID
+  fi
 }
 
 # Batch dispatch (see header): when the first positional is an `id=repo` pair, treat every
@@ -2605,10 +2631,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
     fi
   fi
   if [ "$RELAUNCH_REBIND" -eq 1 ] && [ "$HERDR_PROJECTED" -ne 1 ]; then
-    # The flat tab minted below has no abort cleanup, so a later refusal
-    # leaves that pane behind and a retry mints another.
-    HERDR_CONTAINER_RAW=$(HERDR_PANE_ID="$RELAUNCH_LAUNCHER_PANE_ID" \
-      fm_backend_herdr_container_ensure "$PROJ_ABS" launcher-home "$HERDR_REBIND_SES") || {
+    spawn_herdr_create_flat_task "$WT" "$HERDR_REBIND_SES" "$RELAUNCH_LAUNCHER_PANE_ID" || {
       # container_ensure returns 1 for several unrelated reasons - a failed
       # version check, a server that will not start, an ambiguous workspace
       # label, a cross-session launcher identity, a failed workspace create -
@@ -2631,14 +2654,6 @@ if [ "$RELAUNCH" -eq 1 ]; then
       fi
       exit 1
     }
-    CONTAINER=${HERDR_CONTAINER_RAW%%$'\t'*}
-    HERDR_SEEDED_DEFAULT_TAB_ID=${HERDR_CONTAINER_RAW#*$'\t'}
-    HERDR_SES=${CONTAINER%%:*}
-    HERDR_WORKSPACE_ID=${CONTAINER#*:}
-    HERDR_TASK_IDS=$(fm_backend_herdr_create_task "$CONTAINER" "$W" "$WT" "$HERDR_SEEDED_DEFAULT_TAB_ID") || exit 1
-    read -r HERDR_TAB_ID HERDR_PANE_ID <<EOF
-$HERDR_TASK_IDS
-EOF
   fi
   if [ "$RELAUNCH_REBIND" -eq 1 ]; then
     if [ -z "$HERDR_TAB_ID" ] || [ -z "$HERDR_PANE_ID" ]; then
@@ -2651,7 +2666,6 @@ EOF
 else
   # A worker belongs in the exact herdr workspace its launcher runs in, never a same-labeled sibling.
   HERDR_LABEL_HOME=$FM_HOME
-  HERDR_LAUNCHER_RELATIONSHIP='launcher-home'
   HERDR_PRESENTATION_JOURNAL=$(fm_backend_herdr_projection_journal_path "$STATE" "$ID")
   HERDR_PROJECTED=0
   if fm_backend_herdr_presentation_enabled "$CONFIG" "$STATE"; then
@@ -2692,13 +2706,11 @@ else
         0)
           HERDR_PROJECTED=1
           HERDR_WORKSPACE_ID=$HERDR_RECOVERY_WORKSPACE_ID
-          HERDR_SEEDED_DEFAULT_TAB_ID=""
           HERDR_TAB_ID=$FM_BACKEND_HERDR_PROJECTION_TAB_ID
           HERDR_PANE_ID=$FM_BACKEND_HERDR_PROJECTION_PANE_ID
-          HERDR_PROJECTION_ABORT_CLEANUP=1
-          HERDR_PROJECTION_ABORT_SESSION=$HERDR_SES
-          HERDR_PROJECTION_ABORT_TASK_PANE=$HERDR_PANE_ID
-          HERDR_PROJECTION_ABORT_SEEDED_PANE=""
+          HERDR_ABORT_SESSION=$HERDR_SES
+          HERDR_ABORT_TASK_PANE=$HERDR_PANE_ID
+          HERDR_ABORT_SEEDED_PANE=""
           ;;
         2)
           spawn_herdr_presentation_order_lock_release
@@ -2713,21 +2725,7 @@ else
     fi
   fi
   if [ "$HERDR_PROJECTED" -ne 1 ]; then
-    HERDR_CONTAINER_RAW=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_container_ensure "$PROJ_ABS" "$HERDR_LAUNCHER_RELATIONSHIP") || exit 1
-    # fm_backend_herdr_container_ensure echoes "<session>:<workspace_id>\t<seeded_default_tab_id>"
-    # (the second field empty when this call ADOPTED a pre-existing workspace
-    # rather than creating a fresh one). Split on the guaranteed single tab
-    # character; the seeded tab id is threaded through to create_task
-    # untouched, which is the only function permitted to prune it (never
-    # re-derived from labels - see docs/herdr-backend.md "Default-tab prune").
-    CONTAINER=${HERDR_CONTAINER_RAW%%$'\t'*}
-    HERDR_SEEDED_DEFAULT_TAB_ID=${HERDR_CONTAINER_RAW#*$'\t'}
-    HERDR_SES=${CONTAINER%%:*}
-    HERDR_WORKSPACE_ID=${CONTAINER#*:}
-    HERDR_TASK_IDS=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_create_task "$CONTAINER" "$W" "$PROJ_ABS" "$HERDR_SEEDED_DEFAULT_TAB_ID") || exit 1
-    read -r HERDR_TAB_ID HERDR_PANE_ID <<EOF
-$HERDR_TASK_IDS
-EOF
+    spawn_herdr_create_flat_task "$PROJ_ABS" "$(fm_backend_herdr_session)" "${HERDR_PANE_ID:-}" || exit 1
   fi
   if [ -z "$HERDR_TAB_ID" ] || [ -z "$HERDR_PANE_ID" ]; then
     echo "error: herdr did not return a tab/pane id for $W" >&2
@@ -3677,11 +3675,9 @@ SPAWN_LAUNCH_SENT=1
 LAUNCH_SOURCE_TEXT=". $(shell_quote "$LAUNCH_FILE")"
 spawn_send_literal "$T" "$LAUNCH_SOURCE_TEXT" || exit 1
 sleep 0.3
-if [ "${HERDR_PROJECTED:-0}" -eq 1 ]; then
-  HERDR_PROJECTION_ABORT_CLEANUP=0
-  spawn_herdr_presentation_order_lock_release
-fi
 spawn_send_key "$T" Enter || exit 1
+HERDR_ABORT_SESSION=
+spawn_herdr_presentation_order_lock_release
 spawn_sandbox_quiet_after_launch "$T"
 # This is the commit point: all endpoint and harness delivery that can reject
 # the spawn has succeeded. Re-read and transition while holding the same
