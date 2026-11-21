@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
-# Behavior tests for bin/fm-review-check.sh, which records a review-ready
-# forge=external task: exactly one review= and review_head=, no merge watch, and
-# in a secondmate home the child's ready line on the parent channel. The
-# fixtures use an invented review host under an RFC 6761 reserved name.
+# The fixtures use an invented review host under an RFC 6761 reserved name.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -92,21 +89,7 @@ test_refusals() {
   pass "fm-review-check: refuses a forge PR, non-https, a pattern mismatch, an unsafe id, missing input, a non-external task, and an unbacked copy"
 }
 
-test_secondmate_home_publishes_the_ready_line() {
-  fixture mate forge=external
-  printf '%s\n' mate-x > "$HOME_DIR/.fm-secondmate-home"
-  printf 'schema=fm-secondmate-parent.v1\nroute=remote\n' > "$HOME_DIR/.fm-secondmate-parent"
-  run_check t1 "$URL"
-  expect_code 0 "$RC" "recording in a secondmate home failed: $OUT"
-  assert_grep "child t1 review ready: $URL" "$HOME_DIR/state/parent-replies.status" \
-    "the child's review-ready line did not reach the parent channel"
-  assert_grep "[key=child-review-t1]" "$HOME_DIR/state/parent-replies.status" \
-    "the child's review-ready line lost its decision key"
-  pass "fm-review-check: a secondmate home publishes the child's review-ready line to the parent channel"
-}
-
 test_records_one_review_and_no_watch
 test_refusals
-test_secondmate_home_publishes_the_ready_line
 
 echo "# all fm-review-check tests passed"

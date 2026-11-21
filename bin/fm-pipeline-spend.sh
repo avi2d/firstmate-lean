@@ -16,8 +16,8 @@
 # attributes runs by and before it removes state/<id>.meta. The ledger is
 # private and gitignored with the rest of data/.
 # Exit status: 0 when a record was recorded or already present, its source is
-# unavailable, or recording is disabled; 1 when the task record is missing,
-# names a secondmate, or the record could not be built or written; 2 for bad usage.
+# unavailable, or recording is disabled; 1 when the task record is missing
+# or the record could not be built or written; 2 for bad usage.
 #
 # Source. no-mistakes keeps each agent invocation's token usage only in its
 # local state database, one agent_invocations row per invocation; its

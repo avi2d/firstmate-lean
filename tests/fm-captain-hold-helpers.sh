@@ -1,16 +1,15 @@
 #!/usr/bin/env bash
 # Shared fixtures for the split captain-hold suites: fixture homes, runners, and row builders.
-# compatibility for pre-collapse decision identities.
 set -u
 
-# shellcheck source=tests/lib.sh
-# shellcheck disable=SC1091
-. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=tests/fixtures.sh
+. "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 # shellcheck source=bin/fm-timeout-lib.sh
 . "$ROOT/bin/fm-timeout-lib.sh"
+# shellcheck source=bin/fm-landed-lib.sh
+. "$ROOT/bin/fm-landed-lib.sh"
 
 TEARDOWN="$ROOT/bin/fm-teardown.sh"
-BEARINGS="$ROOT/bin/fm-bearings-snapshot.sh"
 TMP_ROOT=$(fm_test_tmproot fm-captain-hold)
 TASKS_AXI_BIN=$(command -v tasks-axi || true)
 
@@ -29,7 +28,8 @@ make_home() {  # <name>
 ## Done
 EOF
   fakebin=$(fm_fakebin "$home")
-  fm_fake_exit0 "$fakebin" tmux treehouse no-mistakes gh gh-axi
+  fm_fake_exit0 "$fakebin" treehouse no-mistakes gh gh-axi
+  fm_test_fake_herdr_teardown "$fakebin"
   printf '%s\n' "$home"
 }
 
@@ -79,11 +79,22 @@ run_procevent() {  # <home> <command args...>
     "$ROOT/bin/fm-procevent.sh" "$@"
 }
 
-run_bearings() {  # <home> [extra args]
-  local home=$1
-  shift
-  PATH="$home/fakebin:$PATH" FM_HOME="$home" FM_BEARINGS_NOW=2026-07-14T12:00:00Z \
-    "$BEARINGS" --json "$@"
+run_snapshot() {  # <home> [data-dir]
+  local home=$1 data=${2:-$1/data}
+  PATH="$home/fakebin:$PATH" FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
+    FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$home/config" \
+    FM_PROJECTS_OVERRIDE="$home/projects" FM_SNAPSHOT_NOW=2026-07-14T12:00:00Z \
+    "$ROOT/bin/fm-fleet-snapshot.sh" --json
+}
+
+# Prints {"landed":[{id,artifact}]}: the snapshot's backlog rows that the shared
+# landed selector counts as deliveries, with "-" for a delivery with no artifact.
+run_landed() {  # <home> [data-dir]
+  local json
+  json=$(run_snapshot "$@") || return 1
+  printf '%s' "$json" | jq -c "$FM_LANDED_JQ_DEFS"'
+    {landed: [.backlog.records[] | select(landed_record)
+              | {id, artifact: (landed_artifact // "-")}]}'
 }
 
 run_teardown() {  # <home> <id>
@@ -248,10 +259,16 @@ run_shim() {  # <home> <command args...>
     FM_CONFIG_OVERRIDE="$home/config" "$ROOT/bin/fm-decision-hold.sh" "$@"
 }
 
+# Writes a meta whose Herdr endpoint is already gone, so cleanup proceeds past it.
+write_task_meta() {  # <meta-file> <id> <key=val>...
+  local file=$1 id=$2
+  shift 2
+  fm_write_herdr_meta "$file" "captain-fixture:w1:$id" "$@"
+}
+
 write_origin_meta() {  # <home> <id> [kind]
   local home=$1 id=$2 kind=${3:-scout}
-  fm_write_meta "$home/state/$id.meta" \
-    "window=firstmate:fm-$id" \
+  write_task_meta "$home/state/$id.meta" "$id" \
     "worktree=$home/projects/missing-$id" \
     "project=$home/projects/sample" \
     "harness=codex" \
@@ -300,7 +317,8 @@ archive = "data/done-archive.md"
 done_keep = 10
 EOF
   fb=$(fm_fakebin "$home")
-  fm_fake_exit0 "$fb" tmux treehouse no-mistakes gh gh-axi
+  fm_fake_exit0 "$fb" treehouse no-mistakes gh gh-axi
+  fm_test_fake_herdr_teardown "$fb"
   printf '%s\n' "$home|$graph/.beads"
 }
 
@@ -342,8 +360,7 @@ require_tasks_axi_beads() {  # <what>
 write_scout_with_attested_inventory() {  # <home> <scout-id> <keys>
   local home=$1 scout=$2 keys=$3
   mkdir -p "$home/data/$scout"
-  fm_write_meta "$home/state/$scout.meta" \
-    "window=firstmate:fm-$scout" \
+  write_task_meta "$home/state/$scout.meta" "$scout" \
     "worktree=$home/projects/missing-$scout" \
     "project=$home/projects/sample" \
     "harness=codex" \

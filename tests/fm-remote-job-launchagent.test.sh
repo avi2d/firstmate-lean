@@ -438,7 +438,7 @@ FM_TEST_ASYNC_BOOTOUT=1 FM_TEST_BOOTOUT_DELAY=1
 export FM_TEST_ASYNC_BOOTOUT FM_TEST_BOOTOUT_DELAY
 OLD_PID=$(tracked)
 START=$SECONDS
-fm_remote_job_reload_launchagent "$ACCOUNT_HOME" "$(id -u)" \
+fm_remote_job_reload_launchagent "$REMOTE_ROOT" "$ACCOUNT_HOME" "$(id -u)" \
   || fail "Darwin reload failed while bootout cleanup was pending: ${FM_REMOTE_JOB_ERROR:-no diagnostic}"
 ELAPSED=$((SECONDS - START))
 NEW_PID=$(tracked)

@@ -1752,7 +1752,7 @@ if (abbreviated.summary.length > 1024 || !abbreviated.summary.startsWith("begin 
   throw new Error(`unprocessed did not bound the summary with a row-specific lookup pointer: ${abbreviated.summary}`);
 }
 if (!delivered.includes(`[seq ${seq}, recorded ${abbreviated.recordedAgo} ago] long-outcome: ${abbreviated.summary}`)) throw new Error("processing request did not carry the bounded summary and its lookup pointer");
-if (!delivered.includes("abbreviated line is incomplete") || !delivered.includes("read the full outcome before acting on, relaying, or acknowledging it")) {
+if (!delivered.includes("Before acting,") || !delivered.includes("read an abbreviated line in full with its lookup --seqs command")) {
   throw new Error("delivered instruction did not require reading the full outcome first");
 }
 const full = JSON.parse(outcomeScript(["lookup", "--seqs", String(seq)]));
@@ -4700,7 +4700,7 @@ for (const reverse of [false, true]) {
         }
         const offer = branchOfferForWake(state, `stale: ${key}`, attendedHost);
         assert.equal(offer.eligible, eligible);
-        assert.equal(offer.corrupted, corrupted);
+        assert.equal(offer.scope.corrupted, corrupted);
       }
     };
     check(project.includes("/owner"), !project.includes("/owner"));

@@ -364,135 +364,146 @@ test_wrapper_does_not_reuse_numbers_from_the_configured_markdown_archive() {
   pass "the markdown wrapper counts in-flight work and honors the configured archive"
 }
 
+backlog_md_lifecycle_steps() {  # <home>, with FM_HOME naming the same home
+  local home=$1 out
+  . "$ROOT/bin/fm-tasks-axi-lib.sh"
+  . "$ROOT/bin/fm-backlog-transition-lib.sh"
+  printf '%s\n' 'spawn_gen=s1.1.1' > "$home/state/transition-task.meta"
+  fm_backlog_transition_applies "$home/config" "$home/data" ship || exit 1
+  fm_backlog_atomic_transition dispatch "$home/state/transition-task.meta" "$home/data" transition-task "$home/state" || exit 1
+  out=$(bash "$WRAPPER" list --state in_flight) || exit 1
+  printf '%s\n' "$out" | grep -q 'transition-task,in_flight,' || exit 1
+  bash "$ROOT/bin/fm-captain-hold.sh" hold transition-task --reason "Decision needed" >/dev/null || exit 1
+  fm_backlog_retain "$home/data" transition-task || exit 1
+  out=$(bash "$WRAPPER" show transition-task) || exit 1
+  printf '%s\n' "$out" | grep -q '^  state: queued$' || exit 1
+  printf '%s\n' "$out" | grep -q '^  held: yes$' || exit 1
+  printf '%s\n' approved > "$home/decision"
+  bash "$ROOT/bin/fm-captain-hold.sh" answer transition-task --decision-file "$home/decision" --release >/dev/null || exit 1
+  fm_backlog_atomic_transition dispatch "$home/state/transition-task.meta" "$home/data" transition-task "$home/state" || exit 1
+  : > "$home/state/transition-task.backlog-close"
+  fm_backlog_atomic_transition close "$home/state/transition-task.meta" "$home/state/transition-task.backlog-close" "$home/data" transition-task "$home/state" || exit 1
+  out=$(bash "$WRAPPER" show transition-task) || exit 1
+  printf '%s\n' "$out" | grep -q '^  state: done$' || exit 1
+}
+
+missing_python_append_refusal() {  # <home>, with PATH holding only the shims
+  hash -r
+  if fm_backlog_append_message "$1/data" demo-1 firstmate "Must not be appended"; then
+    exit 1
+  fi
+  assert_contains "$FM_BACKLOG_TRANSITION_ERROR" "python3 is required" "missing Python was reported as contention"
+}
+
+message_log_lock_steps() {  # <home>, with FM_HOME naming the same home
+  local home=$1 out first second
+  . "$ROOT/bin/fm-tasks-axi-lib.sh"
+  . "$ROOT/bin/fm-backlog-transition-lib.sh"
+  bash "$WRAPPER" add demo-1 "Log the steer" --repo demo >/dev/null || exit 1
+  exec 8>>"$home/data/.fm-backlog-messages.lock"
+  python3 -c 'import fcntl; fcntl.flock(8, fcntl.LOCK_EX)' || exit 1
+  if FM_BACKLOG_MESSAGE_LOCK_SECS=0 fm_backlog_append_message "$home/data" demo-1 firstmate "Must not be appended"; then
+    exit 1
+  fi
+  assert_contains "$FM_BACKLOG_TRANSITION_ERROR" "stayed busy" "a held lock was not reported as contention"
+  exec 8>&-
+  ( PATH="$home/shims" missing_python_append_refusal "$home" ) || exit 1
+  fm_backlog_append_message "$home/data" demo-1 firstmate "First steer" &
+  first=$!
+  fm_backlog_append_message "$home/data" demo-1 firstmate "Second steer" &
+  second=$!
+  wait "$first" || exit 1
+  wait "$second" || exit 1
+  out=$(bash "$WRAPPER" show demo-1 --full) || exit 1
+  assert_contains "$out" "First steer" "first concurrent append was lost"
+  assert_contains "$out" "Second steer" "second concurrent append was lost"
+  assert_not_contains "$out" "Must not be appended" "a refused append changed the body"
+}
+
 test_message_log_preserves_both_appends_without_the_flock_command() {
-  local home="$TMP_ROOT/message-lock" out
+  local home="$TMP_ROOT/message-lock"
   mkdir -p "$home/data" "$home/config" "$home/shims"
   empty_backlog "$home/data/backlog.md"
   fm_test_tasks_toml "$home/.tasks.toml"
   printf '#!/bin/sh\nexit 127\n' > "$home/shims/flock"
   chmod +x "$home/shims/flock"
-  (
-    export FM_HOME="$home" PATH="$home/shims:$PATH"
-    . "$ROOT/bin/fm-tasks-axi-lib.sh"
-    . "$ROOT/bin/fm-backlog-transition-lib.sh"
-    bash "$WRAPPER" add demo-1 "Log the steer" --repo demo >/dev/null || exit 1
-    exec 8>>"$home/data/.fm-backlog-messages.lock"
-    python3 -c 'import fcntl; fcntl.flock(8, fcntl.LOCK_EX)' || exit 1
-    if FM_BACKLOG_MESSAGE_LOCK_SECS=0 fm_backlog_append_message "$home/data" demo-1 firstmate "Must not be appended"; then
-      exit 1
-    fi
-    assert_contains "$FM_BACKLOG_TRANSITION_ERROR" "stayed busy" "a held lock was not reported as contention"
-    exec 8>&-
-    (
-      PATH="$home/shims"
-      hash -r
-      if fm_backlog_append_message "$home/data" demo-1 firstmate "Must not be appended"; then
-        exit 1
-      fi
-      assert_contains "$FM_BACKLOG_TRANSITION_ERROR" "python3 is required" "missing Python was reported as contention"
-    ) || exit 1
-    fm_backlog_append_message "$home/data" demo-1 firstmate "First steer" &
-    first=$!
-    fm_backlog_append_message "$home/data" demo-1 firstmate "Second steer" &
-    second=$!
-    wait "$first" || exit 1
-    wait "$second" || exit 1
-    out=$(bash "$WRAPPER" show demo-1 --full) || exit 1
-    assert_contains "$out" "First steer" "first concurrent append was lost"
-    assert_contains "$out" "Second steer" "second concurrent append was lost"
-    assert_not_contains "$out" "Must not be appended" "a refused append changed the body"
-  ) || fail "portable message log lock did not serialize writes"
+  ( FM_HOME="$home" PATH="$home/shims:$PATH" message_log_lock_steps "$home" ) \
+    || fail "portable message log lock did not serialize writes"
   pass "the backlog keeps both concurrent steers without the flock command"
 }
 
+backlog_md_drafts_steps() {  # <home>, with FM_HOME naming the same home
+  local home=$1 out
+  printf 'other P0\ndemo P3\n' > "$home/config/project-tiers"
+  bash "$WRAPPER" add other-1 "Lower priority" --repo other --priority 2 >/dev/null || exit 1
+  bash "$WRAPPER" add demo-6 "First urgent" --repo demo --priority 0 >/dev/null || exit 1
+  bash "$WRAPPER" add demo-7 "Second urgent" --repo demo --priority 0 >/dev/null || exit 1
+  mv "$home/data/backlog/tasks/task-demo-7 - ticket.md" "$home/data/backlog/tasks/task-a.md"
+  out=$(bash "$WRAPPER" list) || exit 1
+  assert_contains "$out" "demo-4,draft," "list hid a draft"
+  out=$(bash "$WRAPPER" list --state draft) || exit 1
+  assert_contains "$out" "demo-4,draft," "the draft filter hid a draft"
+  assert_not_contains "$out" "other-1,queued," "the draft filter listed a queued task"
+  out=$(bash "$WRAPPER" ready) || exit 1
+  assert_contains "$out" "drafts[2]{id,state,kind,repo,title}:" "ready hid both drafts"
+  assert_equals "demo-6 demo-7 other-1" "$(printf '%s\n' "$out" | ready_ids)" \
+    "ready used filename, project tier, or ordinal ahead of task priority, or included a draft"
+  if bash "$WRAPPER" start demo-4 >/dev/null; then exit 1; fi
+  out=$(FM_SESSION_START_QUEUED_LIMIT=1 bash "$ROOT/bin/fm-session-start.sh" --reemit) || exit 1
+  assert_equals "demo-6" "$(printf '%s\n' "$out" | ready_ids)" "the digest bounded ready before sorting it"
+  assert_contains "$out" "demo-4,draft," "the digest hid every draft"
+  assert_contains "$out" "(shown 1 of 2 draft item(s); 1 more - bin/fm-tasks-axi.sh list --state draft)" \
+    "the digest did not disclose omitted drafts"
+  assert_not_contains "$out" "demo-5,draft," "the digest did not bound drafts separately"
+}
+
 test_backlog_md_keeps_drafts_visible_without_making_them_dispatchable() {
-  local home="$TMP_ROOT/backlog-md-ready" out
+  local home="$TMP_ROOT/backlog-md-ready"
   make_backlog_md_home "$home"
   mkdir -p "$home/data/backlog/drafts"
   write_backlog_md_ticket "$home/data/backlog/drafts/demo-4.md" demo-4 Draft
   write_backlog_md_ticket "$home/data/backlog/drafts/demo-5.md" demo-5 Draft
-  (
-    export FM_HOME="$home"
-    printf 'other P0\ndemo P3\n' > "$home/config/project-tiers"
-    bash "$WRAPPER" add other-1 "Lower priority" --repo other --priority 2 >/dev/null || exit 1
-    bash "$WRAPPER" add demo-6 "First urgent" --repo demo --priority 0 >/dev/null || exit 1
-    bash "$WRAPPER" add demo-7 "Second urgent" --repo demo --priority 0 >/dev/null || exit 1
-    mv "$home/data/backlog/tasks/task-demo-7 - ticket.md" "$home/data/backlog/tasks/task-a.md"
-    out=$(bash "$WRAPPER" list) || exit 1
-    assert_contains "$out" "demo-4,draft," "list hid a draft"
-    out=$(bash "$WRAPPER" list --state draft) || exit 1
-    assert_contains "$out" "demo-4,draft," "the draft filter hid a draft"
-    assert_not_contains "$out" "other-1,queued," "the draft filter listed a queued task"
-    out=$(bash "$WRAPPER" ready) || exit 1
-    assert_contains "$out" "drafts[2]{id,state,kind,repo,title}:" "ready hid both drafts"
-    assert_equals "demo-6 demo-7 other-1" "$(printf '%s\n' "$out" | ready_ids)" \
-      "ready used filename, project tier, or ordinal ahead of task priority, or included a draft"
-    if bash "$WRAPPER" start demo-4 >/dev/null; then exit 1; fi
-    out=$(FM_SESSION_START_QUEUED_LIMIT=1 bash "$ROOT/bin/fm-session-start.sh" --reemit) || exit 1
-    assert_equals "demo-6" "$(printf '%s\n' "$out" | ready_ids)" "the digest bounded ready before sorting it"
-    assert_contains "$out" "demo-4,draft," "the digest hid every draft"
-    assert_contains "$out" "(shown 1 of 2 draft item(s); 1 more - bin/fm-tasks-axi.sh list --state draft)" \
-      "the digest did not disclose omitted drafts"
-    assert_not_contains "$out" "demo-5,draft," "the digest did not bound drafts separately"
-  ) || fail "Backlog.md list, ready, and session-start disagree about drafts or priority"
+  ( FM_HOME="$home" backlog_md_drafts_steps "$home" ) \
+    || fail "Backlog.md list, ready, and session-start disagree about drafts or priority"
   pass "list, ready, and startup show drafts separately from dispatchable work"
 }
 
 test_backlog_md_lifecycle_preserves_a_running_slug_id() {
-  local home="$TMP_ROOT/backlog-md-lifecycle" out
+  local home="$TMP_ROOT/backlog-md-lifecycle"
   make_backlog_md_home "$home"
   write_backlog_md_ticket "$home/data/backlog/tasks/task-existing.md" transition-task Queued
-  (
-    export FM_HOME="$home"
-    . "$ROOT/bin/fm-tasks-axi-lib.sh"
-    . "$ROOT/bin/fm-backlog-transition-lib.sh"
-    printf '%s\n' 'spawn_gen=s1.1.1' > "$home/state/transition-task.meta"
-    fm_backlog_transition_applies "$home/config" "$home/data" ship || exit 1
-    fm_backlog_atomic_transition dispatch "$home/state/transition-task.meta" "$home/data" transition-task "$home/state" || exit 1
-    out=$(bash "$WRAPPER" list --state in_flight) || exit 1
-    printf '%s\n' "$out" | grep -q 'transition-task,in_flight,' || exit 1
-    bash "$ROOT/bin/fm-captain-hold.sh" hold transition-task --reason "Decision needed" >/dev/null || exit 1
-    fm_backlog_retain "$home/data" transition-task || exit 1
-    out=$(bash "$WRAPPER" show transition-task) || exit 1
-    printf '%s\n' "$out" | grep -q '^  state: queued$' || exit 1
-    printf '%s\n' "$out" | grep -q '^  held: yes$' || exit 1
-    printf '%s\n' approved > "$home/decision"
-    bash "$ROOT/bin/fm-captain-hold.sh" answer transition-task --decision-file "$home/decision" --release >/dev/null || exit 1
-    fm_backlog_atomic_transition dispatch "$home/state/transition-task.meta" "$home/data" transition-task "$home/state" || exit 1
-    : > "$home/state/transition-task.backlog-close"
-    fm_backlog_atomic_transition close "$home/state/transition-task.meta" "$home/state/transition-task.backlog-close" "$home/data" transition-task "$home/state" || exit 1
-    out=$(bash "$WRAPPER" show transition-task) || exit 1
-    printf '%s\n' "$out" | grep -q '^  state: done$' || exit 1
-  ) || fail "Backlog.md lifecycle did not retain and complete the task"
+  ( FM_HOME="$home" backlog_md_lifecycle_steps "$home" ) || fail "Backlog.md lifecycle did not retain and complete the task"
   pass "Backlog.md lifecycle retains a held task as queued and completes it"
 }
 
+numbered_followup_replay_steps() {  # <home>, with FM_HOME naming the same home
+  local home=$1 out line
+  . "$ROOT/bin/fm-classify-lib.sh"
+  . "$ROOT/bin/fm-tasks-axi-lib.sh"
+  . "$ROOT/bin/fm-backlog-transition-lib.sh"
+  bash "$WRAPPER" add workflows-1 "Parent task" --repo workflows >/dev/null || exit 1
+  bash "$WRAPPER" start workflows-1 >/dev/null || exit 1
+  line='followup [at=1795194318]: Correct the stale queue notes'
+  fm_backlog_file_followup "$home/config" "$home/data" workflows-1 "$line" || exit 1
+  [ "$FM_BACKLOG_FOLLOWUP_ID $FM_BACKLOG_FOLLOWUP_CREATED" = "workflows-2 1" ] || exit 1
+  [ -z "$FM_BACKLOG_FOLLOWUP_LOG_ERROR" ] || exit 1
+  bash "$WRAPPER" "done" workflows-2 --keep 0 >/dev/null || exit 1
+  fm_backlog_file_followup "$home/config" "$home/data" workflows-1 "$line" || exit 1
+  [ "$FM_BACKLOG_FOLLOWUP_ID $FM_BACKLOG_FOLLOWUP_CREATED" = "workflows-2 0" ] || exit 1
+  out=$(bash "$WRAPPER" add "Separate task" --mint --prefix workflows) || exit 1
+  printf '%s\n' "$out" | grep -Fxq '  id: workflows-3' || exit 1
+}
+
 test_numbered_followup_replay_does_not_allocate_another_id_after_archiving() {
-  local backend=$1 home="$TMP_ROOT/followup-$1"
-  if [ "$backend" = backlog-md ]; then
+  local store=$1 home="$TMP_ROOT/followup-$1"
+  if [ "$store" = backlog-md ]; then
     make_backlog_md_home "$home"
   else
     mkdir -p "$home/data" "$home/config"
     empty_backlog "$home/data/backlog.md"
   fi
-  (
-    export FM_HOME="$home"
-    . "$ROOT/bin/fm-classify-lib.sh"
-    . "$ROOT/bin/fm-tasks-axi-lib.sh"
-    . "$ROOT/bin/fm-backlog-transition-lib.sh"
-    bash "$WRAPPER" add workflows-1 "Parent task" --repo workflows >/dev/null || exit 1
-    bash "$WRAPPER" start workflows-1 >/dev/null || exit 1
-    line='followup [at=1795194318]: Correct the stale queue notes'
-    fm_backlog_file_followup "$home/config" "$home/data" workflows-1 "$line" || exit 1
-    [ "$FM_BACKLOG_FOLLOWUP_ID $FM_BACKLOG_FOLLOWUP_CREATED" = "workflows-2 1" ] || exit 1
-    [ -z "$FM_BACKLOG_FOLLOWUP_LOG_ERROR" ] || exit 1
-    bash "$WRAPPER" done workflows-2 --keep 0 >/dev/null || exit 1
-    fm_backlog_file_followup "$home/config" "$home/data" workflows-1 "$line" || exit 1
-    [ "$FM_BACKLOG_FOLLOWUP_ID $FM_BACKLOG_FOLLOWUP_CREATED" = "workflows-2 0" ] || exit 1
-    out=$(bash "$WRAPPER" add "Separate task" --mint --prefix workflows) || exit 1
-    printf '%s\n' "$out" | grep -Fxq '  id: workflows-3' || exit 1
-  ) || fail "$backend allocated an incorrect follow-up ID or duplicated an archived follow-up"
-  pass "$backend files a numbered follow-up once even after it is archived"
+  ( FM_HOME="$home" numbered_followup_replay_steps "$home" ) || fail "$store allocated an incorrect follow-up ID or duplicated an archived follow-up"
+  pass "$store files a numbered follow-up once even after it is archived"
 }
 
 

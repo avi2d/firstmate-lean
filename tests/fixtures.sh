@@ -103,8 +103,8 @@ case "${1:-} ${2:-}" in
     ;;
   'pane read')
     case "${FM_FAKE_HERDR_COMPOSER:-}" in
-      pending) printf '%s\n' '{"result":{"text":"╭──────────────╮\n│ leftover txt │\n╰──────────────╯"}}' ;;
-      *) printf '%s\n' '{"result":{"text":"╭────╮\n│    │\n╰────╯"}}' ;;
+      pending) printf '%s\n' '╭──────────────╮' '│ leftover txt │' '╰──────────────╯' ;;
+      *) printf '%s\n' '╭────╮' '│    │' '╰────╯' ;;
     esac
     ;;
   'pane send-text')

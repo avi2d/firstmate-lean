@@ -790,11 +790,7 @@ cmd_ready() {
     anc=$("$SELF_DIR/fm-harness.sh" ancestry "$lock_pid" 2>/dev/null || true)
     harness=${anc#* }
     case "$harness" in
-      claude|cursor|agy) resolved_model=autoarm ;;
-      pi|pi-signed|omp) resolved_model=extension ;;
-      '') ;;
-      unknown) ;;
-      *) resolved_model=persistent ;;
+      pi|pi-signed) resolved_model=extension ;;
     esac
   fi
   if [ -z "$resolved_model" ]; then

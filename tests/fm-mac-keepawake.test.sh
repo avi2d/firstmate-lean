@@ -7,7 +7,6 @@ set -u
 
 KEEPAWAKE="$ROOT/bin/fm-mac-keepawake.sh"
 GUARD="$ROOT/bin/fm-guard.sh"
-CONTRACT="$ROOT/bin/fm-afk-contract.sh"
 ORACLE_SLEEP="$ROOT/tests/fixtures/fm-mac-keepawake-pmset-sleep.log"
 ORACLE_AWAKE="$ROOT/tests/fixtures/fm-mac-keepawake-pmset-awake.log"
 TMP_ROOT=$(fm_test_tmproot fm-mac-keepawake-tests)
@@ -60,28 +59,8 @@ wait_gone() {
   done
 }
 
-test_away_record_takes_pid_tied_assertion() {
+test_work_in_flight_takes_pid_tied_assertion() {
   local home state holder out
-  home=$(mkhome away-takes)
-  state="$home/state"
-  stub_caffeinate "$home"
-  hold_session
-  holder=$HOLDER
-  printf '%s\n' "$holder" > "$state/.lock"
-  printf 'version: 2\nentered: 2026-10-18T20:00:00Z\nentered_epoch: 1792340000\nwords: |-\n  hold the fleet\n' > "$state/.afk-contract"
-  FM_MAC_KEEPAWAKE_UNAME=Darwin "$KEEPAWAKE" sync --state "$state" || { stop_pid "$holder"; fail "sync failed with an away record present"; }
-  sleep 1
-  grep -F "caffeinate -s -i -w $holder" "$home/caffeinate.calls" >/dev/null || { stop_pid "$holder"; fail "stubbed caffeinate did not record the -w pid tie to the session pid"; }
-  [ "$(cat "$state/.mac-keepawake.target")" = "$holder" ] || { stop_pid "$holder"; fail "recorded watch target is not the session pid"; }
-  out=$(FM_MAC_KEEPAWAKE_UNAME=Darwin "$KEEPAWAKE" status --state "$state")
-  case "$out" in *needed=1*held=1*) ;; *) stop_pid "$holder"; fail "status did not report needed and held: $out" ;; esac
-  stop_keepawake "$state"
-  stop_pid "$holder"
-  pass "away record takes a pid-tied assertion"
-}
-
-test_work_start_takes_assertion() {
-  local home state holder
   home=$(mkhome work-takes)
   state="$home/state"
   stub_caffeinate "$home"
@@ -91,13 +70,16 @@ test_work_start_takes_assertion() {
   printf 'project=x\n' > "$state/job.meta"
   FM_MAC_KEEPAWAKE_UNAME=Darwin "$KEEPAWAKE" sync --state "$state" || { stop_pid "$holder"; fail "sync failed with work in flight"; }
   sleep 1
-  grep -F "caffeinate -s -i -w $holder" "$home/caffeinate.calls" >/dev/null || { stop_pid "$holder"; fail "work in flight did not take an assertion tied to the session pid"; }
+  grep -F "caffeinate -s -i -w $holder" "$home/caffeinate.calls" >/dev/null || { stop_pid "$holder"; fail "stubbed caffeinate did not record the -w pid tie to the session pid"; }
+  [ "$(cat "$state/.mac-keepawake.target")" = "$holder" ] || { stop_pid "$holder"; fail "recorded watch target is not the session pid"; }
+  out=$(FM_MAC_KEEPAWAKE_UNAME=Darwin "$KEEPAWAKE" status --state "$state")
+  case "$out" in *needed=1*held=1*) ;; *) stop_pid "$holder"; fail "status did not report needed and held: $out" ;; esac
   stop_keepawake "$state"
   stop_pid "$holder"
-  pass "work start takes an assertion"
+  pass "work in flight takes a pid-tied assertion"
 }
 
-test_idle_and_back_releases() {
+test_finished_work_releases() {
   local home state holder recorded
   home=$(mkhome idle-releases)
   state="$home/state"
@@ -105,34 +87,33 @@ test_idle_and_back_releases() {
   hold_session
   holder=$HOLDER
   printf '%s\n' "$holder" > "$state/.lock"
-  printf 'version: 2\nentered: 2026-10-18T20:00:00Z\nentered_epoch: 1792340000\nwords: |-\n  hold the fleet\n' > "$state/.afk-contract"
+  printf 'project=x\n' > "$state/job.meta"
   FM_MAC_KEEPAWAKE_UNAME=Darwin "$KEEPAWAKE" sync --state "$state" || { stop_pid "$holder"; fail "setup sync failed"; }
   sleep 1
   [ -f "$state/.mac-keepawake.pid" ] || { stop_pid "$holder"; fail "setup sync took no assertion"; }
   recorded=$(cat "$state/.mac-keepawake.pid")
-  rm "$state/.afk-contract"
+  rm "$state/job.meta"
   FM_MAC_KEEPAWAKE_UNAME=Darwin "$KEEPAWAKE" sync --state "$state" || { stop_pid "$holder"; fail "release sync failed"; }
-  [ ! -e "$state/.mac-keepawake.pid" ] || { stop_pid "$holder"; fail "pid file survived the return to idle"; }
-  [ ! -e "$state/.mac-keepawake.target" ] || { stop_pid "$holder"; fail "target file survived the return to idle"; }
+  [ ! -e "$state/.mac-keepawake.pid" ] || { stop_pid "$holder"; fail "pid file survived the finished work"; }
+  [ ! -e "$state/.mac-keepawake.target" ] || { stop_pid "$holder"; fail "target file survived the finished work"; }
   wait_gone "$recorded" || { stop_pid "$holder"; fail "recorded assertion process survived the release"; }
   stop_pid "$holder"
-  pass "idle fleet and return release the assertion"
+  pass "finished work releases the assertion"
 }
 
-test_quiet_record_holds_nothing() {
+test_no_work_holds_nothing() {
   local home state holder
-  home=$(mkhome quiet-holds-nothing)
+  home=$(mkhome no-work-holds-nothing)
   state="$home/state"
   stub_caffeinate "$home"
   hold_session
   holder=$HOLDER
   printf '%s\n' "$holder" > "$state/.lock"
-  printf 'version: 2\nentered: 2026-10-18T20:00:00Z\nentered_epoch: 1792340000\nmode: quiet\nwords: -\n' > "$state/.afk-contract"
-  FM_MAC_KEEPAWAKE_UNAME=Darwin "$KEEPAWAKE" sync --state "$state" || { stop_pid "$holder"; fail "sync failed on a quiet record"; }
+  FM_MAC_KEEPAWAKE_UNAME=Darwin "$KEEPAWAKE" sync --state "$state" || { stop_pid "$holder"; fail "sync failed with no work in flight"; }
   sleep 1
-  [ ! -e "$home/caffeinate.calls" ] || { stop_pid "$holder"; fail "quiet record took an assertion while the captain is present"; }
+  [ ! -e "$home/caffeinate.calls" ] || { stop_pid "$holder"; fail "a home with no work in flight took an assertion"; }
   stop_pid "$holder"
-  pass "quiet record holds nothing"
+  pass "no work in flight holds nothing"
 }
 
 test_linux_stays_untouched() {
@@ -143,7 +124,6 @@ test_linux_stays_untouched() {
   hold_session
   holder=$HOLDER
   printf '%s\n' "$holder" > "$state/.lock"
-  printf 'version: 2\nentered: 2026-10-18T20:00:00Z\nentered_epoch: 1792340000\nwords: |-\n  hold the fleet\n' > "$state/.afk-contract"
   printf 'project=x\n' > "$state/job.meta"
   FM_MAC_KEEPAWAKE_UNAME=Linux "$KEEPAWAKE" sync --state "$state" || { stop_pid "$holder"; fail "sync failed off Darwin"; }
   sleep 1
@@ -153,7 +133,7 @@ test_linux_stays_untouched() {
   pass "Linux homes stay unchanged"
 }
 
-test_remote_secondmate_meta_alone_releases() {
+test_remote_metas_alone_release() {
   local home state holder out
   home=$(mkhome remote-alone-releases)
   state="$home/state"
@@ -161,11 +141,11 @@ test_remote_secondmate_meta_alone_releases() {
   hold_session
   holder=$HOLDER
   printf '%s\n' "$holder" > "$state/.lock"
-  printf 'kind=secondmate\nmode=secondmate\nremote_host=linux\n' > "$state/linux.meta"
-  printf 'kind=secondmate\nmode=secondmate\nremote_host=linux-b\n' > "$state/linux-b.meta"
+  printf 'kind=ship\nremote_host=linux\n' > "$state/linux.meta"
+  printf 'kind=scout\nremote_host=linux-b\n' > "$state/linux-b.meta"
   FM_MAC_KEEPAWAKE_UNAME=Darwin "$KEEPAWAKE" sync --state "$state" || { stop_pid "$holder"; fail "sync failed with only remote metas present"; }
   sleep 1
-  [ ! -e "$home/caffeinate.calls" ] || { stop_pid "$holder"; fail "remote secondmate metas alone took a Mac assertion"; }
+  [ ! -e "$home/caffeinate.calls" ] || { stop_pid "$holder"; fail "remote task metas alone took a Mac assertion"; }
   out=$(FM_MAC_KEEPAWAKE_UNAME=Darwin "$KEEPAWAKE" status --state "$state")
   case "$out" in *needed=0*) ;; *) stop_pid "$holder"; fail "status did not report idle with only remote metas: $out" ;; esac
   printf 'project=x\n' > "$state/job.meta"
@@ -174,7 +154,7 @@ test_remote_secondmate_meta_alone_releases() {
   grep -F "caffeinate -s -i -w $holder" "$home/caffeinate.calls" >/dev/null || { stop_pid "$holder"; fail "local work beside remote metas did not take an assertion"; }
   stop_keepawake "$state"
   stop_pid "$holder"
-  pass "remote secondmate metas alone release the assertion"
+  pass "remote task metas alone release the assertion"
 }
 
 test_recorded_sleep_sample_reports_slept() {
@@ -186,24 +166,6 @@ test_recorded_sleep_sample_reports_slept() {
   FM_MAC_KEEPAWAKE_UNAME=Darwin FM_MAC_KEEPAWAKE_BEAT_EPOCH=0 "$KEEPAWAKE" slept --state "$state" --log-file "$ORACLE_AWAKE" && fail "sample without sleep entries reported slept"
   FM_MAC_KEEPAWAKE_UNAME=Linux FM_MAC_KEEPAWAKE_BEAT_EPOCH=0 "$KEEPAWAKE" slept --state "$state" --log-file "$ORACLE_SLEEP" && fail "slept reported sleep off Darwin"
   pass "recorded pmset sample drives the slept verdict"
-}
-
-test_contract_enter_and_archive_drive_sync() {
-  local home state holder
-  home=$(mkhome contract-drives)
-  state="$home/state"
-  stub_caffeinate "$home"
-  hold_session
-  holder=$HOLDER
-  printf '%s\n' "$holder" > "$state/.lock"
-  FM_HOME="$home" FM_STATE_OVERRIDE="$state" FM_MAC_KEEPAWAKE_UNAME=Darwin "$CONTRACT" enter --words "hold the fleet" >/dev/null || { stop_pid "$holder"; fail "contract enter failed"; }
-  sleep 1
-  grep -F "caffeinate -s -i -w $holder" "$home/caffeinate.calls" >/dev/null || { stop_pid "$holder"; fail "away entry did not take an assertion"; }
-  FM_HOME="$home" FM_STATE_OVERRIDE="$state" FM_MAC_KEEPAWAKE_UNAME=Darwin "$CONTRACT" archive >/dev/null || { stop_pid "$holder"; fail "contract archive failed"; }
-  [ ! -e "$state/.mac-keepawake.pid" ] || { stop_pid "$holder"; fail "archive did not release the assertion on return"; }
-  stop_keepawake "$state"
-  stop_pid "$holder"
-  pass "away entry and return drive the assertion"
 }
 
 test_guard_banner_names_sleep() {
@@ -232,12 +194,10 @@ test_guard_banner_names_sleep() {
   pass "watcher-down banner names Mac sleep"
 }
 
-test_away_record_takes_pid_tied_assertion
-test_work_start_takes_assertion
-test_idle_and_back_releases
-test_quiet_record_holds_nothing
+test_work_in_flight_takes_pid_tied_assertion
+test_finished_work_releases
+test_no_work_holds_nothing
 test_linux_stays_untouched
-test_remote_secondmate_meta_alone_releases
+test_remote_metas_alone_release
 test_recorded_sleep_sample_reports_slept
-test_contract_enter_and_archive_drive_sync
 test_guard_banner_names_sleep

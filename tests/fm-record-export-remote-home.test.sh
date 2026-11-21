@@ -3,8 +3,8 @@
 
 set -u
 
-# shellcheck source=tests/lib.sh
-. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=tests/fixtures.sh
+. "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 
 fm_git_identity fmtest fmtest@example.invalid
 
@@ -18,7 +18,8 @@ make_remote_home() {  # <name>
   touch "$home/state/.last-watcher-beat"
   printf 'manual\n' > "$home/config/backlog-backend"
   fakebin=$(fm_fakebin "$TMP_ROOT/$name")
-  fm_fake_exit0 "$fakebin" treehouse herdr gh gh-axi no-mistakes
+  fm_fake_exit0 "$fakebin" treehouse gh gh-axi no-mistakes
+  fm_test_fake_herdr_teardown "$fakebin"
 
   git init -q --bare "$origin"
   git -C "$origin" symbolic-ref HEAD refs/heads/main
@@ -30,9 +31,7 @@ make_remote_home() {  # <name>
   git clone -q "$origin" "$project"
   git -C "$project" worktree add -q -b "fm/$TASK" "$worktree" main
 
-  fm_write_meta "$home/state/$TASK.meta" \
-    "window=firstmate:fm-$TASK" \
-    "endpoint_task_id=$TASK" \
+  fm_write_herdr_meta "$home/state/$TASK.meta" "fixture:w1:p1" \
     "worktree=$worktree" \
     "project=$project" \
     "kind=ship" \

@@ -418,10 +418,9 @@ test_linux_unicode_owner_identity() {
   local dir fakebin alias_path got expected
   dir="$TMP_ROOT/unicode-owner"
   fakebin=$(fm_fakebin "$dir")
-  alias_path="$dir/José/.local/bin/agent"
-  mkdir -p "${alias_path%/*}" "$dir/cursor-agent/versions/test" "$dir/proc/700"
-  : > "$dir/cursor-agent/versions/test/cursor-agent"
-  ln -s "$dir/cursor-agent/versions/test/cursor-agent" "$alias_path"
+  alias_path="$dir/José/.local/bin/pi"
+  mkdir -p "${alias_path%/*}" "$dir/proc/700"
+  : > "$alias_path"
   printf '700 (José\001) S 1 700 700 0 -1 4194304\n' > "$dir/proc/700/stat"
   printf '%s\0control\001\177\0' "$alias_path" > "$dir/proc/700/cmdline"
   cat > "$fakebin/ps" <<'SH'
@@ -451,8 +450,8 @@ SH
     kill() { return 0; }
     fm_harness_pid_alive 700 || exit 1
     fm_session_lock_pid_blocks_reclaim 700
-  ' _ "$LIB" || fail "live Unicode Cursor alias allowed reclaim"
-  pass "Unicode identity survives denied ps; controls flatten and live Cursor blocks reclaim"
+  ' _ "$LIB" || fail "live Pi under a Unicode path allowed reclaim"
+  pass "Unicode identity survives denied ps; controls flatten and a live Pi blocks reclaim"
 }
 
 test_denied_ps_still_finds_the_harness() {

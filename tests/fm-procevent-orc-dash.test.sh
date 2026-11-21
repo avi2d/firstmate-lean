@@ -181,33 +181,32 @@ assert_absent "$H/state/orc-dash-alerts/spool.jsonl" "retire discarded the spool
 assert_absent "$H/state/procevent/orc-dash-alerts.source" "retire dropped the registration"
 pass "adapter retire stops the stream at once"
 
-FAKE_TMUX_BIN="$TMP_ROOT/faketmux"
-mkdir -p "$FAKE_TMUX_BIN"
-cat > "$FAKE_TMUX_BIN/tmux" <<'TMUXSH'
+FAKE_HERDR_BIN="$TMP_ROOT/fakeherdr"
+mkdir -p "$FAKE_HERDR_BIN"
+cat > "$FAKE_HERDR_BIN/herdr" <<'HERDRSH'
 #!/usr/bin/env bash
-if [ "${1:-}" = "list-panes" ]; then
-  printf '%s\n' '%fixture-pane'
-  exit 0
-fi
-exit 1
-TMUXSH
-chmod +x "$FAKE_TMUX_BIN/tmux"
-export PATH="$FAKE_TMUX_BIN:$PATH"
+case "${1:-} ${2:-}" in
+  'status --json')
+    printf '%s\n' '{"client":{"version":"0.9.5","protocol":22},"server":{"running":true}}'
+    ;;
+  'pane get') printf '{"result":{"pane":{"pane_id":"%s"}}}\n' "${3:-}" ;;
+  'pane read') printf 'all quiet\n> \n' ;;
+  'pane process-info')
+    printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":%s,"foreground_process_group_id":4194305,"foreground_processes":[{"pid":4194305,"name":"pi","argv0":"pi"}]}}}\n' "${4:-}" "$PPID"
+    ;;
+  *) exit 1 ;;
+esac
+HERDRSH
+chmod +x "$FAKE_HERDR_BIN/herdr"
+export PATH="$FAKE_HERDR_BIN:$PATH"
 export FM_CREW_STATE_NO_FORGE=1
 
 write_task() {
   local home=$1 id=$2 busy=$3 line=${4-}
   local wt="$home/wt-$id"
   mkdir -p "$wt"
-  cat > "$home/state/$id.meta" <<EOF
-worktree=$wt
-kind=ship
-harness=pi
-backend=tmux
-window=%fixture-pane
-branch=fm/fixture-$id
-project=fixture
-EOF
+  fm_write_herdr_meta "$home/state/$id.meta" "firstmate:w1:p-$id" \
+    "worktree=$wt" "kind=ship" "harness=pi" "branch=fm/fixture-$id" "project=fixture"
   printf 'gentoken1\n' > "$home/state/$id.busy-gen"
   printf 'v1 gen=gentoken1 seq=1 state=%s source=pi-ext event=agent_start ts=%s\n' "$busy" "$(date +%s)" > "$home/state/$id.busy-state"
   if [ -n "$line" ]; then

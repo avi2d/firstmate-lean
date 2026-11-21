@@ -5,6 +5,8 @@ set -u
 
 # shellcheck source=tests/lib.sh disable=SC1091
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=tests/fixtures.sh
+. "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-pr-lib.sh"
 # shellcheck source=/dev/null
@@ -303,9 +305,7 @@ SH
 
 write_task_meta() {
   local dir=$1 id=${2:-task-a}
-  fm_write_meta "$dir/home/state/$id.meta" \
-    "window=firstmate:fm-$id" \
-    "endpoint_task_id=$id" \
+  fm_write_herdr_meta "$dir/home/state/$id.meta" "firstmate:w1:p-$id" \
     "worktree=$dir/wt" \
     "project=$dir/project" \
     "kind=ship" \
@@ -763,12 +763,6 @@ test_red_required_checks_refuse_registration() {
   pass "arming refuses a pull request with failing required checks, naming it, and arms a pending or unreadable one"
 }
 
-# A secondmate is a persistent worker, not a delivery lane: it never owns a
-# pull request of its own. A URL relayed onto its status channel belongs to a
-# task in the mate's own home, which arms its own watch, so arming one here is
-# refused before anything is recorded - a poll on the mate would otherwise mark
-# the merge notified and queue the mate itself for teardown as landed work.
-
 make_remote_head_case() {
   local dir=$1 mode=$2
   fm_write_meta "$dir/home/state/task-a.meta" \
@@ -1155,11 +1149,7 @@ test_valid_recording_and_merge_derivation() {
   fm_pr_poll_artifacts_valid "$dir/home/state" Task_A.1 "$POLL" \
     || fail "safe lifecycle-compatible task ID did not publish an authenticated poll"
   rm -rf "$dir/wt"
-  cat > "$dir/fakebin/tmux" <<'SH'
-#!/usr/bin/env bash
-exit 0
-SH
-  chmod 0700 "$dir/fakebin/tmux"
+  fm_test_fake_herdr_teardown "$dir/fakebin"
   touch "$dir/home/state/.last-watcher-beat"
   FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" PATH="$dir/fakebin:$BASE_PATH" \
     "$TEARDOWN" Task_A.1 --force > "$dir/teardown.out" 2> "$dir/teardown.err" \
@@ -1170,18 +1160,12 @@ SH
   for id in _noncanonical aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; do
     dir=$(make_case "legacy-teardown-${id:0:12}")
     # This record also exercises the PR merge entrypoint below.
-    fm_write_meta "$dir/home/state/$id.meta" \
-      "window=firstmate:fm-$id" \
-      "endpoint_task_id=$id" \
+    fm_write_herdr_meta "$dir/home/state/$id.meta" "firstmate:w1:p-$id" \
       "worktree=$dir/wt" \
       "project=$dir/project" \
       'kind=ship' \
       'mode=no-mistakes'
-    cat > "$dir/fakebin/tmux" <<'SH'
-#!/usr/bin/env bash
-exit 0
-SH
-    chmod 0700 "$dir/fakebin/tmux"
+    fm_test_fake_herdr_teardown "$dir/fakebin"
     touch "$dir/home/state/.last-watcher-beat"
     mkdir "$dir/home/state/$id.check.sh"
     set +e
@@ -1969,9 +1953,7 @@ test_teardown_removes_poll_artifacts() {
   local dir fakebin artifact counterpart rc
   dir=$(make_case teardown-cleanup)
   fakebin="$dir/fakebin"
-  fm_write_meta "$dir/home/state/task-a.meta" \
-    'window=firstmate:fm-task-a' \
-    'endpoint_task_id=task-a' \
+  fm_write_herdr_meta "$dir/home/state/task-a.meta" firstmate:w1:p-task-a \
     "worktree=$dir/missing-worktree" \
     "project=$dir/project" \
     'kind=ship' \
@@ -1981,11 +1963,7 @@ test_teardown_removes_poll_artifacts() {
   printf 'registration\n' > "$dir/home/state/task-a.pr-poll-registration"
   printf 'trust\n' > "$dir/home/state/task-a.check-trust"
   printf 'https://github.com/o/r/pull/9\n' > "$dir/home/state/task-a.pr-register-refused"
-  cat > "$fakebin/tmux" <<'SH'
-#!/usr/bin/env bash
-exit 0
-SH
-  chmod +x "$fakebin/tmux"
+  fm_test_fake_herdr_teardown "$fakebin"
   touch "$dir/home/state/.last-watcher-beat"
 
   FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" PATH="$fakebin:$BASE_PATH" \
@@ -1999,9 +1977,7 @@ SH
 
   dir=$(make_case teardown-retirement-receipt)
   fakebin="$dir/fakebin"
-  fm_write_meta "$dir/home/state/task-a.meta" \
-    'window=firstmate:fm-task-a' \
-    'endpoint_task_id=task-a' \
+  fm_write_herdr_meta "$dir/home/state/task-a.meta" firstmate:w1:p-task-a \
     "worktree=$dir/missing-worktree" \
     "project=$dir/project" \
     'kind=ship' \
@@ -2013,11 +1989,7 @@ SH
   fm_pr_poll_retirement_publish "$dir/home/state" task-a "$POLL" merged \
     || fail "could not publish teardown receipt fixture"
   rm -f "$dir/home/state/task-a.check.sh"
-  cat > "$fakebin/tmux" <<'SH'
-#!/usr/bin/env bash
-exit 0
-SH
-  chmod +x "$fakebin/tmux"
+  fm_test_fake_herdr_teardown "$fakebin"
   touch "$dir/home/state/.last-watcher-beat"
   FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" PATH="$fakebin:$BASE_PATH" \
     "$TEARDOWN" task-a --force > "$dir/teardown.out" 2> "$dir/teardown.err" \
@@ -2028,9 +2000,7 @@ SH
   for artifact in check.sh pr-poll; do
     dir=$(make_case "teardown-final-directory-${artifact//./-}")
     fakebin="$dir/fakebin"
-    fm_write_meta "$dir/home/state/task-a.meta" \
-      'window=firstmate:fm-task-a' \
-      'endpoint_task_id=task-a' \
+    fm_write_herdr_meta "$dir/home/state/task-a.meta" firstmate:w1:p-task-a \
       "worktree=$dir/missing-worktree" \
       "project=$dir/project" \
       'kind=ship' \
@@ -2043,15 +2013,10 @@ SH
     mkdir "$dir/home/state/task-a.$artifact"
     printf 'directory sentinel\n' > "$dir/home/state/task-a.$artifact/sentinel"
     printf 'counterpart sentinel\n' > "$dir/home/state/task-a.$counterpart"
-    cat > "$fakebin/tmux" <<'SH'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >> "${FM_FAKE_TMUX_LOG:?}"
-exit 0
-SH
-    chmod +x "$fakebin/tmux"
+    fm_test_fake_herdr_teardown "$fakebin"
     touch "$dir/home/state/.last-watcher-beat"
     set +e
-    FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_FAKE_TMUX_LOG="$dir/tmux.log" \
+    FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_FAKE_HERDR_CLOSE_LOG="$dir/close.log" \
       PATH="$fakebin:$BASE_PATH" "$TEARDOWN" task-a --force \
       > "$dir/teardown.out" 2> "$dir/teardown.err"
     rc=$?
@@ -2062,7 +2027,7 @@ SH
       || fail "teardown changed the directory-shaped $artifact"
     [ "$(cat "$dir/home/state/task-a.$counterpart")" = 'counterpart sentinel' ] \
       || fail "teardown removed the counterpart before $artifact refusal"
-    grep -F 'kill-window' "$dir/tmux.log" >/dev/null 2>&1 \
+    grep -F 'pane close' "$dir/close.log" >/dev/null 2>&1 \
       && fail "teardown killed the endpoint before $artifact refusal"
   done
 
@@ -2462,7 +2427,7 @@ test_gerrit_nm_ready_gate_requires_recovered_custody() {
   squash=$(git -C "$dir/wt" commit-tree "$(git -C "$dir/wt" rev-parse 'HEAD^{tree}')" -p "$base" -m squashed)
   [ "$stamped" != "$fixed" ] || fail "the fixture's stamped head did not diverge from the pipeline head"
 
-  # The done gate itself, as crew-state and the secondmate ledger call it.
+  # The done gate itself, as crew-state calls it.
   set +e
   out=$(FM_TEST_GERRIT_REVISION=$squash FM_TEST_NM_PIPELINE_HEAD=$fixed \
     FM_TEST_GERRIT_AXI_LOG="$dir/gerrit-axi.log" PATH="$dir/fakebin:$BASE_PATH" \
@@ -2875,64 +2840,6 @@ test_merged_poll_reregistration_after_notification_is_absorbed() {
   pass "a repeat identical merged poll for an already-notified task is absorbed, never queued as a main-blocking row"
 }
 
-# The captain merging a PR himself on the forge is the same outcome as a merge
-# this home performed: bin/fm-merge-outcome-lib.sh carries both to the parent on
-# the one reply channel, so no second watch path exists for the captain's case.
-# The poll's own durable row still lands here, because the mate that owns the
-# task still has to act on it.
-
-test_merged_poll_retries_a_failed_upward_report() {
-  local dir state rc replies url
-  url=https://github.com/o/r/pull/1
-  dir=$(make_case merged-poll-upward-retry)
-  state="$dir/home/state"
-  replies="$state/parent-replies.status"
-  printf '%s\n' mate-x > "$dir/home/.fm-secondmate-home"
-  write_poll_meta "$state" task-a "$url"
-  seed_canonical_poll "$dir" task-a "$url"
-  add_stop_custom_check "$dir"
-
-  set +e
-  FM_TEST_GH_STATE=MERGED run_watcher_bounded "$dir/home" "$dir/fakebin" \
-    > "$dir/watch-1.out" 2> "$dir/watch-1.err"
-  rc=$?
-  set -e
-  [ "$rc" -ne 0 ] || fail "merged-poll-upward-retry: failed report did not keep the watcher loud"
-  [ -f "$state/task-a.check.sh" ] \
-    || fail "merged-poll-upward-retry: failed report retired its retry poll"
-  [ ! -e "$state/task-a.pr-poll-merge-notified" ] \
-    || fail "merged-poll-upward-retry: failed report was marked notified"
-  [ ! -e "$replies" ] \
-    || fail "merged-poll-upward-retry: failed report wrote a parent reply"
-
-  printf 'schema=fm-secondmate-parent.v1\nroute=remote\n' \
-    > "$dir/home/.fm-secondmate-parent"
-  rm -f "$state/.last-check"
-  set +e
-  FM_TEST_GH_STATE=MERGED run_watcher_bounded "$dir/home" "$dir/fakebin" \
-    > "$dir/watch-2.out" 2> "$dir/watch-2.err"
-  rc=$?
-  set -e
-  [ "$rc" -eq 0 ] || fail "merged-poll-upward-retry: retry failed: $(cat "$dir/watch-2.err")"
-  if [ ! -e "$replies" ]; then
-    ack_watcher_cycle "$state" \
-      || fail "merged-poll-upward-retry: recovery acknowledgement failed"
-    rm -f "$state/.last-check"
-    set +e
-    FM_TEST_GH_STATE=MERGED run_watcher_bounded "$dir/home" "$dir/fakebin" \
-      > "$dir/watch-3.out" 2> "$dir/watch-3.err"
-    rc=$?
-    set -e
-    [ "$rc" -eq 0 ] || fail "merged-poll-upward-retry: post-recovery retry failed: $(cat "$dir/watch-3.err")"
-  fi
-  assert_grep "done [key=merged-task-a]: merged task-a $url" <(sed -E 's/ \[at=[0-9]+\]//' "$replies") \
-    "merged-poll-upward-retry: repaired binding did not receive the retry"
-  assert_poll_absent "$state" task-a
-  pass "a failed upward merge report keeps its poll armed for repair and retry"
-}
-
-
-
 test_different_merged_pr_for_same_task_is_not_absorbed() {
   local dir state rc
   dir=$(make_case different-merged-pr-not-absorbed)
@@ -2975,12 +2882,6 @@ test_different_merged_pr_for_same_task_is_not_absorbed() {
   assert_poll_absent "$state" task-a
   pass "a different merged PR for the same task gets its own first notification"
 }
-
-# A secondmate is a persistent worker, never landed work: a merge poll armed
-# on its record (bin/fm-pr-check.sh refuses new ones) is residue carrying a
-# relayed child's pr=. When that residue reads merged the watcher retires the
-# poll silently - no merge outcome, no notified marker, no wake that could put
-# the mate itself up for teardown - and leaves every lifecycle artifact whole.
 
 test_retirement_crash_recovery() {
   local dir state rc raw_count drain_count historical_poll
@@ -3322,7 +3223,6 @@ test_gitlab_merged_poll_retires() {
 # --- poll-path merge authority ----------------------------------------------
 
 
-
 # The durable queue is TSV (epoch, sequence, kind, key, payload).
 merged_ledger_row() {  # <state> <task-id>
   awk -F'\t' -v prefix="check: merge landed: $2 " \
@@ -3353,7 +3253,6 @@ queue_merge() {  # <dir> <url>
   [ -f "$dir/home/state/task-a.merge-authority" ] \
     || fail "the accepted queued merge did not persist its authority"
 }
-
 
 
 test_authority_persistence_refuses_rebound_metadata() {
@@ -3900,7 +3799,6 @@ test_gerrit_ready_gate_reads_the_published_tree
 test_gerrit_nm_ready_gate_requires_recovered_custody
 test_merged_poll_retires_once
 test_merged_poll_reregistration_after_notification_is_absorbed
-test_merged_poll_retries_a_failed_upward_report
 test_authority_persistence_refuses_rebound_metadata
 test_authority_persists_before_control_unlock
 test_authority_retirement_preserves_replacement
