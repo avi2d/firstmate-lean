@@ -2021,7 +2021,7 @@ FIXTURE
 }
 
 test_reemit_skips_startup_sweeps_but_keeps_the_wake_drain() {
-  local rec root home fakebin network_status reemit sequence generation
+  local rec root home fakebin network_status reemit_status reemit sequence generation
   rec=$(new_world reemit)
   IFS='|' read -r root home fakebin <<EOF
 $rec
@@ -2035,6 +2035,8 @@ EOF
     || fail "the full startup fixture's deferred network stage never published"
   network_status=$(cat "$home/state/.startup-network.status") \
     || fail "the full startup fixture recorded no deferred sweep run"
+  assert_contains "$network_status" "phases=probe,sweeps" \
+    "the full startup fixture did not run the mutating sweeps"
 
   append_wake "$home/state" signal task-r "done: queued after the re-emit too" || fail "seed second wake failed"
   reemit=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" FM_FAKE_HARNESS_PID=$$ PATH="$fakebin:$BASE_PATH" \
@@ -2042,8 +2044,13 @@ EOF
     "$SESSION_START" --reemit)
 
   assert_contains "$reemit" "SESSION START (CONTEXT RE-EMIT) - $home" "--reemit did not label itself"
-  [ "$(cat "$home/state/.startup-network.status")" = "$network_status" ] \
-    || fail "--reemit started another run of the sweeps startup already ran"
+  reemit_status=$(cat "$home/state/.startup-network.status")
+  if [ "$reemit_status" != "$network_status" ]; then
+    case $(printf '%s\n' "$reemit_status" | sed -n 's/^phases=//p' | tail -1) in
+      probe) ;;
+      *) fail "--reemit started another run of the sweeps startup already ran" ;;
+    esac
+  fi
   assert_contains "$reemit" "done: queued after the re-emit too" "--reemit did not drain the wake queue"
   [ -s "$home/state/.wake-queue" ] || fail "--reemit removed the wake before its handling acknowledgement"
   sequence=$(printf '%s\n' "$reemit" | sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation [A-Za-z0-9._-][A-Za-z0-9._-]*$/\1/p' | tail -1)

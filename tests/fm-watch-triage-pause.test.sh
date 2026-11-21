@@ -1351,7 +1351,7 @@ paused_until_fixture() {  # <name> <until-epoch> <status-age-secs>
 until_watch() {  # <dir> <cadence> -> pid in UNTIL_PID
   local dir=$1
   PATH="$dir/fakebin:$PATH" FM_FAKE_PANE_WINDOW=test:fm-until FM_FAKE_PANE_CAPTURE="$dir/pane.txt" \
-    FM_FAKE_CREW_STATE='state: unknown · source: none · no current-state source available' \
+    FM_FAKE_PANE_CURRENT_COMMAND=zsh FM_FAKE_CREW_STATE='state: unknown · source: none · no current-state source available' \
     FM_STATE_OVERRIDE="$dir/state" FM_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
     FM_PAUSE_RESURFACE_SECS="$2" FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$dir/watch.out" 2>&1 &
