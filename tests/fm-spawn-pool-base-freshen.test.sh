@@ -1172,6 +1172,8 @@ SH
   [ -L "$HOME_DIR/worktrees/$first" ] || fail "first spawn omitted its link"
   state=$(PATH="$FAKEBIN_DIR:$PATH" treehouse status --json)
   assert_contains "$state" '"status":"leased"' "first spawn did not lease the slot"
+  printf '# Report\n\n## References\n\n- fixture source\n' > "$HOME_DIR/data/$first/report.md"
+  printf 'decisions_reviewed=1\n' >> "$HOME_DIR/state/$first.meta"
   out=$(env FM_HOME="$HOME_DIR" HOME="$HOME_DIR/user-home" \
     FM_STATE_OVERRIDE="$HOME_DIR/state" FM_DATA_OVERRIDE="$HOME_DIR/data" \
     FM_PROJECTS_OVERRIDE="$HOME_DIR/projects" FM_CONFIG_OVERRIDE="$HOME_DIR/config" \
