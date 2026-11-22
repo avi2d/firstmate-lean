@@ -579,7 +579,7 @@ fm_dod_block() {  # <mode> <task-id> [branch] [<forge>] [<base>] [<consent>] [<p
   gerrit_skip_lines="Pass \`--skip push,pr,ci\` on every \`no-mistakes axi run\` for this task, and skip nothing else: \`review\`, \`test\`, \`document\`, and \`lint\` are the whole point of the run.
 Those three are the only steps that reach a forge, and skipping them is a supported outcome, not a degraded one."
   if fm_local_tests_off; then
-    nm_skip_line="Pass \`--skip test\` on every \`no-mistakes axi run\` that starts a run for this task: no test runs on this machine; run the project's configured CI on the branch instead. For firstmate-lean, run \`gh workflow run ci.yml --ref <branch>\`.
+    nm_skip_line="Pass \`--skip test\` on every \`no-mistakes axi run\` that starts a run for this task: no test runs on this machine; CI on the branch or pull request is the proof. If the project's CI does not start on pull requests, dispatch it on the branch and name the run id.
 "
     gerrit_skip_lines="Pass \`--skip test,push,pr,ci\` on every \`no-mistakes axi run\` for this task: \`review\`, \`document\`, and \`lint\` are the whole point of the run, and \`test\` is skipped because no test runs on this machine.
 \`push\`, \`pr\`, and \`ci\` are the only steps that reach a forge, and skipping them is a supported outcome, not a degraded one."
