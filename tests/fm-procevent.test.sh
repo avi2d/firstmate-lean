@@ -255,14 +255,21 @@ for lease_entry in reconcile ensure-listening; do
     wait "$lease_caller" || fail "reconcile failed after slow publication"
   else
     wait_stale_lease "$LEASE_HOME" || fail "the readiness fixture lease never expired"
+    # ensure-listening returns only when its confirm window closes, and that
+    # window outlasts this fixture's lease, so the owner guard can already have
+    # stopped the runner by the time it returns. The owner is read while the
+    # window is still open instead.
     lease_pe "$LEASE_HOME" ensure-listening "$lease_id" \
-      > "$TMP_ROOT/lease-ensure-listening.out" 2>&1 \
-      || fail "ensure-listening failed with an old caller lease"
+      > "$TMP_ROOT/lease-ensure-listening.out" 2>&1 &
+    lease_caller=$!
   fi
   wait_for "$lease_started" \
     || fail "$lease_entry confirmed a detached start without running the source command"
   assert_contains "$(lease_pe "$LEASE_HOME" list)" "live" \
     "$lease_entry leaves a live source owner after refreshing at launch"
+  if [ "$lease_entry" = ensure-listening ]; then
+    wait "$lease_caller" || fail "ensure-listening failed with an old caller lease"
+  fi
   # No further owner-presence operation runs. The launch refresh must not keep
   # renewing itself after the caller has returned.
   lease_runner=$(cat "$LEASE_HOME/state/procevent/$lease_id.runner")
