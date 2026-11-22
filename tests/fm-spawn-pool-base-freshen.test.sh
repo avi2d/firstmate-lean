@@ -674,6 +674,9 @@ test_pool_slot_claim_follows_the_spawn_outcome() {
   expect_code 0 "$status" "spawn from a Treehouse slot should launch"$'\n'"$out"
   assert_grep "worktree=$POOL_DIR" "$HOME_DIR/state/$id.meta" \
     "spawn did not publish the relocated slot as its worktree"
+  [ -L "$HOME_DIR/worktrees/$id" ] || fail "spawn omitted the task-named worktree link"
+  [ "$(cd "$HOME_DIR/worktrees/$id" && pwd -P)" = "$(cd "$POOL_DIR" && pwd -P)" ] \
+    || fail "the task-named link does not resolve to the recorded slot"
   [ -f "$SLOT_CLAIM" ] || fail "spawn left its Treehouse slot unclaimed: $out"
   grep -Fxq -- "task=$id" "$SLOT_CLAIM" \
     || fail "the slot claim does not name the spawned task: $(cat "$SLOT_CLAIM")"
