@@ -136,32 +136,57 @@ end
 
 
 # Print, one per line in workflow order, the jobs whose job-level `if`
-# resolves true under one simulated event and fork variable setting. An unset
-# repository variable reads as the empty string, as GitHub documents.
-jobs_running_under() {  # <event> <FM_CI_SKIP_MACOS>
+# resolves true under one simulated event, fork variable setting, and
+# run-tests output of the main-only job. An unset repository variable or an
+# unset job output reads as the empty string, as GitHub documents.
+jobs_running_under() {  # <event> <FM_CI_SKIP_MACOS> <run-tests>
   ruby -ryaml -e "$EXPRESSION_RUBY" -e '
 context = {
   "github.event_name" => ARGV[1],
   "vars.FM_CI_SKIP_MACOS" => ARGV[2],
+  "needs.main-only.outputs.run-tests" => ARGV[3],
 }
 YAML.load_file(ARGV[0]).fetch("jobs").each do |name, job|
   puts name if Expression.condition(job["if"], context)
 end
-' "$CI_WORKFLOW" "$1" "$2"
+' "$CI_WORKFLOW" "$1" "$2" "$3"
 }
 
 # Print true or false: whether one job's job-level `if` resolves true under one
-# simulated event, fork variable setting, and outcome of its needed jobs.
-job_runs_under() {  # <job> <event> <FM_CI_SKIP_MACOS> <needs status>
+# simulated event, fork variable setting, run-tests output, and outcome of its
+# needed jobs.
+job_runs_under() {  # <job> <event> <FM_CI_SKIP_MACOS> <run-tests> <needs status>
   ruby -ryaml -e "$EXPRESSION_RUBY" -e '
 context = {
   "github.event_name" => ARGV[2],
   "vars.FM_CI_SKIP_MACOS" => ARGV[3],
-  "needs.status" => ARGV[4],
+  "needs.main-only.outputs.run-tests" => ARGV[4],
+  "needs.status" => ARGV[5],
 }
 puts Expression.condition(YAML.load_file(ARGV[0]).fetch("jobs").fetch(ARGV[1])["if"], context)
 ' "$CI_WORKFLOW" "$@"
 }
+
+# Run the main-only job's step as GitHub would for one event and ref. Print its
+# exit status on the first line, then what it wrote to GITHUB_OUTPUT, then its
+# own output.
+main_only_step_under() {  # <event> <ref>
+  local root status
+  root=$(fm_test_tmproot main-only) || fail "could not create the main-only fixture"
+  ruby -ryaml -e '
+step = YAML.load_file(ARGV[0]).fetch("jobs").fetch("main-only").fetch("steps").find { |s| s["id"] == "ref" }
+abort "main-only has no step with id ref" unless step
+print step.fetch("run")
+' "$CI_WORKFLOW" > "$root/step.sh" || fail "could not read the main-only step from ci.yml"
+  : > "$root/output"
+  EVENT=$1 REF=$2 GITHUB_OUTPUT="$root/output" bash "$root/step.sh" > "$root/log" 2>&1
+  status=$?
+  printf '%s\n' "$status"
+  cat "$root/output" "$root/log"
+}
+
+# Lint, the static gate, and the coverage guard run no test, so a pull request runs them.
+PULL_REQUEST_JOBS='lint main-only static test-coverage'
 
 job_timeout() {
   ruby -ryaml -e '
@@ -178,7 +203,7 @@ workflow_jobs() {
 # must join a tier, so no one-off timeout value appears outside these lists.
 LINT_TIER_JOBS='lint'
 STATIC_TIER_JOBS='static'
-FAST_TIER_JOBS='effect-runtime test-coverage tests-timing-aggregate'
+FAST_TIER_JOBS='main-only effect-runtime test-coverage tests-timing-aggregate'
 NORMAL_TIER_JOBS='tests-portable-parallel-1 tests-portable-parallel-2 tests-portable-serial macos-stock-bash'
 HEAVY_TIER_JOBS='tests-herdr'
 ALL_TIER_JOBS="$LINT_TIER_JOBS $STATIC_TIER_JOBS $FAST_TIER_JOBS $NORMAL_TIER_JOBS $HEAVY_TIER_JOBS"
@@ -200,29 +225,86 @@ tier_timeout() {  # <tier> <job>...
   printf '%s\n' "$first"
 }
 
-test_triggers_are_one_daily_schedule_and_manual_dispatch() {
+test_triggers_omit_pushes_to_branches_other_than_main() {
   ruby -ryaml - "$CI_WORKFLOW" <<'RUBY' || fail "trigger contract"
 doc = YAML.load_file(ARGV[0])
 triggers = doc.key?(true) ? doc[true] : doc.fetch("on")
-raise "triggers must be exactly schedule and workflow_dispatch, got #{triggers.keys}" unless triggers.keys.sort == ["schedule", "workflow_dispatch"]
+raise "triggers must be exactly pull_request, push, schedule, and workflow_dispatch, got #{triggers.keys}" unless triggers.keys.sort == ["pull_request", "push", "schedule", "workflow_dispatch"]
+push = triggers.fetch("push")
+raise "push must name only the main branch, got #{push.inspect}" unless push == {"branches" => ["main"]}
 crons = triggers.fetch("schedule").map { |entry| entry.fetch("cron") }
 raise "schedule must have one cron entry, got #{crons}" unless crons.length == 1
 minute, hour, day, month, weekday = crons.first.split
 raise "schedule must run once a day: #{crons.first}" unless minute.match?(/\A\d+\z/) && hour.match?(/\A\d+\z/) && [day, month, weekday] == ["*", "*", "*"]
 RUBY
-  pass "ci.yml runs one daily schedule and manual dispatch only, never a pull request"
+  pass "ci.yml runs on pull requests, pushes to main, one daily schedule, and manual dispatch"
 }
 
-test_every_job_runs_on_scheduled_and_manual_runs() {
+test_main_runs_every_job_rather_than_skipping_a_test_lane() {
   local all event actual
   all=$(workflow_jobs | LC_ALL=C sort) || fail "could not list ci.yml jobs"
-  for event in schedule workflow_dispatch; do
-    actual=$(jobs_running_under "$event" '' | LC_ALL=C sort) \
+  for event in push schedule workflow_dispatch; do
+    actual=$(jobs_running_under "$event" '' true | LC_ALL=C sort) \
       || fail "could not resolve the job conditions for $event"
     [ "$actual" = "$all" ] \
-      || fail "$event must run every job"$'\n'"ran: $(printf '%s' "$actual" | tr '\n' ' ')"$'\n'"wanted: $(printf '%s' "$all" | tr '\n' ' ')"
+      || fail "$event on main must run every job"$'\n'"ran: $(printf '%s' "$actual" | tr '\n' ' ')"$'\n'"wanted: $(printf '%s' "$all" | tr '\n' ' ')"
   done
-  pass "a scheduled run and a manual run each run every job"
+  pass "a push, scheduled, or manual run on main runs every job"
+}
+
+test_a_pull_request_runs_no_test_job() {
+  local expected actual
+  expected=$(printf '%s\n' "$PULL_REQUEST_JOBS" | tr ' ' '\n' | LC_ALL=C sort)
+  actual=$(jobs_running_under pull_request '' false | LC_ALL=C sort) \
+    || fail "could not resolve the job conditions for pull_request"
+  [ "$actual" = "$expected" ] \
+    || fail "a pull request must run only lint, the static gate, and the coverage guard"$'\n'"ran: $(printf '%s' "$actual" | tr '\n' ' ')"$'\n'"wanted: $(printf '%s' "$expected" | tr '\n' ' ')"
+  pass "a pull request runs lint, the static gate, and the coverage guard, and no test job"
+}
+
+test_no_job_starts_before_main_only_has_passed() {
+  local reported
+  reported=$(ruby -ryaml -e '
+YAML.load_file(ARGV[0]).fetch("jobs").each do |name, job|
+  next if name == "main-only"
+  puts name unless Array(job["needs"]).include?("main-only")
+end
+' "$CI_WORKFLOW") || fail "could not read job dependencies from ci.yml"
+  [ -z "$reported" ] || fail "these jobs do not need main-only, so a branch dispatch would start them:"$'\n'"$reported"
+  pass "every job needs main-only, so a branch dispatch starts no other job"
+}
+
+test_main_only_step_lets_main_run_tests() {
+  local event out
+  for event in push schedule workflow_dispatch; do
+    out=$(main_only_step_under "$event" refs/heads/main)
+    assert_equals 0 "$(printf '%s\n' "$out" | sed -n 1p)" "the main-only step on a $event run on main must pass"
+    assert_equals run-tests=true "$(printf '%s\n' "$out" | sed -n 2p)" "the main-only step on a $event run on main must let the tests run"
+  done
+  pass "the main-only step lets a push, scheduled, or manual run on main run the tests"
+}
+
+test_main_only_step_passes_a_pull_request_without_its_tests() {
+  local out
+  out=$(main_only_step_under pull_request refs/pull/7/merge)
+  assert_equals 0 "$(printf '%s\n' "$out" | sed -n 1p)" "the main-only step must not fail a pull request"
+  assert_equals run-tests=false "$(printf '%s\n' "$out" | sed -n 2p)" "the main-only step must skip a pull request's tests"
+  pass "the main-only step passes a pull request and skips its tests"
+}
+
+test_main_only_step_fails_a_dispatch_on_a_branch_instead_of_testing_it() {
+  local out
+  out=$(main_only_step_under workflow_dispatch refs/heads/fm/some-task)
+  [ "$(printf '%s\n' "$out" | sed -n 1p)" != 0 ] \
+    || fail "the main-only step must fail a run dispatched on a branch"
+  case "$out" in
+    *run-tests=*) fail "the main-only step must not set run-tests on a branch dispatch"$'\n'"$out" ;;
+  esac
+  case "$out" in
+    *'::error::Tests run on main only'*refs/heads/fm/some-task*) ;;
+    *) fail "the branch-dispatch refusal must say tests run on main only and name the ref"$'\n'"$out" ;;
+  esac
+  pass "the main-only step fails a branch dispatch with a message naming the ref"
 }
 
 # FM_CI_SKIP_MACOS=1 removes only the macOS job; no other job reads that variable.
@@ -230,8 +312,8 @@ test_fork_skip_variable_removes_only_the_macos_job() {
   local all expected event actual
   all=$(workflow_jobs | LC_ALL=C sort) || fail "could not list ci.yml jobs"
   expected=$(printf '%s\n' "$all" | grep -vx macos-stock-bash)
-  for event in schedule workflow_dispatch; do
-    actual=$(jobs_running_under "$event" 1 | LC_ALL=C sort) \
+  for event in push schedule workflow_dispatch; do
+    actual=$(jobs_running_under "$event" 1 true | LC_ALL=C sort) \
       || fail "could not resolve the job conditions for $event with FM_CI_SKIP_MACOS=1"
     [ "$actual" = "$expected" ] \
       || fail "$event with FM_CI_SKIP_MACOS=1 must skip only the macOS job"$'\n'"ran: $(printf '%s' "$actual" | tr '\n' ' ')"
@@ -288,12 +370,12 @@ test_lint_and_static_keep_their_caps() {
 # The aggregate summarizes the lanes and must still run after one fails, so its summary lands.
 test_timing_aggregate_still_runs_after_a_failed_lane() {
   local event actual
-  for event in schedule workflow_dispatch; do
-    actual=$(job_runs_under tests-timing-aggregate "$event" '' failure) \
+  for event in push schedule workflow_dispatch; do
+    actual=$(job_runs_under tests-timing-aggregate "$event" '' true failure) \
       || fail "could not resolve the aggregate condition for $event"
     [ "$actual" = true ] || fail "after a failed lane, the aggregate on $event must still run, got $actual"
   done
-  pass "the timing aggregate runs after a failed lane on each scheduled and manual run"
+  pass "the timing aggregate runs after a failed lane on each push, scheduled, and manual run"
 }
 
 test_no_ci_job_lists_a_dependency_twice() {
@@ -526,8 +608,13 @@ test_scan_version_pin_matches_the_documented_local_command() {
 }
 
 test_ci_matrices_match_executable_partitions
-test_triggers_are_one_daily_schedule_and_manual_dispatch
-test_every_job_runs_on_scheduled_and_manual_runs
+test_triggers_omit_pushes_to_branches_other_than_main
+test_main_runs_every_job_rather_than_skipping_a_test_lane
+test_a_pull_request_runs_no_test_job
+test_no_job_starts_before_main_only_has_passed
+test_main_only_step_lets_main_run_tests
+test_main_only_step_passes_a_pull_request_without_its_tests
+test_main_only_step_fails_a_dispatch_on_a_branch_instead_of_testing_it
 test_fork_skip_variable_removes_only_the_macos_job
 test_no_job_condition_keys_on_a_pull_request_or_push
 test_no_ci_job_lists_a_dependency_twice

@@ -468,13 +468,13 @@ EOF
   case "$CHECKS_DONE_AT" in ''|*[!0-9]*) CHECKS_DONE_AT=0 ;; esac
   case "$checks" in
     green) ;;
-    none) verdict wait "no check has reported at head $HEAD; dispatch CI for this branch if it does not start automatically"; return ;;
+    none) verdict wait "no check has reported at head $HEAD; start this branch's pull-request checks, or dispatch CI for it only when the project's CI does not run on pull requests and accepts a branch run"; return ;;
     pending) verdict wait "checks are still running"; return ;;
     red:*) verdict skip "checks are not green: ${checks#red:}"; return ;;
     *) verdict wait "the checks could not be read"; return ;;
   esac
   if ! printf '%s' "$json" | jq -e 'any(.statusCheckRollup[]; .__typename == "CheckRun" and .status == "COMPLETED" and .conclusion == "SUCCESS")' >/dev/null 2>&1; then
-    verdict wait "no passing check run has reported at head $HEAD; dispatch CI for this branch if it does not start automatically"
+    verdict wait "no passing check run has reported at head $HEAD; start this branch's pull-request checks, or dispatch CI for it only when the project's CI does not run on pull requests and accepts a branch run"
     return
   fi
   if [ "$mergeable" = CONFLICTING ] || [ "$merge_state" = DIRTY ]; then
