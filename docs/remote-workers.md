@@ -48,6 +48,12 @@ Firstmate leaves a shared runner owned by a different root alone.
 | Cleanup | `fm-teardown.sh <task>` | The host runs the landed-work test, returns the worktree slot, and closes only that pane |
 | Post-merge sync | `fm-fleet-sync.sh --remote <route> <project>` | The host fast-forwards its own clone of the project |
 
+When a remote worker pauses and names its GitHub Actions run, Firstmate checks that run against the project origin on the execution home.
+For example, a worker can report `paused: CI run 123456 | owner=GitHub CI | recheck=2030-01-01`.
+Firstmate puts the result in the worker's inbox when the run finishes.
+If the doorbell is deferred or fails, the watcher retries it and names the task in a wake if the retries run out.
+Update both homes to use this notification.
+
 A host at capacity answers a launch with exit 75.
 The item then stays queued and is dispatched again at the next queue review.
 

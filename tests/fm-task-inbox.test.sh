@@ -443,16 +443,16 @@ test_idempotent_write_dedups_exact_body() {
 counted_idempotent_write() {  # <state> <text> <delivery-mode> <log>
   FM_STATE_OVERRIDE="$1" bash -c '
     . "$1"
-    for fn in fm_task_inbox_body fm_task_inbox_is_fire_and_forget; do
+    for fn in fm_task_inbox_body fm_task_inbox_delivery_mode; do
       eval "$(declare -f "$fn" | sed "1s/$fn/_original_$fn/")"
     done
     fm_task_inbox_body() {
       printf "body\n" >> "$operation_log"
       _original_fm_task_inbox_body "$@"
     }
-    fm_task_inbox_is_fire_and_forget() {
+    fm_task_inbox_delivery_mode() {
       printf "mode\n" >> "$operation_log"
-      _original_fm_task_inbox_is_fire_and_forget "$@"
+      _original_fm_task_inbox_delivery_mode "$@"
     }
     cmp() {
       printf "cmp\n" >> "$operation_log"

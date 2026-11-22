@@ -61,9 +61,9 @@ worker_endpoint_require() {  # <id>; sets WORKER_BACKEND/WORKER_TARGET
   WORKER_TARGET=$FM_BACKEND_VALIDATED_TARGET
 }
 
-worker_send_stdin() {  # <id> [fire-and-forget]; message on stdin
+worker_send_stdin() {  # <id> [fire-and-forget|until-rung]; message on stdin
   local id=$1 delivery_mode=${2:-} message rec ring_rc=0 meta meta_lock
-  [ -z "$delivery_mode" ] || [ "$delivery_mode" = fire-and-forget ] || die "invalid send delivery mode"
+  case "$delivery_mode" in ''|fire-and-forget|until-rung) ;; *) die "invalid send delivery mode" ;; esac
   meta="$TARGET_HOME/state/$id.meta"
   worker_endpoint_require "$id"
   IFS= read -r -d '' message < /dev/stdin || :
@@ -88,7 +88,11 @@ worker_send_stdin() {  # <id> [fire-and-forget]; message on stdin
       return 0
       ;;
   esac
-  fm_task_inbox_ring "$WORKER_BACKEND" "$WORKER_TARGET" "$rec" "fm-$id" || ring_rc=$?
+  if [ "$delivery_mode" = until-rung ]; then
+    fm_task_inbox_ring_until_rung "$WORKER_BACKEND" "$WORKER_TARGET" "$rec" "fm-$id" || ring_rc=$?
+  else
+    fm_task_inbox_ring "$WORKER_BACKEND" "$WORKER_TARGET" "$rec" "fm-$id" || ring_rc=$?
+  fi
   case "$ring_rc" in
     1) printf 'notice: doorbell skipped (composer visibly holds pending text); the steer is durably recorded at %s\n' "$rec" >&2 ;;
     2) printf 'notice: doorbell did not reach %s; the steer is durably recorded at %s\n' "$WORKER_TARGET" "$rec" >&2 ;;
@@ -132,6 +136,19 @@ worker_ring() {  # <id> [expected-label]; doorbell line on stdin; prints ring=<r
   # shellcheck source=bin/fm-task-inbox-lib.sh
   . "$SCRIPT_DIR/fm-task-inbox-lib.sh"
   fm_task_inbox_ring_line "$WORKER_BACKEND" "$WORKER_TARGET" "$line" "$label" || ring_rc=$?
+  printf 'ring=%s\n' "$ring_rc"
+}
+
+worker_ring_record() {
+  local id=$1 record=$2 rec ring_rc=0
+  worker_endpoint_require "$id"
+  # shellcheck source=bin/fm-task-inbox-lib.sh
+  . "$SCRIPT_DIR/fm-task-inbox-lib.sh"
+  fm_task_inbox_seq_of "$record" >/dev/null || die "invalid steering-inbox record name"
+  rec="$(fm_task_inbox_dir "$TARGET_HOME/state" "$id")/$record"
+  if [ -f "$rec" ] && [ "$(fm_task_inbox_delivery_mode "$rec")" = until-rung ]; then
+    fm_task_inbox_ring_until_rung "$WORKER_BACKEND" "$WORKER_TARGET" "$rec" "fm-$id" || ring_rc=$?
+  fi
   printf 'ring=%s\n' "$ring_rc"
 }
 
@@ -191,7 +208,7 @@ worker_crew_state() {  # <id>
 }
 
 worker_fleet() {
-  local meta id backend target harness tail busy hash agent_state oldest age inbox
+  local meta id backend target harness tail busy hash agent_state oldest age inbox ci_inbox pending_ci
   validate_home
   [ -d "$TARGET_HOME/state" ] && [ ! -L "$TARGET_HOME/state" ] || return 0
   # shellcheck source=bin/fm-task-inbox-lib.sh
@@ -224,11 +241,16 @@ worker_fleet() {
       hash=-
     fi
     inbox=-
-    if oldest=$(fm_task_inbox_oldest_unhandled "$TARGET_HOME/state" "$id"); then
+    if oldest=$(fm_task_inbox_oldest_unhandled "$TARGET_HOME/state" "$id" ordinary); then
       age=$(fm_path_age "$oldest")
       inbox="${oldest##*/}:$age"
     fi
-    printf '%s\t%s\t%s\t%s\t%s\n' "$id" "$agent_state" "$busy" "$hash" "$inbox"
+    ci_inbox=-
+    if pending_ci=$(fm_task_inbox_latest_until_rung "$TARGET_HOME/state" "$id"); then
+      age=$(fm_path_age "$pending_ci")
+      ci_inbox="${pending_ci##*/}:$age"
+    fi
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$agent_state" "$busy" "$hash" "$inbox" "$ci_inbox"
   done
 }
 
@@ -469,6 +491,13 @@ case "${1:-}" in
     [ "$#" -eq 4 ] || die "claude-account-check requires a harness, model and account"
     claude_account_check "$2" "$3" "$4"
     ;;
+  ci-repository)
+    [ "$#" -eq 2 ] || die "ci-repository requires a task id"
+    worker_endpoint_require "$2"
+    # shellcheck source=bin/fm-classify-lib.sh
+    . "$SCRIPT_DIR/fm-classify-lib.sh"
+    wait_ci_repository "$TARGET_HOME/state/$2.meta"
+    ;;
   send-stdin)
     [ "$#" -ge 2 ] && [ "$#" -le 3 ] || die "send-stdin requires a task id and optional delivery mode"
     worker_send_stdin "$2" "${3:-}"
@@ -484,6 +513,10 @@ case "${1:-}" in
   ring)
     [ "$#" -ge 2 ] && [ "$#" -le 3 ] || die "ring requires a task id and optional label"
     worker_ring "$2" "${3:-}"
+    ;;
+  ring-record)
+    [ "$#" -eq 3 ] || die "ring-record requires a task id and record name"
+    worker_ring_record "$2" "$3"
     ;;
   interrupt|exit)
     [ "$#" -eq 2 ] || die "$1 requires a task id"
