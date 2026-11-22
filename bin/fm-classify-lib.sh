@@ -1502,7 +1502,7 @@ wait_ci_repository() {
 }
 
 scan_wait_ci_completions() {
-  local state=$1 f task line run repo key response
+  local state=$1 f task line run repo key response conclusion
   command -v gh-axi >/dev/null 2>&1 || return 0
   for f in "$state"/*.status; do
     [ -f "$f" ] && [ ! -L "$f" ] || continue
@@ -1516,8 +1516,11 @@ scan_wait_ci_completions() {
     [ ! -e "$state/.wait-ci-$key" ] || continue
     response=$(fm_run_timed 5 gh-axi api "repos/$repo/actions/runs/$run" --jq .status 2>/dev/null) || continue
     printf '%s\n' "$response" | grep -Eq '^[[:space:]]*body: "?completed"?[[:space:]]*$' || continue
+    response=$(fm_run_timed 5 gh-axi api "repos/$repo/actions/runs/$run" --jq .conclusion 2>/dev/null) || continue
+    conclusion=$(printf '%s\n' "$response" | sed -n 's/^[[:space:]]*body: "\{0,1\}\([a-z_]*\)"\{0,1\}[[:space:]]*$/\1/p')
+    case "$conclusion" in success|failure|cancelled|timed_out|action_required|neutral|skipped|stale|startup_failure) ;; *) continue ;; esac
     [ "$(status_declared_wait_line "$f")" = "$line" ] || continue
-    printf '%s\t%s\t%s\t%s\n' "$task" "$repo" "$run" "$key"
+    printf '%s\t%s\t%s\t%s\t%s\n' "$task" "$repo" "$run" "$key" "$conclusion"
   done
 }
 

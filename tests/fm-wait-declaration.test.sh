@@ -151,7 +151,10 @@ test_ci_run_completion_does_not_wake_for_in_progress() {
   printf 'project=%s\n' "$dir" > "$state/t.meta"
   cat > "$dir/fakebin/gh-axi" <<'SCRIPT'
 #!/usr/bin/env bash
-printf 'api_response:\n  body: %s\n' "$CI_STATUS"
+case "$*" in
+  *'.conclusion'*) printf 'api_response:\n  body: success\n' ;;
+  *) printf 'api_response:\n  body: %s\n' "$CI_STATUS" ;;
+esac
 SCRIPT
   chmod +x "$dir/fakebin/gh-axi"
   for form in 'CI run 123' 'ci_run=123' 'https://github.com/example/repo/actions/runs/123'; do
@@ -197,7 +200,7 @@ SCRIPT
   assert_contains "$body" "failure" "conclusion missing"
   assert_contains "$body" "gh run view 123 -R example/repo --log-failed" "failure command missing"
   assert_contains "$(cat "$dir/send.log")" "Firstmate instruction waiting" "worker doorbell missing"
-  [ -f "$state/t.inbox/.retry-ring" ] || fail "the configured retry ring was not armed"
+  grep -Fqx 'delivery=fire-and-forget' "$state/t.inbox/001.msg" || fail "completion was not recorded as fire-and-forget"
   items=$(PATH="$dir/fakebin:$PATH" scan_wait_ci_completions "$state")
   [ -z "$items" ] || fail "the same run was sent twice"
   pass "a failed CI run reaches the worker once and preserves the supervisor wake"
