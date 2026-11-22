@@ -4230,7 +4230,7 @@ fm_backend_herdr_socket_path() {  # <session>
 }
 
 # fm_backend_herdr_events_capable: the version/capability gate for the event
-# fast-path (report section 5c trigger 1). Fails closed to the poll loop unless
+# fast-path (report section 5c trigger 1). Fails closed, silently, to the poll loop unless
 # ALL hold: herdr+jq present; the raw-socket reader available (python3, unless a
 # reader override is configured); client protocol >= FM_BACKEND_HERDR_MIN_EVENTS_PROTOCOL;
 # and both `events.subscribe` and `pane.agent_status_changed` present in `herdr
@@ -4244,7 +4244,7 @@ fm_backend_herdr_events_capable() {  # <session>
     1) return 0 ;;
     0) return 1 ;;
   esac
-  fm_backend_herdr_tool_check || return 1
+  fm_backend_herdr_tool_check 2>/dev/null || return 1
   if [ -z "${FM_BACKEND_HERDR_EVENT_READER:-}" ]; then
     command -v python3 >/dev/null 2>&1 || return 1
   fi
