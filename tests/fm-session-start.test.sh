@@ -625,14 +625,47 @@ lock_concurrency_barrier() {  # <dir> <count>
   return 1
 }
 
+# Keep a contender's harness alive until <release> exists. A time bound here
+# would let the winner's harness exit while slower contenders still try, and
+# the lock then rightly hands that dead record to one of them. The parent
+# writes <release> on every path, and the suite check ends an orphaned hold.
+lock_concurrency_hold() {  # <release>
+  local release=$1
+  while [ ! -e "$release" ] && [ -d "${release%/*}" ] \
+    && kill -0 "$FM_TEST_SUITE_PID" 2>/dev/null; do
+    sleep 0.2
+  done
+}
+
+# Wait until <done-dir> holds <count> entries. The bound restarts whenever
+# <ready-dir> or <done-dir> gains an entry, so a slow runner that still makes
+# progress is waited out and only a stalled one gives up.
+lock_concurrency_await() {  # <ready-dir> <done-dir> <count>
+  local ready=$1 finished=$2 want=$3 seen=-1 last=$SECONDS readies dones
+  while [ $((SECONDS - last)) -lt "$FM_TEST_STUB_MAX_BLOCK_SECONDS" ]; do
+    readies=("$ready"/*)
+    [ -e "${readies[0]}" ] || readies=()
+    dones=("$finished"/*)
+    [ -e "${dones[0]}" ] || dones=()
+    [ "${#dones[@]}" -lt "$want" ] || return 0
+    if [ $((${#readies[@]} + ${#dones[@]})) -gt "$seen" ]; then
+      seen=$((${#readies[@]} + ${#dones[@]}))
+      last=$SECONDS
+    fi
+    sleep 0.1
+  done
+  return 1
+}
+
 test_session_lock_concurrent_single_winner() {
-  local rec root home fakebin ready completed winners pids i pid count
+  local rec root home fakebin ready completed release winners pids i pid count finished
   rec=$(new_world lock-concurrency)
   IFS='|' read -r root home fakebin <<EOF
 $rec
 EOF
   ready="$home/ready"
   completed="$home/done"
+  release="$home/release"
   winners="$home/winners"
   mkdir -p "$ready" "$completed"
   : > "$winners"
@@ -660,7 +693,13 @@ case "$*" in
       printf '%s\n' bash
     fi
     ;;
-  *"ppid="*) printf '%s\n' "$FM_FAKE_HARNESS_PID" ;;
+  *"ppid="*)
+    if [ -f "$FM_FAKE_LOCK_STATE/harness-$pid" ]; then
+      printf '%s\n' 1
+    else
+      printf '%s\n' "$FM_FAKE_HARNESS_PID"
+    fi
+    ;;
   *) exit 1 ;;
 esac
 SH
@@ -680,14 +719,18 @@ SH
         printf '%s\n' "$harness_pid" >> "$winners"
       fi
       : > "$completed/$i"
-      lock_concurrency_barrier "$completed" 40
+      lock_concurrency_hold "$release"
     ) &
     pids="$pids $!"
     i=$((i + 1))
   done
+  finished=0
+  lock_concurrency_await "$ready" "$completed" 40 && finished=1
+  : > "$release"
   for pid in $pids; do
     wait "$pid" 2>/dev/null || true
   done
+  [ "$finished" -eq 1 ] || fail "concurrent session-lock contenders stalled before all 40 tried"
   count=$(awk 'NF { count++ } END { print count + 0 }' "$winners")
   [ "$count" -eq 1 ] || fail "concurrent session-lock acquisition produced $count winners"
 
