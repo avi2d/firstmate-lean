@@ -20,9 +20,11 @@ Before dispatching an agent-driven contribution, follow the [Firstmate role and 
 ## Maintaining required checks
 
 GitHub required checks are configured in the repository's existing main ruleset, not activated by committing workflow YAML.
-CI does not run on pull requests, so no CI job reports on one and none is a required check.
-A pull request therefore carries no CI check, and none is required before it merges.
-CI runs once a day on `main` and on manual dispatch.
+Tests run on `main` only: CI runs every job on each push to `main`, once a day, and on a manual dispatch on `main`.
+A pull request runs lint, the static gate, and the coverage guard, and its test jobs report as skipped.
+Those checks are what a pull request merges on, and the next run on `main` is its test gate.
+No check is a required check in the ruleset.
+Never dispatch CI on a branch: its `Tests run on main only` job fails the run before any other job starts.
 A red run is triaged by hand from its run page.
 Snapshot the current ruleset, amend that same rule with the authenticated GitHub API or settings UI, and read back both the ruleset and effective branch rules.
 Verify missing or red checks prevent ordinary merging without creating a test merge; administrator override intentionally remains available.
@@ -103,7 +105,7 @@ Its header and `--help` own the flags, family labels, lanes, and changed-file ma
 `bin/fm-test-linux.sh` is optional and never part of CI: on macOS, run it before publishing a branch whose tests depend on `stat`, `date`, or process behavior, because BSD and GNU tools differ.
 Its header owns selection, runtime detection, and exit codes.
 Family selection is the ordinary local path; `--all` is deliberate full regression only.
-CI runs once a day on `main` and on manual dispatch, and owns broad regression across the portable parallel shards, the portable serial lane's separate-runner shards, the Herdr lane, the herdr-core lane, six paired lint shards, the static gate holding the repo invariants, the coverage guard, and stock macOS Bash compatibility in [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+CI runs the tests on `main` only, as [Maintaining required checks](#maintaining-required-checks) describes, and owns broad regression across the portable parallel shards, the portable serial lane's separate-runner shards, the Herdr lane, the herdr-core lane, six paired lint shards, the static gate holding the repo invariants, the coverage guard, and stock macOS Bash compatibility in [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 A fork can set the repository variable `FM_CI_SKIP_MACOS` to `1` to skip the stock macOS Bash job without a tracked edit that drifts from upstream.
 The skip is a job-level condition, so the skipped job reports success.
 Use `bin/fm-test-run.sh --list-lanes` for exact lane names and `--help` for `--jobs` rules and required gate-skip flags when reproducing a lane locally.
