@@ -4148,7 +4148,7 @@ test_github_behind_updates_and_rechecks_before_merge() {
   add_gh_mocks "$case_dir" "$old_head"
   jq '.mergeStateStatus = "BEHIND"' "$case_dir/github-view.json" > "$case_dir/github-view-after-update.json"
   mv "$case_dir/github-view-after-update.json" "$case_dir/github-view.json"
-  jq --arg head "$new_head" '.mergeStateStatus = "CLEAN" | .headRefOid = $head | .mergeable = "UNKNOWN" | .statusCheckRollup[0].conclusion = "FAILURE"' \
+  jq --arg head "$new_head" '.mergeStateStatus = "CLEAN" | .headRefOid = $head | .mergeable = "UNKNOWN" | .statusCheckRollup[0].conclusion = "FAILURE" | .statusCheckRollup += [{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS"}]' \
     "$case_dir/github-view.json" > "$case_dir/github-view-after-update.json"
   jq '.mergeable = "MERGEABLE"' "$case_dir/github-view-after-update.json" \
     > "$case_dir/github-view-after-update-final.json"
@@ -4224,7 +4224,9 @@ test_github_red_checks_refuse_and_allow_red_waives_named() {
   case_dir=$(make_case github-allow-red)
   mkdir -p "$case_dir/wt"
   add_gh_mocks "$case_dir" "$head"
-  write_github_red_json "$case_dir" "$head" lint
+  write_github_rollup_json "$case_dir" "$head" \
+    "$(check_run lint COMPLETED FAILURE)" \
+    "$(check_run test COMPLETED SUCCESS)"
   run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/81 \
     --allow-red lint \
     > "$case_dir/stdout" 2> "$case_dir/stderr" || fail "github-allow-red: named waiver should merge"
