@@ -522,7 +522,7 @@ Do not run any test runner, such as `bun test`, `vitest`, or `playwright`, on an
 A throwaway check is allowed: a small script you write in your temporary folder outside the repository and run once to see one behavior, such as running the built CLI once, calling a local server, or trying a snippet.
 A throwaway check is never committed, never uses the repository's test setup, finishes in about a minute, and starts no browser, simulator, or App.
 Build, lint, and typecheck commands may still run.
-Run the project's configured CI on the branch. For firstmate-lean, run `gh workflow run ci.yml --ref <branch>`; pull requests do not trigger CI.
+CI on the branch or pull request is proof in the real place. If the project's CI does not start on pull requests, dispatch it on the branch and name the run id.
 EOF
 }
 
