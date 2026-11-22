@@ -66,10 +66,21 @@ if [ "${1:-}" = status ] && [ "${2:-}" = --json ]; then
 fi
 [ "${1:-}" != server ] || exit 0
 case "${1:-} ${2:-}" in
-  'session list') exit 0 ;;
-  'pane close') : > "$D/pane-gone"; exit 0 ;;
+  'session list')
+    if [ -f "$D/fail-task-tab-create" ]; then
+      jq -cn --arg socket "$D/herdr.sock" '{sessions:[{name:"fixture-lease",running:true,socket_path:$socket}]}'
+    fi
+    exit 0 ;;
+  'terminal title') printf '{"result":{"reason":"no_foreground_client"}}\n'; exit 0 ;;
+  'pane close')
+    if [ "${3:-}" = '%1' ]; then rm -f "$D/workspace-label"; fi
+    : > "$D/pane-gone"; exit 0 ;;
   'pane get')
     [ ! -f "$D/pane-gone" ] || { printf '{"error":{"code":"pane_not_found"}}\n'; exit 0; }
+    if [ -f "$D/workspace-label" ] && [ "${3:-}" = '%1' ]; then
+      printf '{"result":{"pane":{"pane_id":"%%1","workspace_id":"wsnew","tab_id":"seedtab"}}}\n'
+      exit 0
+    fi
     if [ -f "$D/cd-sent" ] && [ -f "$D/delay-reads" ]; then
       reads=$(cat "$D/reads" 2>/dev/null || printf 0)
       reads=$((reads + 1)); printf '%s' "$reads" > "$D/reads"
@@ -109,12 +120,34 @@ case "${1:-} ${2:-}" in
       printf '{"result":{"agent":{"agent_status":"shell-starting"}}}\n'
     fi
     exit 0 ;;
-  'workspace list') printf '{"result":{"workspaces":[]}}\n'; exit 0 ;;
+  'workspace list')
+    if [ -f "$D/workspace-label" ]; then
+      jq -cn --arg label "$(cat "$D/workspace-label")" \
+        '{result:{workspaces:[{workspace_id:"wsnew",label:$label,focused:true,active_tab_id:"seedtab"}]}}'
+    else
+      printf '{"result":{"workspaces":[]}}\n'
+    fi
+    exit 0 ;;
   'workspace create')
+    if [ -f "$D/fail-task-tab-create" ]; then
+      for ((i=3; i<$#; i++)); do
+        [ "${!i}" = --label ] || continue
+        next=$((i + 1))
+        printf '%s\n' "${!next}" > "$D/workspace-label"
+        break
+      done
+    fi
     printf '{"result":{"workspace":{"workspace_id":"wsnew"},"tab":{"tab_id":"seedtab"},"root_pane":{"pane_id":"%%1"}}}\n'
     exit 0 ;;
-  'tab list') printf '{"result":{"tabs":[]}}\n'; exit 0 ;;
+  'tab list')
+    if [ -f "$D/workspace-label" ]; then
+      printf '{"result":{"tabs":[{"tab_id":"seedtab","label":"1","focused":true}]}}\n'
+    else
+      printf '{"result":{"tabs":[]}}\n'
+    fi
+    exit 0 ;;
   'tab create')
+    [ ! -f "$D/fail-task-tab-create" ] || exit 1
     printf '{"result":{"tab":{"tab_id":"tabnew"},"root_pane":{"pane_id":"%%9"}}}\n'
     exit 0 ;;
 esac
@@ -165,6 +198,36 @@ test_failed_lease_refuses_without_a_record() {
   [ ! -e "$dir/home/state/$id.meta" ] || fail "refused spawn published task metadata"
   ! grep -qx 'get' "$dir/fake/treehouse-log" || fail "a refused lease fell back to the interactive form"
   pass "a failed lease refuses the spawn and falls back to nothing"
+}
+
+assert_failed_execution_spawn_leaves_no_workspace() {
+  local id=$1 projection=$2 dir out status list
+  dir=$(make_lease_case "$id")
+  printf 'execution\n' > "$dir/home/.fm-exec-home"
+  printf '%s\n' "$projection" > "$dir/home/config/herdr-presentation-spaces"
+  printf 'manual\n' > "$dir/home/config/backlog-backend"
+  : > "$dir/fake/fail-task-tab-create"
+  out=$(run_lease_spawn "$dir" "$id")
+  status=$?
+  expect_code 1 "$status" "the task tab failure should abort the execution machine launch"$'\n'"$out"
+  grep -q '^tab create ' "$dir/fake/herdr-log" || fail "spawn never reached the injected tab failure"
+  if [ "$projection" = on ]; then
+    assert_contains "$out" "herdr presentation task-tab create failed" "spawn did not take the projected path"
+  fi
+  list=$(FM_FAKE_DIR="$dir/fake" "$dir/fakebin/herdr" workspace list --session fixture-lease)
+  [ "$(jq -c '.result.workspaces' <<< "$list")" = '[]' ] || fail "failed launch left an idle workspace: $list"
+  ! grep -q '^workspace create .* --label firstmate ' "$dir/fake/herdr-log" \
+    || fail "launch created a home-labelled workspace on an execution machine"
+}
+
+test_failed_remote_flat_spawn_does_not_leave_a_home_workspace() {
+  assert_failed_execution_spawn_leaves_no_workspace remote-flat-abort off
+  pass "failed flat launch on an execution machine never creates a home workspace or leaves an idle workspace"
+}
+
+test_failed_remote_projection_does_not_leave_its_seeded_workspace() {
+  assert_failed_execution_spawn_leaves_no_workspace remote-projection-abort on
+  pass "failed projected launch on an execution machine removes the seeded workspace"
 }
 
 test_aborted_spawn_names_the_lease_it_keeps() {
@@ -260,6 +323,8 @@ test_never_moving_worktree_entry
 
 test_fresh_spawn_leases_and_moves_the_top_level_shell
 test_failed_lease_refuses_without_a_record
+test_failed_remote_flat_spawn_does_not_leave_a_home_workspace
+test_failed_remote_projection_does_not_leave_its_seeded_workspace
 test_aborted_spawn_names_the_lease_it_keeps
 test_rolled_back_spawn_after_launch_names_the_lease_it_keeps
 test_abort_keeps_the_lease_while_the_pane_is_present
