@@ -2638,6 +2638,37 @@ EOF
   pass "startup reads the heavy limit from the machine configuration"
 }
 
+test_remote_startup_recovers_pending_worker_and_does_not_mark_it_dead() {
+  local rec root home fakebin out
+  rec=$(new_world remote-pending)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  printf '%s\n' "- winexec - execution (host: testhost; root: $ROOT; home: /tmp/exechome; session: fm-remote; scope: workers; projects: alpha; added 2026-01-01)" > "$home/data/remote-homes.md"
+  printf '%s\n' 'window=remote:task-a' 'endpoint_task_id=task-a' 'worktree=/tmp/exechome' 'project=/tmp/exechome/projects/alpha' 'kind=ship' 'harness=pi' 'spawn_gen=s1' 'remote_host=testhost' 'remote_route=winexec' "remote_root=$ROOT" 'remote_backend=herdr' 'remote_target=pending' > "$home/state/task-a.meta"
+  cat > "$fakebin/ssh" <<'SH'
+#!/usr/bin/env bash
+encoded=${!#}
+args=$(printf '%s' "$encoded" | base64 -d 2>/dev/null | tr '\0' ' ')
+case "$args" in
+  *'fm-session-start.sh --heavy-limit'*) sleep 6; printf '%s\n' 'heavy worker limit: 4' ;;
+  *'fm-remote-worker-control.sh route task-a'*) printf '%s\n' 'schema=fm-remote-worker-control.v1' 'backend=herdr' 'target=fm-remote:ws:pane' 'kind=ship' 'harness=pi' 'worktree=/tmp/task-a' 'project=/tmp/exechome/projects/alpha' 'herdr_session=fm-remote' ;;
+  *'fm-remote-worker-control.sh state task-a'*) printf '%s\n' alive ;;
+  *) exit 1 ;;
+esac
+SH
+  chmod +x "$fakebin/ssh"
+  out=$(FM_SSH_BIN="$fakebin/ssh" run_session_start "$home" "$ROOT" "$fakebin:$BASE_PATH")
+  assert_contains "$out" 'winexec: heavy worker limit: 4' 'a six-second remote limit probe was rejected'
+  assert_contains "$out" 'task-a [ship] endpoint: alive' 'a live pending remote worker was reported dead'
+  assert_contains "$(cat "$home/state/task-a.meta")" 'remote_target=fm-remote:ws:pane' 'the recovered target was not published'
+  assert_contains "$(cat "$home/state/task-a.meta")" 'worktree=/tmp/task-a' 'the recovered worktree was not published'
+  pass "startup recovers a pending remote worker and accepts a slow healthy route"
+}
+
+test_remote_startup_recovers_pending_worker_and_does_not_mark_it_dead
 test_startup_reports_configured_heavy_limit_instead_of_stale_value
 test_context_digest_absent_empty_present
 test_lock_refusal_read_only_path

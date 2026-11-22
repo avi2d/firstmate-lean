@@ -71,24 +71,7 @@ esac
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd -P) || exit 0
 ROOT=$(CDPATH='' cd -- "$SCRIPT_DIR/.." 2>/dev/null && pwd -P) || exit 0
 ACTIVE_HOME=${FM_HOME:-$ROOT}
-GUARD_DIR="$ROOT/bin/fm-share-guard"
-POLICY="$GUARD_DIR/policy.ts"
-
-command -v bun >/dev/null 2>&1 || exit 0
-[ -f "$POLICY" ] || exit 0
-[ -f "$GUARD_DIR/package.json" ] || exit 0
-[ -f "$GUARD_DIR/bun.lock" ] || exit 0
-
-CACHE_DIR="$ACTIVE_HOME/state/.fm-share-guard"
-MODULES_DIR="$CACHE_DIR/node_modules"
-if [ ! -f "$MODULES_DIR/effect/package.json" ] || ! cmp -s "$GUARD_DIR/bun.lock" "$CACHE_DIR/bun.lock"; then
-  mkdir -p "$CACHE_DIR" || exit 0
-  cp -f "$GUARD_DIR/package.json" "$GUARD_DIR/bun.lock" "$CACHE_DIR/" || exit 0
-  (CDPATH='' cd -- "$CACHE_DIR" && bun install --frozen-lockfile >/dev/null 2>&1) || exit 0
-  [ -f "$MODULES_DIR/effect/package.json" ] || exit 0
-fi
-
-POLICY_OUTPUT=$(NODE_PATH="$MODULES_DIR" bun "$POLICY" --command "$CMD" --root "$ROOT" --home "$ACTIVE_HOME" 2>/dev/null) || exit 0
+POLICY_OUTPUT=$("$SCRIPT_DIR/fm-effect-run.sh" --ensure share-policy --command "$CMD" --root "$ROOT" --home "$ACTIVE_HOME" 2>/dev/null) || exit 0
 [ -n "$POLICY_OUTPUT" ] || exit 0
 
 TAB=$(printf '\t')

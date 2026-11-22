@@ -143,14 +143,17 @@ That covers:
 
 ### Firstmate running outside Herdr
 
-Firstmate running outside Herdr entirely has no launcher workspace to inherit, so its workers use this home's own labeled workspace, created on first use.
+A supervising home running outside Herdr has no launcher workspace to inherit, so its workers use the home's own labeled workspace, created on first use.
 That path needs the home label to identify exactly one workspace.
 Two workspaces sharing it are an unresolvable placement and refuse rather than adopting either.
 
-On a remote execution home with presentation spaces on, a projected worker row hangs under that labeled workspace only when it already exists.
-The home never creates it for projected rows, because a workspace made only to head them would hold nothing but Herdr's seeded idle shell.
-Without it each worker row is its own top-level workspace, and cleaning up the last one leaves the session empty.
-When the row is the session's only workspace, its task tab takes focus, because no prior focus exists to preserve.
+An execution machine never creates a home-labeled workspace.
+A projected worker row sits under the home-labeled workspace if one already exists and at the top level otherwise.
+Without projection, each worker gets its own top-level workspace labeled with its task tab's name.
+Before creating that workspace, the launch takes the session lock needed for rollback.
+If launch fails, Firstmate closes only panes whose creation Herdr confirmed.
+It refuses to close a pane if the close cannot preserve the viewer's focus.
+When a projected row is the session's only workspace, its task tab takes focus, because no prior focus exists to preserve.
 An existing labeled workspace is never removed, except one an earlier release created and recorded in `state/herdr-home-header` with its exact workspace, tab, and pane.
 Cleaning up the last worker of that home in the session closes such a recorded header, but only while it still carries the home label and holds nothing but its own idle shell.
 
@@ -212,7 +215,7 @@ On those releases, that close moves the active workspace for roughly a seventh o
 An unconfigured home is therefore projected only on a release at or above the 0.8.0 floor.
 On those releases every workspace-removal primitive preserves focus, and that proof stops being load-bearing.
 
-Below the floor, an unconfigured home uses the ordinary flat per-home layout instead.
+Below the floor, an unconfigured home uses the flat layout for its [task containers](#watching-and-task-containers).
 It warns once per home per detected release, naming the running release and the upgrade that restores the projection.
 That one-warning-per-release record is a `state/.herdr-presentation-floor-<release>` marker.
 Deleting it only makes the same warning appear again.

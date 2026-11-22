@@ -1549,7 +1549,7 @@ SH
     [ "$direct_rc" -eq 0 ] || fail "concurrent direct arming failed"
     [ "$rc" -eq 0 ] || fail "concurrent watcher did not complete (rc=$rc): $(cat "$dir/watch.err")"
     grep -q '^check: .*: merged$' "$dir/watch.out" || fail "concurrent watcher never saw complete poll"
-    [ ! -s "$dir/watch.err" ] || fail "concurrent watcher observed a partial artifact error"
+    [ ! -s "$dir/watch.err" ] || fail "concurrent watcher wrote to stderr: $(cat "$dir/watch.err")"
     if [ -e "$dir/home/state/$id.check.sh" ]; then
       cmp -s "$POLL" "$dir/home/state/$id.check.sh" || fail "concurrent publication check bytes changed"
       [ "$(file_mode "$dir/home/state/$id.check.sh")" = 600 ] || fail "concurrent check mode was not private"
@@ -1564,6 +1564,75 @@ SH
     n=$((n + 1))
   done
   pass "concurrent watchers observe only complete private poll publications"
+}
+
+test_watcher_cycle_mid_publication_reads_no_half_written_artifact() {
+  local dir state id=a-task real_sleep direct_pid watch_pid direct_rc rc i
+  dir=$(make_case mid-publication-cycle)
+  state="$dir/home/state"
+  write_task_meta "$dir" "$id"
+  real_sleep=$(command -v sleep)
+  cat > "$dir/fakebin/cp" <<SH
+#!/usr/bin/env bash
+'$REAL_CP' "\$@" || exit 1
+case " \$* " in
+  *"/.fm-pr-poll-check."*)
+    i=0
+    while [ ! -e '$dir/publish-release' ]; do
+      [ "\$i" -lt 3000 ] || exit 1
+      '$real_sleep' 0.02
+      i=\$((i + 1))
+    done
+    ;;
+esac
+SH
+  chmod +x "$dir/fakebin/cp"
+
+  FM_TEST_GH_HEAD=0123456789abcdef0123456789abcdef01234567 \
+    run_check_entry "$dir" "$id" https://github.com/o/r/pull/1 > "$dir/direct.out" 2> "$dir/direct.err" &
+  direct_pid=$!
+  i=0
+  while [ "$i" -lt 1500 ] && ! find "$state" -name '.fm-pr-poll-check.*' -print | grep . >/dev/null; do
+    sleep 0.02
+    i=$((i + 1))
+  done
+  [ "$i" -lt 1500 ] || fail "publication never reached its staged check"
+
+  : > "$dir/direct-in-flight"
+  FM_TEST_WATCH_BOUND_PAUSE="$dir/direct-in-flight" FM_TEST_GH_STATE=MERGED \
+    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/watch.out" 2> "$dir/watch.err" &
+  watch_pid=$!
+  # The beacon is touched at the top of every cycle, so its reappearance after
+  # removal proves one whole cycle ran while the publication was held.
+  i=0
+  while [ "$i" -lt 1500 ] && [ ! -e "$state/.last-watcher-beat" ]; do
+    sleep 0.02
+    i=$((i + 1))
+  done
+  [ "$i" -lt 1500 ] || fail "watcher never started a cycle"
+  rm -f "$state/.last-watcher-beat"
+  i=0
+  while [ "$i" -lt 1500 ] && [ ! -e "$state/.last-watcher-beat" ]; do
+    sleep 0.02
+    i=$((i + 1))
+  done
+  [ "$i" -lt 1500 ] || fail "watcher never finished a cycle during the held publication"
+  [ ! -e "$state/$id.check.sh" ] || fail "publication landed before the watcher cycle it was held for"
+
+  : > "$dir/publish-release"
+  direct_rc=0
+  wait "$direct_pid" || direct_rc=$?
+  rm -f "$dir/direct-in-flight"
+  rc=0
+  wait "$watch_pid" || rc=$?
+  [ "$direct_rc" -eq 0 ] || fail "held direct arming failed: $(cat "$dir/direct.err")"
+  [ "$rc" -eq 0 ] || fail "watcher did not complete after the held publication (rc=$rc): $(cat "$dir/watch.err")"
+  assert_no_grep 'rejected unauthenticated state checks' "$dir/watch.out" \
+    "watcher rejected a half-written publication as an unauthenticated check"
+  [ "$(grep -c '^check: .*: merged$' "$dir/watch.out")" -eq 1 ] \
+    || fail "watcher did not surface the completed poll's merge exactly once: $(cat "$dir/watch.out")"
+  [ ! -s "$dir/watch.err" ] || fail "watcher cycle during publication wrote to stderr: $(cat "$dir/watch.err")"
+  pass "a watcher cycle during publication reads no half-written artifact and writes nothing to stderr"
 }
 
 test_poll_publication_refuses_unsafe_destinations() {
@@ -3828,6 +3897,7 @@ test_rejected_metacharacter_bytes_are_inert
 test_static_poll_contract
 test_atomic_interruption_leaves_no_partial_artifact
 test_concurrent_watcher_sees_only_complete_publication
+test_watcher_cycle_mid_publication_reads_no_half_written_artifact
 test_poll_publication_refuses_unsafe_destinations
 test_live_artifact_single_link_and_privacy_validation
 test_registered_poll_survives_template_update_and_relaunch

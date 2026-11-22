@@ -99,8 +99,8 @@ const mergeScan = (left: ScanResult, right: ScanResult): ScanResult => {
 
 const scanWords = (words: ReadonlyArray<LexWord>, from: number, scan: (text: string, depth: number) => ScanResult, depth: number): ScanResult => {
   let result: ScanResult = { kind: "clean" };
-  for (let i = from; i < words.length; i += 1) {
-    for (const sub of words[i].subs) {
+  for (const word of words.slice(from)) {
+    for (const sub of word.subs) {
       result = mergeScan(result, scan(sub.content, depth + 1));
     }
   }
@@ -111,7 +111,7 @@ const findSubcommand = (words: ReadonlyArray<LexWord>, from: number): { index: n
   let i = from;
   while (i < words.length) {
     const word = words[i];
-    if (!word.literal || word.subs.length > 0) return undefined;
+    if (!word?.literal || word.subs.length > 0) return undefined;
     if (word.value.length === 0) {
       i += 1;
       continue;
@@ -134,7 +134,7 @@ const extractLavishCandidates = (words: ReadonlyArray<LexWord>, from: number): R
   let index = from;
   while (index < words.length) {
     const word = words[index];
-    if (!word.literal || word.subs.length > 0) {
+    if (!word?.literal || word.subs.length > 0) {
       index += 1;
       continue;
     }
@@ -143,8 +143,9 @@ const extractLavishCandidates = (words: ReadonlyArray<LexWord>, from: number): R
       index += 1;
       continue;
     }
-    if (value === "--site" && index + 1 < words.length) {
-      site = words[index + 1].value;
+    const next = words[index + 1];
+    if (value === "--site" && next !== undefined) {
+      site = next.value;
       index += 2;
       continue;
     }
@@ -193,7 +194,7 @@ const extractCurlCandidates = (words: ReadonlyArray<LexWord>, from: number, tool
   let index = from;
   while (index < words.length) {
     const word = words[index];
-    if (!word.literal || word.subs.length > 0) {
+    if (!word?.literal || word.subs.length > 0) {
       index += 1;
       continue;
     }
@@ -218,40 +219,41 @@ const extractCurlCandidates = (words: ReadonlyArray<LexWord>, from: number, tool
       continue;
     }
     if (tool === "curl") {
-      const joined = value.match(/^--([a-z-]+)=([\s\S]*)$/);
-      if (joined && CURL_UPLOAD_FLAGS.has(`--${joined[1]}`)) {
+      const [, flag, argument] = value.match(/^--([a-z-]+)=([\s\S]*)$/) ?? [];
+      if (argument !== undefined && CURL_UPLOAD_FLAGS.has(`--${flag}`)) {
         upload = true;
-        const file = fileOperand(joined[2]);
+        const file = fileOperand(argument);
         if (file !== undefined) files.push(file);
         index += 1;
         continue;
       }
-      if (joined?.[1] === "request") {
-        method = joined[2].toUpperCase();
+      if (flag === "request" && argument !== undefined) {
+        method = argument.toUpperCase();
         index += 1;
         continue;
       }
-      const shortD = value.match(/^-d([\s\S]+)$/);
-      if (shortD) {
+      const shortD = value.match(/^-d([\s\S]+)$/)?.[1];
+      if (shortD !== undefined) {
         upload = true;
-        const file = fileOperand(shortD[1]);
+        const file = fileOperand(shortD);
         if (file !== undefined) files.push(file);
         index += 1;
         continue;
       }
-      const shortF = value.match(/^-F([\s\S]+)$/);
-      if (shortF) {
+      const shortF = value.match(/^-F([\s\S]+)$/)?.[1];
+      if (shortF !== undefined) {
         upload = true;
-        const file = shortF[1].match(/@([^;,\s]+)/)?.[1];
+        const file = shortF.match(/@([^;,\s]+)/)?.[1];
         if (file !== undefined) files.push(file);
         index += 1;
         continue;
       }
     }
+    const next = words[index + 1];
     if (tool === "wget" && (value === "--post-data" || value === "--post-file")) {
       upload = true;
-      if (value === "--post-file" && index + 1 < words.length) {
-        files.push(words[index + 1].value);
+      if (value === "--post-file" && next !== undefined) {
+        files.push(next.value);
       }
       index += value === "--post-file" ? 2 : 1;
       continue;
@@ -276,8 +278,8 @@ const extractCurlCandidates = (words: ReadonlyArray<LexWord>, from: number, tool
         continue;
       }
     }
-    if ((value === "-X" || value === "--request") && index + 1 < words.length) {
-      method = words[index + 1].value.toUpperCase();
+    if ((value === "-X" || value === "--request") && next !== undefined) {
+      method = next.value.toUpperCase();
       index += 2;
       continue;
     }
@@ -324,7 +326,7 @@ const scanShellNode = (position: LexPosition, node: ReadonlyArray<LexToken>, sca
   const words = position.words;
   for (let i = position.index + 1; i < words.length; i += 1) {
     const word = words[i];
-    if (!word.literal || word.subs.length > 0) continue;
+    if (!word?.literal || word.subs.length > 0) continue;
     if (/^-[A-Za-z]*c[A-Za-z]*$/.test(word.value)) {
       let payloadIndex = i + 1;
       if (words[payloadIndex]?.value === "--") payloadIndex += 1;
@@ -371,12 +373,12 @@ const scanInterpreterNode = (position: LexPosition, tool: string, scan: (text: s
   if (tool === "deno" && words[index]?.value === "eval") index += 1;
   while (index < words.length) {
     const word = words[index];
-    if (!word.literal || word.subs.length > 0) {
+    if (!word?.literal || word.subs.length > 0) {
       index += 1;
       continue;
     }
-    if ((word.value === "-e" || word.value === "--eval" || word.value === "-c" || word.value === "-r") && index + 1 < words.length) {
-      const code = words[index + 1];
+    const code = words[index + 1];
+    if ((word.value === "-e" || word.value === "--eval" || word.value === "-c" || word.value === "-r") && code !== undefined) {
       if (code.subs.length === 0 && inlineCodePublishes(code.value)) {
         const site = code.value.match(/ht-ml[^/\\s]*\/([^\s"'/?#]+)/i)?.[1];
         const candidates: Array<PublishTarget> = site ? [{ kind: "site", id: site }] : [];
@@ -415,7 +417,7 @@ const scanNode = (node: ReadonlyArray<LexToken>, scan: (text: string, depth: num
   result = mergeScan(result, scanWords(words, 0, scan, depth));
   let position: LexPosition | undefined;
   try {
-    position = commandPosition(node as Array<{ type: string }>) as unknown as LexPosition;
+    position = commandPosition([...node]) as unknown as LexPosition;
   } catch {
     return hasStrongMarkers(node.map((token) => (isLexWord(token) ? token.value : "")).join(" ")) ? { kind: "unclassifiable" } : result;
   }
@@ -435,7 +437,7 @@ const scanNode = (node: ReadonlyArray<LexToken>, scan: (text: string, depth: num
   if (TRANSPARENT_RUNNERS.has(tool)) {
     for (let i = position.index + 1; i < position.words.length; i += 1) {
       const word = position.words[i];
-      if (!word.literal || word.subs.length > 0) continue;
+      if (!word?.literal || word.subs.length > 0) continue;
       if (!SHARE_BINARIES.has(lowerBase(word.value))) continue;
       const subcommand = findSubcommand(position.words, i + 1);
       if (subcommand?.value.toLowerCase() === "share") {
@@ -458,7 +460,7 @@ const scanNode = (node: ReadonlyArray<LexToken>, scan: (text: string, depth: num
   if (tool === "eval") {
     for (let i = position.index + 1; i < position.words.length; i += 1) {
       const word = position.words[i];
-      if (word.subs.length === 0) {
+      if (word?.subs.length === 0) {
         result = mergeScan(result, scan(word.value, depth + 1));
       }
     }
@@ -470,7 +472,7 @@ const scanNode = (node: ReadonlyArray<LexToken>, scan: (text: string, depth: num
   return result;
 };
 
-const scanProgram = Effect.fnUntraced(function* (text: string, depth: number): ScanResult {
+const scanProgram = (text: string, depth: number): ScanResult => {
   if (depth > MAX_DEPTH) {
     return hasStrongMarkers(text) ? { kind: "unclassifiable" } : { kind: "clean" };
   }
@@ -490,13 +492,12 @@ const scanProgram = Effect.fnUntraced(function* (text: string, depth: number): S
   } catch {
     return hasStrongMarkers(text) ? { kind: "unclassifiable" } : { kind: "clean" };
   }
-  const scan = (inner: string, innerDepth: number): ScanResult => Effect.runSync(scanProgram(inner, innerDepth));
   let result: ScanResult = { kind: "clean" };
   for (const node of program.nodes) {
-    result = mergeScan(result, scanNode(node, scan, depth));
+    result = mergeScan(result, scanNode(node, scanProgram, depth));
   }
   return result;
-});
+};
 
 interface ApprovalEntry {
   readonly at: number;
@@ -504,11 +505,11 @@ interface ApprovalEntry {
 }
 
 const parseApprovalLine = (line: string): ApprovalEntry | undefined => {
-  const match = line.match(/^\s*(\d+)\s+(\S(?:.*\S)?)\s*$/);
-  if (!match) return undefined;
-  const at = Number.parseInt(match[1], 10);
+  const [, epoch, target] = line.match(/^\s*(\d+)\s+(\S(?:.*\S)?)\s*$/) ?? [];
+  if (epoch === undefined || target === undefined) return undefined;
+  const at = Number.parseInt(epoch, 10);
   if (!Number.isSafeInteger(at)) return undefined;
-  return { at, target: match[2] };
+  return { at, target };
 };
 
 const normalizeTarget = (target: string): string => {
@@ -558,7 +559,7 @@ const confirmMessage = (display: string): string =>
   `File approvals cover the exact bytes for 30 minutes.`;
 
 const decide = Effect.fn("decide")(function* (command: string, home: string) {
-  const scan = yield* scanProgram(command, 0);
+  const scan = scanProgram(command, 0);
   if (scan.kind === "clean") return "allow\n";
   if (scan.kind === "unclassifiable") {
     return yield* new ShareRefused({
@@ -568,7 +569,7 @@ const decide = Effect.fn("decide")(function* (command: string, home: string) {
   }
   const nowSeconds = Math.floor(Date.now() / 1000);
   const fileEntries = yield* readApprovalEntries(home).pipe(
-    Effect.catchTag("ApprovalStoreError", () => Effect.succeed([] as ReadonlyArray<ApprovalEntry>))
+    Effect.catchTag("ApprovalStoreError", () => Effect.succeed<ReadonlyArray<ApprovalEntry>>([]))
   );
   if (scan.candidates.length === 0) {
     return yield* new ShareRefused({
@@ -596,8 +597,8 @@ const parseArgs = (argv: ReadonlyArray<string>): Effect.Effect<{ command: string
       for (let i = 0; i < argv.length; i += 1) {
         const name = argv[i];
         if (name === "--command" || name === "--root" || name === "--home") {
-          if (i + 1 >= argv.length) throw new Error(`${name} requires a value`);
           const value = argv[i + 1];
+          if (value === undefined) throw new Error(`${name} requires a value`);
           if (name === "--command") command = value;
           if (name === "--root") root = value;
           if (name === "--home") home = value;
@@ -616,18 +617,11 @@ const parseArgs = (argv: ReadonlyArray<string>): Effect.Effect<{ command: string
     catch: (cause) => new PolicyInputError({ detail: cause instanceof Error ? cause.message : String(cause) })
   });
 
-const policyMain = Effect.gen(function* () {
-  const args = yield* parseArgs(process.argv.slice(2)).pipe(Effect.catchTag("PolicyInputError", () => Effect.succeed(undefined)));
+export const runSharePolicy = Effect.fnUntraced(function* (argv: ReadonlyArray<string>) {
+  const args = yield* parseArgs(argv).pipe(Effect.catchTag("PolicyInputError", () => Effect.succeed(undefined)));
   if (args === undefined) return "allow\n";
   if (args.command.length === 0) return "allow\n";
-  const outcome = yield* decide(args.command, args.home).pipe(
-    Effect.catchTags({
-      ShareRefused: (refused) => Effect.succeed(`deny\t${refused.code}\t${refused.reason}\n`),
-      ApprovalStoreError: () => Effect.succeed("allow\n")
-    })
+  return yield* decide(args.command, args.home).pipe(
+    Effect.catchTag("ShareRefused", (refused) => Effect.succeed(`deny\t${refused.code}\t${refused.reason}\n`))
   );
-  return outcome;
 });
-
-const runnable = policyMain.pipe(Effect.catch(() => Effect.succeed("allow\n")));
-process.stdout.write(Effect.runSync(runnable));

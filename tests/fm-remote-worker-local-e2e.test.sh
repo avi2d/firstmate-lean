@@ -122,6 +122,7 @@ while [ "\$#" -gt 0 ]; do case "\$1" in -o) shift 2 ;; --) shift; break ;; *) ex
 [ "\$1" = testhost ] || exit 91
 [ "\$2" = "'$REMOTE_ROOT/bin/fm-remote-entrypoint.sh'" ] || exit 92
 shift 2
+if [ -f '$FAKE/fail-launch' ] && printf '%s' "\$4" | base64 -d 2>/dev/null | tr '\\0' '\\n' | grep -qx launch; then exit 255; fi
 if [ -d '$FAKE/race' ] && printf '%s' "\$4" | base64 -d 2>/dev/null | tr '\\0' '\\n' | grep -qx launch; then
   cp '$FAKE'/race/*.meta '$REMOTE_HOME/state/'
 fi
@@ -238,6 +239,15 @@ assert_deferred_untouched() {  # <task-id> <rc> <output> <deferring-step-line-pr
   [ ! -e "$REMOTE_HOME/state/$1.meta" ] || fail "a deferral left a host task record"
   [ ! -e "$FAKE/launch" ] || fail "a deferral launched a worker"
 }
+
+: > "$FAKE/fail-launch"
+rc=0
+out=$(remote_scout_spawn e2e-uncertain) || rc=$?
+[ "$rc" -eq 255 ] || fail "an interrupted launch did not report transport failure: $out"
+assert_grep 'remote_pending_reason=launch-exit-255' "$PARENT/state/e2e-uncertain.meta" 'pending launch lost its failure reason'
+assert_grep 'remote launch unconfirmed: launch-exit-255' "$PARENT/state/e2e-uncertain.status" 'pending launch did not report its failure reason'
+rm "$FAKE/fail-launch"
+pass 'interrupted launch records its cause rather than leaving silent pending metadata'
 
 printf '@heavy-limit 1\n' > "$REMOTE_HOME/config/project-capacity"
 rc=0

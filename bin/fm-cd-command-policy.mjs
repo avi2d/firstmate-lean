@@ -165,6 +165,7 @@ function invokedDirectly() {
   const entry = process.argv[1];
   if (!entry) return false;
   const self = fileURLToPath(import.meta.url);
+  if (path.basename(self) !== "fm-cd-command-policy.mjs") return false;
   try {
     return realpathSync(entry) === realpathSync(self);
   } catch {
@@ -172,9 +173,9 @@ function invokedDirectly() {
   }
 }
 
-if (invokedDirectly()) {
+export function runCdPolicy(argv) {
   try {
-    const args = parseArguments(process.argv.slice(2));
+    const args = parseArguments(argv);
     if (!args.commandSet || !args.command) {
       process.stdout.write("allow\n");
     } else {
@@ -190,5 +191,7 @@ if (invokedDirectly()) {
     process.exitCode = 1;
   }
 }
+
+if (invokedDirectly()) runCdPolicy(process.argv.slice(2));
 
 export { decision };

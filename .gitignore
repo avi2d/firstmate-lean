@@ -12,3 +12,5 @@ config/
 .claude/settings.local.json
 
 .tools/
+/node_modules/
+/.fm-build/
