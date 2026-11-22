@@ -1154,9 +1154,6 @@ case "${1:-} ${2:-}" in
     ;;
   'return --force')
     [ "$3" = "$FM_REUSE_POOL/slots/1/project" ]
-    if [ "${FM_FAKE_DROP_DEPS:-0}" = 1 ]; then
-      rm -rf "$3/node_modules"
-    fi
     printf 'available\n' > "$FM_REUSE_POOL/slot-status"
     ;;
   'status --json')
@@ -1177,7 +1174,7 @@ SH
   out=$(env FM_HOME="$HOME_DIR" HOME="$HOME_DIR/user-home" \
     FM_STATE_OVERRIDE="$HOME_DIR/state" FM_DATA_OVERRIDE="$HOME_DIR/data" \
     FM_PROJECTS_OVERRIDE="$HOME_DIR/projects" FM_CONFIG_OVERRIDE="$HOME_DIR/config" \
-    FM_BACKEND=herdr HERDR_SESSION=spawn-fixture FM_FAKE_DROP_DEPS=1 \
+    FM_BACKEND=herdr HERDR_SESSION=spawn-fixture \
     PATH="$FAKEBIN_DIR:$PATH" "$ROOT/bin/fm-teardown.sh" "$first" 2>&1) \
     || fail "teardown failed: $out"
   [ ! -L "$HOME_DIR/worktrees/$first" ] || fail "teardown left the old link"
