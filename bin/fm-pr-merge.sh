@@ -2607,6 +2607,10 @@ case "$PROVIDER" in
       sleep "$mergeable_retry_delay"
       mergeable_attempt=$((mergeable_attempt + 1))
     done
+    if [ "$mergeable_status" -eq 4 ]; then
+      printf 'verified: %s is already merged\n' "$URL"
+      exit 0
+    fi
     if [ "$mergeable_status" -ne 0 ]; then
       if [ "$mergeable_status" -eq 3 ]; then
         printf 'error: mergeability for %s is still being computed by GitHub; retry shortly\n' "$URL" >&2
