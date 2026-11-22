@@ -211,15 +211,20 @@ test_pending_checks_wait() {
   pass "pending checks wait"
 }
 
-test_empty_check_list_merges_instead_of_waiting_forever() {
+test_updated_head_without_checks_is_not_merged() {
   local c
-  c=$(make_case empty-rollup)
-  write_view "$c" "$HEAD_A" '[]'
-  write_merged "$c" '[]' '[]' '[]' '[]' '[]'
+  c=$(make_case updated-no-checks)
+  write_merged "$c" '[]' '[]'
+  printf '1\n' > "$c/behind"
+  sweep "$c"
+  grep -qxF "pr update-branch $URL" "$c/gh.log" || fail "updated-no-checks: branch was not updated"
+  printf '0\n' > "$c/behind"
+  write_view "$c" "$HEAD_B" '[]'
   sweep "$c"
   sweep "$c"
-  [ "$(merge_calls "$c")" -eq 1 ] || fail "empty-rollup: a pull request with no checks on a base whose merged pull requests carry none never merged: $(cat "$c/gh.log")"
-  pass "a pull request with an empty check list merges when none of the base's recent merged pull requests carried a check"
+  [ "$(merge_calls "$c")" -eq 0 ] || fail "updated-no-checks: merged a head without checks"
+  expect_verdict "$c" wait "no check has reported" updated-no-checks
+  pass "an updated head without checks is not merged"
 }
 
 test_head_with_no_check_yet_is_not_merged_while_the_base_carries_checks() {
@@ -604,7 +609,7 @@ test_green_without_a_settled_finish_merges_on_the_second_sighting
 test_unsettled_green_waits
 test_red_pull_request_stays_open
 test_pending_checks_wait
-test_empty_check_list_merges_instead_of_waiting_forever
+test_updated_head_without_checks_is_not_merged
 test_head_with_no_check_yet_is_not_merged_while_the_base_carries_checks
 test_head_reporting_only_its_first_workflow_is_not_merged_before_the_rest_report
 test_empty_check_list_is_not_merged_without_proof_the_base_expects_none
