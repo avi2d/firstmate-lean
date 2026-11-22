@@ -1102,6 +1102,37 @@ test_opt_in_still_refuses_an_unclean_slot_first() {
   pass "with the opt-in an unclean slot is still refused, untouched, before any base is chosen"
 }
 
+test_stale_link_is_replaced_and_abort_removes_it() {
+  local failures=0
+  (
+    local rec id=pool-link-stale-r1 out
+    rec=$(make_case link-stale "$id")
+    read_case_record "$rec"
+    lay_out_as_pool_slot
+    mkdir -p "$HOME_DIR/worktrees" "$CASE_DIR/wrong"
+    ln -s "$CASE_DIR/wrong" "$HOME_DIR/worktrees/$id"
+    out=$(run_spawn "$id" --scout)
+    [ $? -eq 0 ] || fail "spawn with a stale link failed: $out"
+    [ "$(cd "$HOME_DIR/worktrees/$id" && pwd -P)" = "$(cd "$POOL_DIR" && pwd -P)" ] \
+      || fail "spawn retained a stale task link"
+  ) || failures=$((failures + 1))
+  (
+    local rec id=pool-link-abort-r1 out
+    rec=$(make_originless_case link-abort "$id")
+    read_case_record "$rec"
+    lay_out_as_pool_slot
+    mkdir -p "$HOME_DIR/worktrees" "$CASE_DIR/wrong"
+    ln -s "$CASE_DIR/wrong" "$HOME_DIR/worktrees/$id"
+    git -C "$POOL_DIR" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+    out=$(run_spawn "$id" --mode no-mistakes --yolo off)
+    [ $? -ne 0 ] || fail "spawn unexpectedly succeeded with an unusable origin"
+    [ ! -L "$HOME_DIR/worktrees/$id" ] || fail "failed spawn left a task link"
+  ) || failures=$((failures + 1))
+  [ "$failures" -eq 0 ] || fail "$failures task-link spawn checks failed"
+  pass "spawn replaces stale task links and removes them on abort"
+}
+
+test_stale_link_is_replaced_and_abort_removes_it
 test_pool_slot_claim_follows_the_spawn_outcome
 test_stopped_task_keeps_its_recorded_worktree
 test_linked_spawning_home_rejects_primary_before_refresh

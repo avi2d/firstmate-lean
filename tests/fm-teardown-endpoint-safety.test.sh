@@ -735,6 +735,35 @@ test_teardown_does_not_remove_records_without_confirmed_pane_absence() {
   pass "teardown preserves the record and worktree even with force when pane absence is not proved"
 }
 
+test_teardown_removes_link_without_following_its_target() {
+  local failures=0 mode
+  for mode in normal retargeted; do
+    (
+      local dir id=link-task target
+      dir=$(make_case "link-$mode")
+      mark_case_as_treehouse_pool "$dir"
+      fm_write_meta "$dir/home/state/$id.meta" \
+        "window=close-fixture:w1:p2" "backend=herdr" "herdr_session=close-fixture" "herdr_workspace_id=w1" "herdr_tab_id=w1:t2" "herdr_pane_id=w1:p2" "endpoint_task_id=$id" \
+        "worktree=$dir/worktree" "project=$dir/project" "kind=scout" "worker_name=$id"
+      claim_pool_slot "$dir" "$id"
+      mkdir -p "$dir/home/worktrees" "$dir/other"
+      : > "$dir/other/sentinel"
+      target="$dir/worktree"
+      [ "$mode" != retargeted ] || target="$dir/other"
+      ln -s "$target" "$dir/home/worktrees/$id"
+      run_case "$dir" "$id" > "$dir/stdout" 2> "$dir/stderr" \
+        || fail "$mode link teardown failed: $(cat "$dir/stderr")"
+      grep -Fq "treehouse <return> <--force> <$dir/worktree>" "$dir/runtime.log" \
+        || fail "$mode link changed the returned worktree"
+      [ -f "$dir/other/sentinel" ] || fail "$mode link target was touched"
+      [ ! -L "$dir/home/worktrees/$id" ] || fail "$mode link survived teardown"
+    ) || failures=$((failures + 1))
+  done
+  [ "$failures" -eq 0 ] || fail "$failures task-link teardown checks failed"
+  pass "teardown removes task links without following retargeted links"
+}
+
+test_teardown_removes_link_without_following_its_target
 test_invalid_endpoint_records_refuse_before_mutation
 test_herdr_endpoint_validation_rejects_a_different_pane
 test_teardown_does_not_remove_records_without_confirmed_pane_absence
