@@ -53,7 +53,7 @@ remote_worker_note_agent() {  # <id> <host> <agent>
   case "$agent" in
     dead|missing)
       reason="stale: remote:$id (remote endpoint $agent on $host: the host reports the endpoint is gone - drive recovery on that host, or relaunch the worker through fm-control)"
-      fm_wake_append stale "remote:$id" "$reason" || { echo "watcher: DIAG exit 1 at fm-remote-worker-poll-lib.sh:$LINENO" >&2; exit 1; }
+      fm_wake_append stale "remote:$id" "$reason" || exit 1
       wake "$reason"
       ;;
   esac
@@ -109,8 +109,8 @@ remote_worker_rering() {
   esac
   [ "$rings" -ge "$FM_REMOTE_RING_MAX" ] || return 0
   reason="stale: remote:$id (unread firstmate instruction: $rings doorbell delivery attempts to the worker on $host without acknowledgement; inspect the worker)"
-  fm_wake_append stale "remote:$id" "$reason" || { echo "watcher: DIAG exit 1 at fm-remote-worker-poll-lib.sh:$LINENO" >&2; exit 1; }
-  printf '%s\n' "$record" > "$escf" || { echo "watcher: DIAG exit 1 at fm-remote-worker-poll-lib.sh:$LINENO" >&2; exit 1; }
+  fm_wake_append stale "remote:$id" "$reason" || exit 1
+  printf '%s\n' "$record" > "$escf" || exit 1
   wake "$reason"
 }
 

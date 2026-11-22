@@ -151,9 +151,9 @@ fm_procevent_owner_lease_age() {  # <state-root>
     use strict;
     use warnings;
     my $value = shift;
-    $value =~ /\A[0-9]+(?:\.[0-9]+)?\z/ or { echo "watcher: DIAG exit 1 at fm-procevent-lib.sh:$LINENO" >&2; exit 1; };
+    $value =~ /\A[0-9]+(?:\.[0-9]+)?\z/ or exit 1;
     my $now = clock_gettime(CLOCK_MONOTONIC);
-    $now >= $value or { echo "watcher: DIAG exit 1 at fm-procevent-lib.sh:$LINENO" >&2; exit 1; };
+    $now >= $value or exit 1;
     printf "%d\n", int($now - $value);
   ' "$value"
 }
@@ -274,10 +274,10 @@ fm_procevent_launch_floor_wait() {  # <state-root> <source-id> <registration-ide
     my ($path, $floor) = @ARGV;
     my $previous;
     if (-e $path) {
-      open my $in, "<", $path or { echo "watcher: DIAG exit 1 at fm-procevent-lib.sh:$LINENO" >&2; exit 1; };
+      open my $in, "<", $path or exit 1;
       my $value = <$in>;
-      close $in or { echo "watcher: DIAG exit 1 at fm-procevent-lib.sh:$LINENO" >&2; exit 1; };
-      defined($value) && $value =~ /\A([0-9]+(?:\.[0-9]+)?)\n?\z/ or { echo "watcher: DIAG exit 1 at fm-procevent-lib.sh:$LINENO" >&2; exit 1; };
+      close $in or exit 1;
+      defined($value) && $value =~ /\A([0-9]+(?:\.[0-9]+)?)\n?\z/ or exit 1;
       $previous = 0 + $1;
     }
     my $now = clock_gettime(CLOCK_MONOTONIC);
@@ -302,10 +302,10 @@ fm_procevent_launch_floor_wait() {  # <state-root> <source-id> <registration-ide
       my $path = shift;
       my $now = clock_gettime(CLOCK_MONOTONIC);
       my $tmp = "$path.$$";
-      sysopen(my $out, $tmp, O_WRONLY | O_CREAT | O_EXCL, 0600) or { echo "watcher: DIAG exit 1 at fm-procevent-lib.sh:$LINENO" >&2; exit 1; };
-      print {$out} "$now\n" or { echo "watcher: DIAG exit 1 at fm-procevent-lib.sh:$LINENO" >&2; exit 1; };
-      close $out or { echo "watcher: DIAG exit 1 at fm-procevent-lib.sh:$LINENO" >&2; exit 1; };
-      rename $tmp, $path or { echo "watcher: DIAG exit 1 at fm-procevent-lib.sh:$LINENO" >&2; exit 1; };
+      sysopen(my $out, $tmp, O_WRONLY | O_CREAT | O_EXCL, 0600) or exit 1;
+      print {$out} "$now\n" or exit 1;
+      close $out or exit 1;
+      rename $tmp, $path or exit 1;
     ' "$stamp" || status=1
   fi
   if [ "$status" -ne 0 ]; then
@@ -1114,8 +1114,8 @@ fm_procevent_capture() {
     if [ "${FM_PROCEVENT_CAPTURE_PINNED_INBOX:-}" != 1 ]; then
       inbox=$(fm_procevent_capture_inbox_prepare "$state") || return 1
       (
-        CDPATH='' cd -- "$inbox" 2>/dev/null || { echo "watcher: DIAG exit 1 at fm-procevent-lib.sh:$LINENO" >&2; exit 1; }
-        [ "$(pwd -P)" = "$inbox" ] || { echo "watcher: DIAG exit 1 at fm-procevent-lib.sh:$LINENO" >&2; exit 1; }
+        CDPATH='' cd -- "$inbox" 2>/dev/null || exit 1
+        [ "$(pwd -P)" = "$inbox" ] || exit 1
         FM_PROCEVENT_CAPTURE_PINNED_INBOX=1 \
           FM_PROCEVENT_CAPTURE_ABSOLUTE_INBOX="$inbox" \
           fm_procevent_capture "$@"

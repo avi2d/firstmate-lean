@@ -16,24 +16,6 @@ PR_CHECK="$ROOT/bin/fm-pr-check.sh"
 PR_MERGE="$ROOT/bin/fm-pr-merge.sh"
 POLL="$ROOT/bin/fm-pr-poll.sh"
 WATCH="$ROOT/bin/fm-watch.sh"
-if [ -n "${FM_DIAG_DUMP:-}" ]; then
-  fail() {
-    local t newest
-    printf 'not ok - %s\n' "$1" >&2
-    newest=$(find "$TMP_ROOT" -mindepth 2 -maxdepth 2 -name watch.out -printf '%T@ %h\n' 2>/dev/null | sort -n | tail -1)
-    newest=${newest#* }
-    if [ -n "$newest" ]; then
-      printf 'DIAG case %s\n' "$newest" >&2
-      ls -la "$newest/home/state" >&2
-      for t in "$newest"/*.out "$newest"/*.err "$newest"/home/state/.*.log "$newest"/home/state/*.status; do
-        [ -f "$t" ] || continue
-        printf 'DIAG file %s\n' "$t" >&2
-        tail -n 40 "$t" | cut -c1-400 >&2
-      done
-    fi
-    exit 1
-  }
-fi
 TEARDOWN="$ROOT/bin/fm-teardown.sh"
 REGISTER="$ROOT/bin/fm-check-register.sh"
 TMP_ROOT=$(fm_test_tmproot fm-pr-check-security)
@@ -1384,7 +1366,7 @@ run_watcher_bounded() {
   perl -MPOSIX=WNOHANG -MTime::HiRes=time,sleep -e 'my $pause=shift; my $left=60; my $pid=fork; die unless defined $pid; if (!$pid) { exec @ARGV } my $last=time; while (waitpid($pid, WNOHANG) == 0) { my $now=time; $left -= $now - $last unless length $pause && -e $pause; $last=$now; if ($left <= 0) { kill "TERM", $pid; waitpid $pid, 0; exit 124 } sleep 0.02 } exit($? >> 8)' \
     "${FM_TEST_WATCH_BOUND_PAUSE:-}" env "${check_timeout_env[@]}" \
       FM_HOME="$home" FM_ROOT_OVERRIDE="$watch_root" FM_CHECK_INTERVAL="$check_interval" \
-      FM_POLL=0.02 FM_HEARTBEAT=999999 FM_SIGNAL_GRACE=0 PATH="$fakebin:$BASE_PATH" "${FM_DIAG_WATCH:-$WATCH}" "$@"
+      FM_POLL=0.02 FM_HEARTBEAT=999999 FM_SIGNAL_GRACE=0 PATH="$fakebin:$BASE_PATH" "$WATCH" "$@"
 }
 
 test_rejected_metacharacter_bytes_are_inert() {
