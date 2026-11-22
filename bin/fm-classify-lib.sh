@@ -1393,7 +1393,7 @@ wait_declaration_marker() {  # <state> <task> <wait> -> marker path for one decl
 }
 
 _fm_wait_declaration_item() {  # <marker> <task> <verb> <note> <identity> <now>
-  local marker=$1 task=$2 verb=$3 note=$4 now=$6 sig what owner recheck due='' missing=''
+  local marker=$1 task=$2 verb=$3 note=$4 now=$6 sig what owner recheck previous raised due='' missing=''
   sig=$(printf '%s' "$5" | cksum); sig=${sig%% *}
   _fm_wait_declaration_fields "$note" what owner recheck
   [ -n "$what" ] || what='-'
@@ -1410,7 +1410,13 @@ _fm_wait_declaration_item() {  # <marker> <task> <verb> <note> <identity> <now>
     return 0
   fi
   [ "$now" -ge "$due" ] || return 0
-  [ "$(cat "$marker" 2>/dev/null)" = "overdue:$sig" ] && return 0
+  previous=$(cat "$marker" 2>/dev/null) || previous=
+  case "$previous" in
+    "overdue:$sig:"*)
+      raised=${previous##*:}
+      case "$raised" in *[!0-9]*|'') raised=0 ;; esac
+      [ "$now" -ge "$((raised + 3600))" ] || return 0 ;;
+  esac
   printf 'overdue\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
     "$task" "${marker##*/}" "overdue:$sig" "$verb" "$owner" "$recheck" "$(( now - due ))" "$what"
 }
@@ -1448,8 +1454,8 @@ EOF
   return 0
 }
 
-wait_declaration_record_raised() {  # <state> <scan item> -> remember it so it is raised once per declaration
-  local state=$1 type task name sig rest tmp
+wait_declaration_record_raised() {
+  local state=$1 type task name sig rest tmp now=${3:-$(date +%s)}
   [ -d "$state" ] || return 1
   IFS=$'\t' read -r type task name sig rest <<EOF
 $2
@@ -1458,8 +1464,56 @@ EOF
   case "$name" in */*) return 1 ;; esac
   [ -n "$sig" ] || return 1
   tmp=$(umask 077; mktemp "$state/.wait-flag-tmp.XXXXXX") || return 1
+  if [ "$type" = overdue ]; then sig="$sig:$now"; fi
   printf '%s' "$sig" >"$tmp" || { rm -f "$tmp"; return 1; }
   mv -f "$tmp" "$state/$name" || { rm -f "$tmp"; return 1; }
+}
+
+wait_ci_run_id() {
+  local line=$1
+  if [[ $line =~ ci_run=([0-9]+) ]]; then
+    printf '%s' "${BASH_REMATCH[1]}"
+  elif [[ $line =~ [Cc][Ii][[:space:]]+run[[:space:]]+([0-9]+) ]]; then
+    printf '%s' "${BASH_REMATCH[1]}"
+  elif [[ $line =~ https://github\.com/[^/[:space:]]+/[^/[:space:]]+/actions/runs/([0-9]+) ]]; then
+    printf '%s' "${BASH_REMATCH[1]}"
+  fi
+}
+
+wait_ci_repository() {
+  local meta=$1 project url
+  project=$(sed -n 's/^project=//p' "$meta" | tail -1)
+  [ -n "$project" ] || return 1
+  url=$(git -C "$project" remote get-url origin 2>/dev/null) || return 1
+  url=${url%/}; url=${url%.git}
+  case "$url" in
+    https://github.com/*) url=${url#https://github.com/} ;;
+    git@github.com:*) url=${url#git@github.com:} ;;
+    ssh://git@github.com/*) url=${url#ssh://git@github.com/} ;;
+    *) return 1 ;;
+  esac
+  [[ $url =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || return 1
+  printf '%s' "$url"
+}
+
+scan_wait_ci_completions() {
+  local state=$1 f task line run repo key response
+  command -v gh-axi >/dev/null 2>&1 || return 0
+  for f in "$state"/*.status; do
+    [ -f "$f" ] && [ ! -L "$f" ] || continue
+    task=${f##*/}; task=${task%.status}
+    line=$(status_declared_wait_line "$f")
+    status_is_paused "$line" || continue
+    run=$(wait_ci_run_id "$line")
+    [ -n "$run" ] || continue
+    repo=$(wait_ci_repository "$state/$task.meta") || continue
+    key=$(printf '%s' "$repo/$run" | cksum); key=${key%% *}
+    [ ! -e "$state/.wait-ci-$key" ] || continue
+    response=$(fm_run_timed 5 gh-axi api "repos/$repo/actions/runs/$run" --jq .status 2>/dev/null) || continue
+    printf '%s\n' "$response" | grep -Eq '^[[:space:]]*body: "?completed"?[[:space:]]*$' || continue
+    [ "$(status_declared_wait_line "$f")" = "$line" ] || continue
+    printf '%s\t%s\t%s\t%s\n' "$task" "$repo" "$run" "$key"
+  done
 }
 
 wait_declaration_item_reason() {  # <scan item> -> the human line both supervisors raise

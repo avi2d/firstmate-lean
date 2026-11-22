@@ -3563,6 +3563,20 @@ while :; do
 $stalled_items
 EOF
     fi
+    ci_items=$(scan_wait_ci_completions "$STATE") || ci_items=
+    if [ -n "$ci_items" ]; then
+      while IFS=$'\t' read -r ci_task ci_repo ci_run ci_key; do
+        [ -n "$ci_key" ] || continue
+        [ ! -e "$STATE/.wait-ci-$ci_key" ] || continue
+        reason="check: wait-ci: $ci_task CI run $ci_run completed in $ci_repo"
+        fm_wake_append check wait-ci "$reason" || exit 1
+        : > "$STATE/.wait-ci-$ci_key" || exit 1
+        touch "$STATE/.last-check"
+        wake "$reason"
+      done <<EOF
+$ci_items
+EOF
+    fi
     wait_items=$(scan_wait_declarations "$STATE") || {
       triage_log "declared-wait owner/recheck scan failed; continuing without it"
       wait_items=
