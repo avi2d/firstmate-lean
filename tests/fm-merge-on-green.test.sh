@@ -254,7 +254,7 @@ test_empty_check_list_is_not_merged_without_proof_the_base_expects_none() {
   write_view "$c" "$HEAD_A" '[]'
   expect_stays_open "$c" wait "no check has reported" empty-no-history
   : > "$c/merged.json"
-  expect_stays_open "$c" wait "could not be read" empty-unreadable-history
+  expect_stays_open "$c" wait "no check has reported" empty-unreadable-history
   pass "an empty check list stays open when the base has no merged pull request or its history is unreadable"
 }
 

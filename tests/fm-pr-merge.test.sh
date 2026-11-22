@@ -5052,9 +5052,7 @@ test_required_checks_reported_and_green_merge() {
   pass "fm-pr-merge merges when every required check reported and is green"
 }
 
-# GitHub reports an unprotected base as protected:false, so no required check
-# exists to wait for and an empty rollup is a complete verdict.
-test_empty_rollup_on_unprotected_base_merges() {
+test_empty_rollup_on_unprotected_base_does_not_merge() {
   local case_dir head
   head=b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1
   case_dir=$(make_case github-empty-rollup-unprotected)
@@ -5062,11 +5060,10 @@ test_empty_rollup_on_unprotected_base_merges() {
   write_github_rollup_json "$case_dir" "$head"
   write_github_required "$case_dir"
   run_required_case "$case_dir" 2001
-  expect_code 0 "$RC" "empty-rollup: a pull request with no checks on an unprotected base must merge: $(cat "$case_dir/stderr")"
-  assert_no_grep 'has not reported' "$case_dir/stderr" \
-    "empty-rollup: an empty check list was reported as an unreported check"
-  assert_logged_gh_merge "$case_dir" 2001 example/repo --squash
-  pass "fm-pr-merge merges a pull request with no checks when the base requires none"
+  expect_code 1 "$RC" "empty-rollup: a pull request with no checks must not merge"
+  assert_grep 'no passing check run has reported' "$case_dir/stderr" "empty-rollup: missing refusal"
+  assert_no_grep 'pr merge' "$case_dir/gh.log" "empty-rollup: merged without checks"
+  pass "fm-pr-merge refuses an empty rollup on an unprotected base"
 }
 
 test_red_and_unreported_checks_are_reported_together() {
@@ -5360,7 +5357,7 @@ test_allow_red_requires_one_separate_name
 test_allow_red_refused_on_gitlab
 test_required_check_that_never_reported_refuses
 test_required_checks_reported_and_green_merge
-test_empty_rollup_on_unprotected_base_merges
+test_empty_rollup_on_unprotected_base_does_not_merge
 test_red_and_unreported_checks_are_reported_together
 test_unreadable_required_set_refuses
 test_allow_missing_waives_only_the_named_unreported_check

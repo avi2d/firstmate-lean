@@ -551,10 +551,10 @@ A pull request merges only when every one of these holds, each read by the progr
 
 - The task is a ship task recording `yolo=on`, and the project's registry entry still carries `+yolo`.
 - The pull request is on GitHub, open, and not a draft.
-- No check is still running, and every one that reported passed.
+- At least one check run passed on the head, no check is still running, and every one that reported passed.
 - Every check the base expects has reported on this head.
   The expected checks are the names carried by each of the base's last five merged pull requests that carried any check, so a head whose workflow runs GitHub has not created yet waits instead of reading as green.
-  A head with no check at all merges only when none of those five carried one, and waits when the base has no merged pull request or they cannot be read.
+  A head with no reported checks waits, including when the base has no check history.
 - The task is not held for the user and has no open `needs-decision` or `blocked` key.
 - The pull request carries no merge hold for the user, recorded with `bin/fm-merge-hold.sh` against the pull request itself so it survives a task hold answer or release.
 - The pull request is the newest one the task's `done:` or `ready:` reports name.
