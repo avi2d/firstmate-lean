@@ -4000,6 +4000,40 @@ test_github_updated_head_failure_refuses_without_waiting_for_pending() {
   pass "fm-pr-merge refuses failed updated checks immediately while other checks are pending"
 }
 
+test_github_does_not_refuse_a_merged_pull_request_after_branch_update() {
+  local case_dir old_head new_head
+  old_head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  new_head=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+  case_dir=$(make_case github-merged-during-update)
+  add_gh_mocks "$case_dir" "$old_head"
+  jq '.mergeStateStatus = "BEHIND"' "$case_dir/github-view.json" > "$case_dir/view.tmp"
+  mv "$case_dir/view.tmp" "$case_dir/github-view.json"
+  jq --arg head "$new_head" '.state = "MERGED" | .mergeable = "UNKNOWN" | .headRefOid = $head' \
+    "$case_dir/github-view.json" > "$case_dir/github-view-after-update.json"
+  printf '%s\n' "$new_head" > "$case_dir/github-head-after-update"
+
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/6178 --update-branch \
+    > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "github-merged-during-update: merged pull request was refused: $(cat "$case_dir/stderr")"
+  assert_grep 'is merged' "$case_dir/stdout" "github-merged-during-update: merged outcome not reported"
+  assert_no_grep 'refusing to merge' "$case_dir/stderr" "github-merged-during-update: false refusal"
+  assert_no_grep 'pr merge' "$case_dir/gh.log" "github-merged-during-update: attempted a second merge"
+}
+
+test_github_does_not_refuse_an_already_merged_pull_request() {
+  local case_dir
+  case_dir=$(make_case github-already-merged)
+  add_gh_mocks "$case_dir" aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  jq '.state = "MERGED" | .mergeable = "UNKNOWN"' "$case_dir/github-view.json" > "$case_dir/view.tmp"
+  mv "$case_dir/view.tmp" "$case_dir/github-view.json"
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/6178 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "github-already-merged: merged pull request was refused: $(cat "$case_dir/stderr")"
+  assert_grep 'already merged' "$case_dir/stdout" "github-already-merged: outcome not reported"
+  assert_no_grep 'refusing to merge' "$case_dir/stderr" "github-already-merged: false refusal"
+  assert_no_grep 'pr merge' "$case_dir/gh.log" "github-already-merged: attempted another merge"
+}
+
 test_github_behind_updates_and_rechecks_before_merge() {
   local case_dir rc old_head new_head
   old_head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
@@ -5296,6 +5330,8 @@ test_absent_user_backend_config_directory_and_backlog_still_merge
 test_backend_override_bypasses_unreadable_user_config
 test_github_behind_update_keeps_expected_head_pin
 test_github_updated_head_failure_refuses_without_waiting_for_pending
+test_github_does_not_refuse_a_merged_pull_request_after_branch_update
+test_github_does_not_refuse_an_already_merged_pull_request
 test_github_behind_updates_and_rechecks_before_merge
 test_github_red_checks_refuse_and_allow_red_waives_named
 test_github_draft_or_unreadable_draft_state_refuses

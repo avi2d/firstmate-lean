@@ -2129,10 +2129,15 @@ fm_backend_herdr_workspace_prune_seeded_default_tab() {  # <session> <workspace_
 #
 # Returns 0 on success, 3 for a refusal whose exact reason is already on
 # stderr, and 1 for a failed or unparseable herdr call.
-fm_backend_herdr_workspace_ensure() {  # <session> <cwd> [<launcher-relationship>]
-  local session=$1 cwd=$2 relationship=${3:-launcher-home} wsid out label matches count status
+fm_backend_herdr_workspace_ensure() {  # <session> <cwd> [launcher-relationship] [standalone-label]
+  local session=$1 cwd=$2 relationship=${3:-launcher-home} standalone_label=${4:-} wsid label matches count status
   FM_BACKEND_HERDR_WS_ID=""
   FM_BACKEND_HERDR_WS_SEEDED_TAB_ID=""
+  FM_BACKEND_HERDR_WS_SEEDED_PANE_ID=""
+  if [ -n "$standalone_label" ]; then
+    fm_backend_herdr_workspace_create "$session" "$cwd" "$standalone_label"
+    return $?
+  fi
   if [ "$relationship" = launcher-home ]; then
     fm_backend_herdr_launcher_identity "$session" && status=0 || status=$?
     case "$status" in
@@ -2158,19 +2163,22 @@ fm_backend_herdr_workspace_ensure() {  # <session> <cwd> [<launcher-relationship
     printf '%s' "$wsid"
     return 0
   fi
+  fm_backend_herdr_workspace_create "$session" "$cwd" "$label"
+}
+
+fm_backend_herdr_workspace_create() {  # <session> <cwd> <label>
+  local session=$1 cwd=$2 label=$3 out
   out=$(fm_backend_herdr_cli "$session" workspace create --cwd "$cwd" --label "$label" --no-focus 2>/dev/null) || return 1
-  wsid=$(printf '%s' "$out" | jq -r '.result.workspace.workspace_id // empty' 2>/dev/null)
-  [ -n "$wsid" ] || return 1
-  FM_BACKEND_HERDR_WS_ID=$wsid
-  # Herdr seeds a new workspace with one auto-created default tab firstmate
-  # never uses. It is NOT pruned here: at this instant it is the workspace's
-  # ONLY tab, and closing a workspace's last tab deletes the workspace itself
-  # (verified against the real herdr binary) - pruning here would destroy the
-  # workspace we just created. fm_backend_herdr_create_task prunes it instead,
-  # once the first real task tab exists alongside it, and only ever targets
-  # this exact captured tab_id.
+  FM_BACKEND_HERDR_WS_ID=$(printf '%s' "$out" | jq -r '.result.workspace.workspace_id // empty' 2>/dev/null)
+  [ -n "$FM_BACKEND_HERDR_WS_ID" ] || return 1
+  # Closing the seeded tab before the task tab exists would delete the workspace.
   FM_BACKEND_HERDR_WS_SEEDED_TAB_ID=$(printf '%s' "$out" | jq -r '.result.tab.tab_id // empty' 2>/dev/null)
-  printf '%s' "$wsid"
+  FM_BACKEND_HERDR_WS_SEEDED_PANE_ID=$(printf '%s' "$out" | jq -r '.result.root_pane.pane_id // empty' 2>/dev/null)
+  printf '%s' "$FM_BACKEND_HERDR_WS_ID"
+}
+
+fm_backend_herdr_workspace_created_seed_pane() {
+  [ -z "$FM_BACKEND_HERDR_WS_SEEDED_TAB_ID" ] || printf '%s' "$FM_BACKEND_HERDR_WS_SEEDED_PANE_ID"
 }
 
 # fm_backend_herdr_container_ensure: the full spawn-time container-ensure
@@ -2192,17 +2200,17 @@ fm_backend_herdr_workspace_ensure() {  # <session> <cwd> [<launcher-relationship
 # fm_backend_herdr_launcher_identity compares the launcher's own ambient session
 # against this one, and shadowing would make that half of its cross-session
 # guard compare the pinned value with itself and pass vacuously.
-fm_backend_herdr_container_ensure() {  # <cwd-for-a-fresh-workspace> [<launcher-relationship>] [<session>]
-  local cwd=${1:-$PWD} relationship=${2:-launcher-home} session=${3:-} label status
+fm_backend_herdr_container_ensure() {  # <cwd> [launcher-relationship] [session] [standalone-label]
+  local cwd=${1:-$PWD} relationship=${2:-launcher-home} session=${3:-} standalone_label=${4:-} label status
   fm_backend_herdr_version_check || return 1
   [ -n "$session" ] || session=$(fm_backend_herdr_session)
   fm_backend_herdr_server_ensure "$session" || return 1
-  fm_backend_herdr_workspace_ensure "$session" "$cwd" "$relationship" >/dev/null && status=0 || status=$?
+  fm_backend_herdr_workspace_ensure "$session" "$cwd" "$relationship" "$standalone_label" >/dev/null && status=0 || status=$?
   # A 3 already reported the exact placement it refused to guess at; adding the
   # generic message here would bury it.
   [ "$status" -ne 3 ] || return 1
   if [ "$status" -ne 0 ] || [ -z "$FM_BACKEND_HERDR_WS_ID" ]; then
-    label=$(fm_backend_herdr_workspace_label)
+    label=${standalone_label:-$(fm_backend_herdr_workspace_label)}
     echo "error: failed to ensure herdr workspace '$label' in session '$session'" >&2
     return 1
   fi
@@ -2825,26 +2833,20 @@ EOF
 # reusing any existing workspace, in <session> (default: the ambient one).
 # The caller must atomically publish the projection journal first.
 # This function sets exact response-derived globals and prints nothing:
-#   FM_BACKEND_HERDR_PROJECTION_SESSION
 #   FM_BACKEND_HERDR_PROJECTION_WORKSPACE_ID
 #   FM_BACKEND_HERDR_PROJECTION_SEEDED_TAB_ID
 #   FM_BACKEND_HERDR_PROJECTION_SEEDED_PANE_ID
 #   FM_BACKEND_HERDR_PROJECTION_TAB_ID
 #   FM_BACKEND_HERDR_PROJECTION_PANE_ID
-#   FM_BACKEND_HERDR_PROJECTION_CLEANUP_SAFE
-# CLEANUP_SAFE becomes 1 only after both creates returned complete exact IDs.
-# A missing, failed, or malformed create response stays ambiguous and grants no
-# cleanup authority.
+# Only complete create responses grant authority to close their panes.
 fm_backend_herdr_projection_create_task() {  # <cwd> <workspace-label> <task-label> [<session>]
   local cwd=$1 workspace_label=$2 task_label=$3 session=${4:-} out tabs panes tab_count pane_count focus_before active_tab
   local sole_workspace=0 tab_focus_flag=--no-focus
-  FM_BACKEND_HERDR_PROJECTION_SESSION=""
   FM_BACKEND_HERDR_PROJECTION_WORKSPACE_ID=""
   FM_BACKEND_HERDR_PROJECTION_SEEDED_TAB_ID=""
   FM_BACKEND_HERDR_PROJECTION_SEEDED_PANE_ID=""
   FM_BACKEND_HERDR_PROJECTION_TAB_ID=""
   FM_BACKEND_HERDR_PROJECTION_PANE_ID=""
-  FM_BACKEND_HERDR_PROJECTION_CLEANUP_SAFE=0
 
   fm_backend_herdr_version_check || return 1
   [ -n "$session" ] || session=$(fm_backend_herdr_session)
@@ -2866,22 +2868,22 @@ fm_backend_herdr_projection_create_task() {  # <cwd> <workspace-label> <task-lab
     echo "error: herdr presentation workspace create failed ambiguously; leaving its journal quarantined" >&2
     return 1
   fi
-  if [ -n "$focus_before" ]; then
-    fm_backend_herdr_projection_focus_restore "$session" "$focus_before" "workspace create" || {
-      echo "error: herdr presentation workspace create did not preserve exact active focus; leaving its journal quarantined" >&2
-      return 1
-    }
-  fi
-  # shellcheck disable=SC2034  # caller consumes the response-derived global
-  FM_BACKEND_HERDR_PROJECTION_SESSION=$session
   FM_BACKEND_HERDR_PROJECTION_WORKSPACE_ID=$(printf '%s' "$out" | jq -r '.result.workspace.workspace_id // empty' 2>/dev/null)
   FM_BACKEND_HERDR_PROJECTION_SEEDED_TAB_ID=$(printf '%s' "$out" | jq -r '.result.tab.tab_id // empty' 2>/dev/null)
   FM_BACKEND_HERDR_PROJECTION_SEEDED_PANE_ID=$(printf '%s' "$out" | jq -r '.result.root_pane.pane_id // empty' 2>/dev/null)
   if [ -z "$FM_BACKEND_HERDR_PROJECTION_WORKSPACE_ID" ] \
      || [ -z "$FM_BACKEND_HERDR_PROJECTION_SEEDED_TAB_ID" ] \
      || [ -z "$FM_BACKEND_HERDR_PROJECTION_SEEDED_PANE_ID" ]; then
+    FM_BACKEND_HERDR_PROJECTION_SEEDED_PANE_ID=""
     echo "error: herdr presentation workspace create returned incomplete IDs; leaving its journal quarantined" >&2
     return 1
+  fi
+
+  if [ -n "$focus_before" ]; then
+    fm_backend_herdr_projection_focus_restore "$session" "$focus_before" "workspace create" || {
+      echo "error: herdr presentation workspace create did not preserve exact active focus; leaving its journal quarantined" >&2
+      return 1
+    }
   fi
 
   focus_before=$(fm_backend_herdr_projection_focus_snapshot "$session") || {
@@ -2906,20 +2908,23 @@ fm_backend_herdr_projection_create_task() {  # <cwd> <workspace-label> <task-lab
     echo "error: herdr presentation task-tab create failed ambiguously; leaving its journal quarantined" >&2
     return 1
   fi
+  local task_tab task_pane
+  task_tab=$(printf '%s' "$out" | jq -r '.result.tab.tab_id // empty' 2>/dev/null)
+  task_pane=$(printf '%s' "$out" | jq -r '.result.root_pane.pane_id // empty' 2>/dev/null)
+  if [ -n "$task_tab" ] && [ -n "$task_pane" ]; then
+    FM_BACKEND_HERDR_PROJECTION_TAB_ID=$task_tab
+    FM_BACKEND_HERDR_PROJECTION_PANE_ID=$task_pane
+  fi
   if [ "$sole_workspace" = 0 ]; then
     fm_backend_herdr_projection_focus_restore "$session" "$focus_before" "task-tab create" || {
       echo "error: herdr presentation task-tab create did not preserve exact active focus; leaving its journal quarantined" >&2
       return 1
     }
   fi
-  FM_BACKEND_HERDR_PROJECTION_TAB_ID=$(printf '%s' "$out" | jq -r '.result.tab.tab_id // empty' 2>/dev/null)
-  FM_BACKEND_HERDR_PROJECTION_PANE_ID=$(printf '%s' "$out" | jq -r '.result.root_pane.pane_id // empty' 2>/dev/null)
-  if [ -z "$FM_BACKEND_HERDR_PROJECTION_TAB_ID" ] || [ -z "$FM_BACKEND_HERDR_PROJECTION_PANE_ID" ]; then
+  if [ -z "$FM_BACKEND_HERDR_PROJECTION_PANE_ID" ]; then
     echo "error: herdr presentation task-tab create returned incomplete IDs; leaving its journal quarantined" >&2
     return 1
   fi
-  # shellcheck disable=SC2034  # caller consumes the same-process cleanup gate
-  FM_BACKEND_HERDR_PROJECTION_CLEANUP_SAFE=1
   focus_before=$(fm_backend_herdr_projection_focus_snapshot "$session") || {
     echo "error: herdr presentation seeded-tab prune could not capture exact active workspace and tab; refusing a focus-unsafe prune" >&2
     return 1
