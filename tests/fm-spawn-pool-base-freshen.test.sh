@@ -674,6 +674,9 @@ test_pool_slot_claim_follows_the_spawn_outcome() {
   expect_code 0 "$status" "spawn from a Treehouse slot should launch"$'\n'"$out"
   assert_grep "worktree=$POOL_DIR" "$HOME_DIR/state/$id.meta" \
     "spawn did not publish the relocated slot as its worktree"
+  [ -L "$HOME_DIR/worktrees/$id" ] || fail "spawn omitted the task-named worktree link"
+  [ "$(cd "$HOME_DIR/worktrees/$id" && pwd -P)" = "$(cd "$POOL_DIR" && pwd -P)" ] \
+    || fail "the task-named link does not resolve to the recorded slot"
   [ -f "$SLOT_CLAIM" ] || fail "spawn left its Treehouse slot unclaimed: $out"
   grep -Fxq -- "task=$id" "$SLOT_CLAIM" \
     || fail "the slot claim does not name the spawned task: $(cat "$SLOT_CLAIM")"
@@ -1099,6 +1102,101 @@ test_opt_in_still_refuses_an_unclean_slot_first() {
   pass "with the opt-in an unclean slot is still refused, untouched, before any base is chosen"
 }
 
+test_stale_link_is_replaced_and_abort_removes_it() {
+  local failures=0
+  (
+    local rec id=pool-link-stale-r1 out
+    rec=$(make_case link-stale "$id")
+    read_case_record "$rec"
+    lay_out_as_pool_slot
+    mkdir -p "$HOME_DIR/worktrees" "$CASE_DIR/wrong"
+    ln -s "$CASE_DIR/wrong" "$HOME_DIR/worktrees/$id"
+    out=$(run_spawn "$id" --scout) || fail "spawn with a stale link failed: $out"
+    [ "$(cd "$HOME_DIR/worktrees/$id" && pwd -P)" = "$(cd "$POOL_DIR" && pwd -P)" ] \
+      || fail "spawn retained a stale task link"
+  ) || failures=$((failures + 1))
+  (
+    local rec id=pool-link-abort-r1 out
+    rec=$(make_originless_case link-abort "$id")
+    read_case_record "$rec"
+    lay_out_as_pool_slot
+    mkdir -p "$HOME_DIR/worktrees" "$CASE_DIR/wrong"
+    ln -s "$CASE_DIR/wrong" "$HOME_DIR/worktrees/$id"
+    git -C "$POOL_DIR" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+    if out=$(run_spawn "$id" --mode no-mistakes --yolo off); then
+      fail "spawn unexpectedly succeeded with an unusable origin"
+    fi
+    [ ! -L "$HOME_DIR/worktrees/$id" ] || fail "failed spawn left a task link"
+  ) || failures=$((failures + 1))
+  [ "$failures" -eq 0 ] || fail "$failures task-link spawn checks failed"
+  pass "spawn replaces stale task links and removes them on abort"
+}
+
+test_returned_slot_reuses_dependencies_with_a_new_link() {
+  local rec first=pool-reuse-r1 second=pool-reuse-r2 out state
+  rec=$(make_case reuse-links "$first")
+  read_case_record "$rec"
+  lay_out_as_pool_slot
+  printf 'node_modules/\n' >> "$PROJECT_DIR/.git/info/exclude"
+  mkdir -p "$POOL_DIR/node_modules/example"
+  printf 'installed dependency\n' > "$POOL_DIR/node_modules/example/index.js"
+  export FM_REUSE_POOL="$CASE_DIR"
+  printf 'available\n' > "$FM_REUSE_POOL/slot-status"
+  cat > "$FAKEBIN_DIR/treehouse" <<'SH'
+#!/usr/bin/env bash
+set -eu
+case "${1:-} ${2:-}" in
+  'get --lease')
+    [ "$(cat "$FM_REUSE_POOL/slot-status")" = available ]
+    printf 'leased\n' > "$FM_REUSE_POOL/slot-status"
+    printf '%s' "$FM_FAKE_PANE_PATH" > "$(dirname "$0")/lease"
+    printf '%s\n' "$FM_FAKE_PANE_PATH"
+    ;;
+  'return --force')
+    [ "$3" = "$FM_REUSE_POOL/slots/1/project" ]
+    printf 'available\n' > "$FM_REUSE_POOL/slot-status"
+    ;;
+  'status --json')
+    status=$(cat "$FM_REUSE_POOL/slot-status")
+    printf '[{"name":"1","path":"%s","status":"%s","lease_id":""}]\n' "$FM_REUSE_POOL/slots/1/project" "$status"
+    ;;
+  'lease --help') printf '  treehouse lease <name> [flags]\n' ;;
+  *) exit 2 ;;
+esac
+SH
+  chmod +x "$FAKEBIN_DIR/treehouse"
+  out=$(run_spawn "$first" --scout) || fail "first spawn failed: $out"
+  [ -L "$HOME_DIR/worktrees/$first" ] || fail "first spawn omitted its link"
+  state=$(PATH="$FAKEBIN_DIR:$PATH" treehouse status --json)
+  assert_contains "$state" '"status":"leased"' "first spawn did not lease the slot"
+  printf '# Report\n\n## References\n\n- fixture source\n' > "$HOME_DIR/data/$first/report.md"
+  printf 'decisions_reviewed=1\n' >> "$HOME_DIR/state/$first.meta"
+  out=$(env FM_HOME="$HOME_DIR" HOME="$HOME_DIR/user-home" \
+    FM_STATE_OVERRIDE="$HOME_DIR/state" FM_DATA_OVERRIDE="$HOME_DIR/data" \
+    FM_PROJECTS_OVERRIDE="$HOME_DIR/projects" FM_CONFIG_OVERRIDE="$HOME_DIR/config" \
+    FM_BACKEND=herdr HERDR_SESSION=spawn-fixture \
+    PATH="$FAKEBIN_DIR:$PATH" "$ROOT/bin/fm-teardown.sh" "$first" 2>&1) \
+    || fail "teardown failed: $out"
+  [ ! -L "$HOME_DIR/worktrees/$first" ] || fail "teardown left the old link"
+  state=$(PATH="$FAKEBIN_DIR:$PATH" treehouse status --json)
+  assert_contains "$state" '"status":"available"' "teardown did not return the slot"
+  [ "$(cat "$POOL_DIR/node_modules/example/index.js")" = "installed dependency" ] \
+    || fail "teardown lost installed dependencies"
+  fm_test_spawn_brief "$HOME_DIR" "$second"
+  out=$(run_spawn "$second" --scout) || fail "second spawn failed: $out"
+  assert_grep "worktree=$POOL_DIR" "$HOME_DIR/state/$second.meta" \
+    "second spawn did not reuse the returned slot"
+  [ -L "$HOME_DIR/worktrees/$second" ] || fail "second spawn omitted its new link"
+  [ "$(cd "$HOME_DIR/worktrees/$second" && pwd -P)" = "$(cd "$POOL_DIR" && pwd -P)" ] \
+    || fail "second spawn's link does not resolve to the reused slot"
+  [ ! -L "$HOME_DIR/worktrees/$first" ] || fail "second spawn restored the old link"
+  [ "$(cat "$POOL_DIR/node_modules/example/index.js")" = "installed dependency" ] \
+    || fail "second spawn lost installed dependencies"
+  pass "returned slot keeps dependencies and gets a new task link when reused"
+}
+
+test_returned_slot_reuses_dependencies_with_a_new_link
+test_stale_link_is_replaced_and_abort_removes_it
 test_pool_slot_claim_follows_the_spawn_outcome
 test_stopped_task_keeps_its_recorded_worktree
 test_linked_spawning_home_rejects_primary_before_refresh

@@ -822,6 +822,7 @@ SPAWN_TASK_SET_LOCK_HELD=0
 SPAWN_TREEHOUSE_PROJECT_LOCK=
 SPAWN_TREEHOUSE_PROJECT_LOCK_HELD=0
 SPAWN_SLOT_CLAIMED=0
+SPAWN_WORKTREE_LINK_CREATED=0
 RELAUNCH_REPLACEMENT_PENDING=0
 RELAUNCH_REPLACEMENT_BUSY_GEN=
 RELAUNCH_REPLACEMENT_HARNESS=
@@ -918,6 +919,10 @@ spawn_abort_cleanup() {
     else
       echo "warning: the worktree $WT stays leased to $ID after the failed spawn; once inspected, run 'treehouse return --force $WT' from $PROJ_ABS" >&2
     fi
+  fi
+  if [ "$SPAWN_WORKTREE_LINK_CREATED" = 1 ] &&
+    [ ! -e "$STATE/$ID.meta" ] && [ ! -L "$STATE/$ID.meta" ]; then
+    rm -f -- "$FM_HOME/worktrees/$WORKER_NAME" || true
   fi
   # A spawn that aborts after claiming its slot but before its record survives
   # must not leave a claim naming a task no record describes. The release is a
@@ -2937,6 +2942,16 @@ else
       exit 1
     fi
     SPAWN_SLOT_CLAIMED=1
+    mkdir -p "$FM_HOME/worktrees"
+    SPAWN_WORKTREE_LINK="$FM_HOME/worktrees/$WORKER_NAME"
+    if [ -L "$SPAWN_WORKTREE_LINK" ]; then
+      rm -f -- "$SPAWN_WORKTREE_LINK"
+    elif [ -e "$SPAWN_WORKTREE_LINK" ]; then
+      echo "error: refusing to replace non-symlink $SPAWN_WORKTREE_LINK" >&2
+      exit 1
+    fi
+    ln -s -- "$WT" "$SPAWN_WORKTREE_LINK"
+    SPAWN_WORKTREE_LINK_CREATED=1
   fi
 fi
 if [ "$RELAUNCH" -eq 0 ]; then
@@ -3301,7 +3316,7 @@ fi
 preserve_relaunch_meta() {
   awk -F= '
     BEGIN {
-      split("window endpoint_task_id worktree project harness kind mode yolo branch tasktmp base_branch upstream_consent forge backup_remote backup_prefix model effort account account_provider claude_account quota_gate busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id home projects control_relaunch_tx", keys, " ")
+      split("window endpoint_task_id worktree worker_name project harness kind mode yolo branch tasktmp base_branch upstream_consent forge backup_remote backup_prefix model effort account account_provider claude_account quota_gate busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id home projects control_relaunch_tx", keys, " ")
 
       for (i in keys) owned[keys[i]] = 1
     }
@@ -3312,6 +3327,7 @@ preserve_relaunch_meta() {
   echo "window=$META_WINDOW"
   echo "endpoint_task_id=$ID"
   echo "worktree=$WT"
+  echo "worker_name=$WORKER_NAME"
   echo "project=$PROJ_ABS"
   echo "harness=$HARNESS"
   echo "kind=$KIND"
