@@ -3,7 +3,6 @@ set -u
 
 # shellcheck source=tests/wake-helpers.sh
 . "$(dirname "${BASH_SOURCE[0]}")/wake-helpers.sh"
-. "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-classify-lib.sh"
 # shellcheck source=/dev/null
@@ -175,7 +174,18 @@ test_completed_ci_failure_reaches_worker_once() {
   git -C "$dir" init -q
   git -C "$dir" remote add origin https://github.com/example/repo.git
   fm_write_herdr_meta "$state/t.meta" "sess:w1:p1" "kind=ship" "harness=pi" "project=$dir"
-  fm_test_fake_herdr_send "$dir/fakebin"
+  cat > "$dir/fakebin/herdr" <<'SCRIPT'
+#!/usr/bin/env bash
+case "${1:-} ${2:-}" in
+  'status --json') printf '%s\n' '{"client":{"version":"0.9.5","protocol":22},"server":{"running":true}}' ;;
+  'pane get') printf '{"result":{"pane":{"pane_id":"%s"}}}\n' "$3" ;;
+  'pane read') printf '%s\n' '╭────╮' '│    │' '╰────╯' ;;
+  'pane send-text') printf '%s' "$4" >> "$FM_SEND_LOG" ;;
+  'pane send-keys') : ;;
+  *) exit 1 ;;
+esac
+SCRIPT
+  chmod +x "$dir/fakebin/herdr"
   cat > "$dir/fakebin/gh-axi" <<'SCRIPT'
 #!/usr/bin/env bash
 case "$*" in
