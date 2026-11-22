@@ -452,6 +452,18 @@ test_version_check_refuses_missing_herdr() {
   pass "fm_backend_herdr_version_check: refuses loudly when herdr is not installed"
 }
 
+test_events_capable_missing_herdr_prints_no_refusal() {
+  local dir err status
+  dir="$TMP_ROOT/events-capable-missing"; mkdir -p "$dir/empty-fakebin"
+  ln -sf "$(command -v bash)" "$dir/empty-fakebin/bash"
+  err=$( PATH="$dir/empty-fakebin" \
+    bash -c 'unset FM_BACKEND_HERDR_EVENTS_FORCE; . "$0/bin/backends/herdr.sh"; fm_backend_herdr_events_capable default' "$ROOT" 2>&1 >/dev/null )
+  status=$?
+  [ "$status" -ne 0 ] || fail "events_capable should fail closed when herdr is not installed"
+  [ -z "$err" ] || fail "events_capable printed a refusal for a probe that only selects the poll loop: $err"
+  pass "fm_backend_herdr_events_capable: fails closed silently when herdr is not installed"
+}
+
 # --- workspace_label: per-firstmate-HOME resolution (P3, herdr-sm-spaces-k4) -
 
 test_workspace_label_uses_firstmate_not_the_home_directory_name() {
@@ -6614,6 +6626,7 @@ test_canonical_socket_path_refuses_empty_cygpath_output() {
 test_version_check_accepts_current_protocol
 test_version_check_refuses_old_protocol
 test_version_check_refuses_missing_herdr
+test_events_capable_missing_herdr_prints_no_refusal
 test_workspace_label_uses_firstmate_not_the_home_directory_name
 test_cli_helper_sets_env_and_appends_trailing_session_flag
 test_agent_state_bypasses_a_stale_client_shadowing_a_compatible_one
