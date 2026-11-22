@@ -224,8 +224,8 @@ make_remote_ci_case() {
   git -C "$host/projects/repo" remote add origin https://github.com/example/remote-ci.git || fail "remote origin setup failed"
   printf '%s\n' "- lab - stub host (host: stub; root: $ROOT; home: $host; scope: tests; projects: repo; added 2026-01-01)" > "$dir/data/remote-homes.md"
   fm_write_meta "$dir/state/remote-ci.meta" "window=remote:remote-ci" "endpoint_task_id=remote-ci" "kind=ship" "mode=local-only" \
-    "remote_host=stub" "remote_route=lab" "project=/remote-only/project"
-  fm_write_herdr_meta "$host/state/remote-ci.meta" 'fm-remote:w1:p1' 'kind=ship' 'harness=pi' "project=$host/projects/repo"
+    "remote_host=stub" "remote_route=lab" "worktree=/remote-only/worktree" "project=/remote-only/project"
+  fm_write_herdr_meta "$host/state/remote-ci.meta" 'fm-remote:w1:p1' 'kind=ship' 'harness=pi' "worktree=$host/worktree" "project=$host/projects/repo"
   printf 'paused: CI run 456 | owner=GitHub CI | recheck=2099-01-01\n' > "$dir/state/remote-ci.status"
   prime_status_seen "$dir/state" "$dir/state/remote-ci.status" || fail "priming remote status failed"
 
@@ -237,7 +237,7 @@ while [ "$#" -gt 0 ]; do
 done
 [ "$1" = stub ] || exit 91
 shift 2
-args=$(printf '%s' "$4" | base64 -d | tr '\000' '\n')
+args=$(printf '%s' "$4" | base64 --decode | tr '\000' '\n')
 command=$(printf '%s\n' "$args" | head -1)
 [ "$command" = fm-remote-worker-control.sh ] || exit 92
 verb=$(printf '%s\n' "$args" | sed -n '2p')
@@ -293,6 +293,13 @@ remote_ci_watch() {
   wait_for_exit "$pid" 300 || fail "remote CI watcher did not finish: $(cat "$output")"
 }
 
+ack_remote_ci_wake() {
+  local dir=$1
+  FM_HOME="$dir" FM_STATE_OVERRIDE="$dir/state" PATH="$dir/fakebin:$PATH" \
+    "$ROOT/bin/fm-wake-drain.sh" > "$dir/drain.out" 2> "$dir/drain.err" || fail "could not read the CI completion wake"
+  FM_HOME="$dir" PATH="$dir/fakebin:$PATH" ack_drain_err "$dir/state" "$dir/drain.err" || fail "could not acknowledge the CI completion wake"
+}
+
 test_remote_ci_does_not_drop_a_failed_doorbell() {
   local dir inbox body
   dir=$(make_case wait-ci-remote-retry)
@@ -307,8 +314,9 @@ test_remote_ci_does_not_drop_a_failed_doorbell() {
   [ ! -s "$dir/submitted" ] || fail "the initial failure fixture actually submitted"
   : > "$dir/allow-submit"
   : > "$dir/stop-after-retry"
+  ack_remote_ci_wake "$dir"
   remote_ci_watch "$dir" "$dir/retry.out"
-  assert_grep 'signal:.*probe' "$dir/retry.out" "a successful final retry raised a wake instead of stopping the ladder"
+  grep -Eq 'signal:.*probe' "$dir/retry.out" || fail "the watcher did not reach the poll after the successful retry: $(cat "$dir/retry.out")"
   [ "$(grep -c 'Firstmate instruction waiting' "$dir/attempts")" -eq 2 ] || fail "the watcher dropped or repeated the remote retry"
   [ -s "$dir/submitted" ] || fail "the retry did not submit the doorbell"
   [ ! -e "$inbox/002.msg" ] || fail "the watcher enqueued the same CI result again"
@@ -322,8 +330,9 @@ test_remote_ci_does_not_retry_forever() {
   inbox="$dir/execution/state/remote-ci.inbox"
   remote_ci_watch "$dir" "$dir/complete.out"
   assert_grep 'check: wait-ci: remote-ci CI run 456 completed' "$dir/complete.out" "the CI completion wake was missing"
+  ack_remote_ci_wake "$dir"
   remote_ci_watch "$dir" "$dir/exhausted.out" 2
-  assert_grep 'stale: remote:remote-ci.*2 doorbell delivery attempts' "$dir/exhausted.out" "exhausted retries did not name the remote task"
+  grep -Eq 'stale: remote:remote-ci.*2 doorbell delivery attempts' "$dir/exhausted.out" || fail "exhausted retries did not name the remote task: $(cat "$dir/exhausted.out")"
   [ "$(grep -c 'Firstmate instruction waiting' "$dir/attempts")" -eq 3 ] || fail "the initial attempt and both retries did not reach the remote pane"
   [ -f "$inbox/001.msg" ] && [ ! -e "$inbox/002.msg" ] || fail "retry exhaustion lost or duplicated the CI result"
   [ ! -s "$dir/submitted" ] || fail "the exhausted failure fixture actually submitted"
