@@ -101,13 +101,13 @@ test_cleared_wait_quiet() {
 test_raised_once_then_rearmed_by_redeclaration() {
   local dir state items
   dir=$(make_case wait-once); state="$dir/state"
-  printf 'paused [at=1792800000]: release cut | owner=ci | recheck=2026-10-24\n' > "$state/t.status"
+  printf 'paused [at=1792800000]: release cut | owner=release | recheck=2026-10-24\n' > "$state/t.status"
   items=$(scan "$state") || fail "the first scan failed"
   [ -n "$items" ] || fail "the first scan raised nothing"
   record_all "$state" "$items"
   items=$(scan "$state") || fail "the second scan failed"
   [ -z "$items" ] || fail "the same overdue wait was raised twice: $items"
-  printf 'paused [at=1793000000]: release cut | owner=ci | recheck=2026-10-25\n' >> "$state/t.status"
+  printf 'paused [at=1793000000]: release cut | owner=release | recheck=2026-10-25\n' >> "$state/t.status"
   items=$(scan "$state") || fail "the scan after redeclaring failed"
   assert_contains "$(reasons "$items")" "recheck 2026-10-25 passed 9h 0m ago" "a redeclared wait whose new recheck also passed was not raised"
   printf 'working [at=1793000100]: resumed\n' >> "$state/t.status"
@@ -121,7 +121,7 @@ test_raised_once_then_rearmed_by_redeclaration() {
 test_overdue_reminder_does_not_stop_after_first_wake() {
   local dir state items
   dir=$(make_case wait-repeat); state="$dir/state"
-  printf 'paused: release | owner=CI | recheck=2020-01-01\n' > "$state/t.status"
+  printf 'paused: release | owner=release | recheck=2020-01-01\n' > "$state/t.status"
   items=$(scan "$state")
   record_all "$state" "$items"
   [ -z "$(scan_wait_declarations "$state" "$((NOW + 3599))")" ] || fail "reminder fired too soon"

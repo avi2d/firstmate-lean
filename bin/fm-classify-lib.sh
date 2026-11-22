@@ -1403,6 +1403,11 @@ _fm_wait_declaration_item() {  # <marker> <task> <verb> <note> <identity> <now>
   elif [ -z "$owner" ]; then missing=owner
   elif [ -z "$due" ]; then missing='recheck date'
   fi
+  if [ -z "$missing" ] && [ "$verb" = "${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}" ]; then
+    case "$(printf '%s' "$owner" | tr '[:upper:]' '[:lower:]')" in
+      ci|*' ci'|ci' '*) [ -n "$(wait_ci_run_id "$note")" ] || missing='CI run id' ;;
+    esac
+  fi
   if [ -n "$missing" ]; then
     [ "$(cat "$marker" 2>/dev/null)" = "undated:$sig" ] && return 0
     printf 'undated\t%s\t%s\t%s\t%s\t%s\t%s\n' \
