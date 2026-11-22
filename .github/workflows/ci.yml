@@ -1,6 +1,13 @@
 name: CI
 
+# Tests run on main only. A pull request runs lint, the static gate, and the
+# coverage guard, and the main-only job skips every test job on it. A run
+# dispatched on any other ref fails in the main-only job, and every other job
+# needs that job, so none of them starts.
 on:
+  push:
+    branches: [main]
+  pull_request:
   schedule:
     - cron: '17 6 * * *'
   workflow_dispatch:
@@ -10,6 +17,7 @@ permissions:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Single owner of the CI npm-tool pins. Every cache key below embeds its pin
 # with no restore-keys fallback, so a bump installs fresh instead of reusing a stale tree.
@@ -20,8 +28,8 @@ env:
   FM_CI_BUN_VERSION: '1.4.3'
 
 # Timeout policy: paired lint shards are capped at 15 minutes and the static gate
-# at 10 minutes. Scheduled and manual dispatch jobs keep the
-# tiers that tests/fm-ci-workflow.test.sh holds against this file.
+# at 10 minutes. Every job keeps the tiers that
+# tests/fm-ci-workflow.test.sh holds against this file.
 # Each job comment identifies the tier implemented by its executable value.
 
 # Fork opt-out: the repository variable FM_CI_SKIP_MACOS=1 skips the macOS job.
@@ -29,9 +37,37 @@ env:
 # condition skips reports success.
 
 jobs:
+  # Every other job needs this job, and a test job runs only when it reports
+  # run-tests=true.
+  main-only:
+    name: Tests run on main only
+    runs-on: ubuntu-24.04
+    # Fast tier: one shell comparison.
+    timeout-minutes: 5
+    outputs:
+      run-tests: ${{ steps.ref.outputs.run-tests }}
+    steps:
+      - name: Refuse tests on a ref other than main
+        id: ref
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+        run: |
+          set -eu
+          if [ "$REF" = refs/heads/main ]; then
+            echo 'run-tests=true' >> "$GITHUB_OUTPUT"
+          elif [ "$EVENT" = pull_request ]; then
+            echo "::notice::Tests run on main only. This pull request runs lint, the static gate, and the coverage guard."
+            echo 'run-tests=false' >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Tests run on main only, and this $EVENT run is on $REF. Open a pull request for lint and the static checks, or dispatch CI on main."
+            exit 1
+          fi
+
   lint:
     name: Lint ${{ matrix.shard }}
     runs-on: ubuntu-24.04
+    needs: main-only
     # Lint cap (see the timeout policy above).
     timeout-minutes: 15
     strategy:
@@ -103,6 +139,8 @@ jobs:
   effect-runtime:
     name: Effect runtime
     runs-on: ubuntu-24.04
+    needs: main-only
+    if: ${{ needs.main-only.outputs.run-tests == 'true' }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
@@ -128,6 +166,7 @@ jobs:
   test-coverage:
     name: Test coverage guard
     runs-on: ubuntu-24.04
+    needs: main-only
     # Fast tier: the coverage guard is a seconds-long local computation.
     timeout-minutes: 5
     steps:
@@ -140,6 +179,8 @@ jobs:
   tests-portable-parallel-1:
     name: Behavior portable parallel 1
     runs-on: ubuntu-24.04
+    needs: main-only
+    if: ${{ needs.main-only.outputs.run-tests == 'true' }}
     # Normal tier (see the timeout policy above).
     timeout-minutes: 30
     steps:
@@ -207,6 +248,8 @@ jobs:
   tests-portable-parallel-2:
     name: Behavior portable parallel 2
     runs-on: ubuntu-24.04
+    needs: main-only
+    if: ${{ needs.main-only.outputs.run-tests == 'true' }}
     # Normal tier (see the timeout policy above).
     timeout-minutes: 30
     steps:
@@ -262,6 +305,8 @@ jobs:
   tests-portable-serial:
     name: Behavior portable serial ${{ matrix.shard }}
     runs-on: ubuntu-24.04
+    needs: main-only
+    if: ${{ needs.main-only.outputs.run-tests == 'true' }}
     # Normal tier (see the timeout policy above).
     timeout-minutes: 30
     strategy:
@@ -364,6 +409,8 @@ jobs:
   tests-herdr:
     name: Behavior tests (Herdr)
     runs-on: ubuntu-24.04
+    needs: main-only
+    if: ${{ needs.main-only.outputs.run-tests == 'true' }}
     # Heavy tier (see the timeout policy above): the last-resort job backstop.
     # The family-run step below owns the hang tripwire, so a wedged suite fails
     # there with the always() cleanup and timing upload still running.
@@ -506,11 +553,12 @@ jobs:
     # Fast tier: aggregation is seconds of work over lane artifacts.
     timeout-minutes: 5
     needs:
+      - main-only
       - tests-portable-parallel-1
       - tests-portable-parallel-2
       - tests-portable-serial
       - tests-herdr
-    if: ${{ always() }}
+    if: ${{ always() && needs.main-only.outputs.run-tests == 'true' }}
     steps:
       - uses: actions/checkout@v6
       - name: Download lane timing artifacts
@@ -544,7 +592,8 @@ jobs:
   macos-stock-bash:
     name: Stock macOS Bash snapshot compatibility
     runs-on: macos-latest
-    if: ${{ vars.FM_CI_SKIP_MACOS != '1' }}
+    needs: main-only
+    if: ${{ needs.main-only.outputs.run-tests == 'true' && vars.FM_CI_SKIP_MACOS != '1' }}
     # Normal tier (see the timeout policy above).
     timeout-minutes: 30
     steps:
@@ -617,6 +666,7 @@ jobs:
   static:
     name: Static checks
     runs-on: ubuntu-24.04
+    needs: main-only
     permissions:
       contents: read
       actions: read

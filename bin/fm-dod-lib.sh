@@ -522,7 +522,7 @@ Do not run any test runner, such as `bun test`, `vitest`, or `playwright`, on an
 A throwaway check is allowed: a small script you write in your temporary folder outside the repository and run once to see one behavior, such as running the built CLI once, calling a local server, or trying a snippet.
 A throwaway check is never committed, never uses the repository's test setup, finishes in about a minute, and starts no browser, simulator, or App.
 Build, lint, and typecheck commands may still run.
-CI on the branch or pull request is proof in the real place. If the project's CI does not start on pull requests, dispatch it on the branch and name the run id.
+CI on the branch or pull request is proof in the real place. If the project's CI does not start on pull requests, dispatch it on the branch and name the run id. If the project's own instructions say its tests run on its main branch only, do not dispatch CI on the branch. Its pull-request checks are then the proof, and the main branch runs the tests after the merge.
 EOF
 }
 
@@ -579,7 +579,7 @@ fm_dod_block() {  # <mode> <task-id> [branch] [<forge>] [<base>] [<consent>] [<p
   gerrit_skip_lines="Pass \`--skip push,pr,ci\` on every \`no-mistakes axi run\` for this task, and skip nothing else: \`review\`, \`test\`, \`document\`, and \`lint\` are the whole point of the run.
 Those three are the only steps that reach a forge, and skipping them is a supported outcome, not a degraded one."
   if fm_local_tests_off; then
-    nm_skip_line="Pass \`--skip test\` on every \`no-mistakes axi run\` that starts a run for this task: no test runs on this machine; CI on the branch or pull request is the proof. If the project's CI does not start on pull requests, dispatch it on the branch and name the run id.
+    nm_skip_line="Pass \`--skip test\` on every \`no-mistakes axi run\` that starts a run for this task: no test runs on this machine; CI on the branch or pull request is the proof. If the project's CI does not start on pull requests, dispatch it on the branch and name the run id. If the project's own instructions say its tests run on its main branch only, do not dispatch CI on the branch. Its pull-request checks are then the proof, and the main branch runs the tests after the merge.
 "
     gerrit_skip_lines="Pass \`--skip test,push,pr,ci\` on every \`no-mistakes axi run\` for this task: \`review\`, \`document\`, and \`lint\` are the whole point of the run, and \`test\` is skipped because no test runs on this machine.
 \`push\`, \`pr\`, and \`ci\` are the only steps that reach a forge, and skipping them is a supported outcome, not a degraded one."

@@ -1074,6 +1074,11 @@ $red
 EOF
 
   unreported=''
+  if ! printf '%s' "$json" | jq -e 'any(.statusCheckRollup[]; .__typename == "CheckRun" and .status == "COMPLETED" and .conclusion == "SUCCESS")' >/dev/null 2>&1; then
+    FM_PR_GITHUB_UNREPORTED=true
+    refusals="$refusals  - no passing check run has reported at head $live_head; start this branch's pull-request checks, or dispatch CI for it only when the project's CI does not run on pull requests and accepts a branch run
+"
+  fi
   if ! github_read_required_contexts "$base"; then
     FM_PR_GITHUB_OTHER_REFUSAL=true
     while IFS= read -r line; do

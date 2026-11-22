@@ -555,6 +555,7 @@ fm_send_resend_env() {  # -> "FM_HOME=<q> [FM_STATE_OVERRIDE=<q> ]"
   local home state
   home=$(cd "$FM_HOME" 2>/dev/null && pwd) || home=$FM_HOME
   printf 'FM_HOME=%q ' "$home"
+  [ "${FM_SEND_CI_COMPLETION:-}" != 1 ] || printf 'FM_SEND_CI_COMPLETION=1 '
   if [ "${FM_STATE_OVERRIDE+x}" = x ]; then
     state=$(cd "$STATE" 2>/dev/null && pwd) || state=$STATE
     printf 'FM_STATE_OVERRIDE=%q ' "$state"
@@ -851,6 +852,7 @@ else
     remote_rc=0
     remote_completion_unknown=0
     REMOTE_SEND_ARGS=("$TARGET_REMOTE_ID")
+    [ "${FM_SEND_CI_COMPLETION:-}" != 1 ] || REMOTE_SEND_ARGS+=(until-rung)
     # Each transport attempt is bounded by FM_SEND_REMOTE_BUDGET seconds.
     # fm_run_timed's 124 means the attempt was killed at the bound with remote
     # completion unknown - the enqueue may have landed - so it exits through
@@ -921,7 +923,11 @@ else
       echo "error: steer not sent to $INBOX_TASK_ID: the task retired or changed endpoint during target resolution" >&2
       exit 1
     fi
-    INBOX_RECORD=$(fm_task_inbox_write "$STATE" "$INBOX_TASK_ID" "$MESSAGE") || inbox_write_rc=$?
+    if [ "${FM_SEND_CI_COMPLETION:-}" = 1 ]; then
+      INBOX_RECORD=$(fm_task_inbox_write_idempotent "$STATE" "$INBOX_TASK_ID" "$MESSAGE" fire-and-forget) || inbox_write_rc=$?
+    else
+      INBOX_RECORD=$(fm_task_inbox_write "$STATE" "$INBOX_TASK_ID" "$MESSAGE") || inbox_write_rc=$?
+    fi
     if [ "${inbox_write_rc:-0}" -ne 0 ]; then
       fm_lock_release "$INBOX_META_LOCK"
       echo "error: steer not sent to $INBOX_TASK_ID: its inbox record could not be written under $STATE/$INBOX_TASK_ID.inbox" >&2
@@ -938,8 +944,12 @@ else
     # Ring the doorbell, best-effort: no ring outcome changes the exit status,
     # because the watcher owns loss detection from here, either through its
     # bounded re-ring ladder or direct unavailable-endpoint recovery.
+    case "$INBOX_RECORD" in */handled/*) exit 0 ;; esac
     ring_rc=0
     fm_task_inbox_ring "$TARGET_BACKEND" "$T" "$INBOX_RECORD" "$EXPECTED_LABEL" || ring_rc=$?
+    if [ "${FM_SEND_CI_COMPLETION:-}" = 1 ] && [ "$ring_rc" -ne 0 ] && [ "$ring_rc" -ne 3 ]; then
+      fm_task_inbox_mark_retry "$STATE" "$INBOX_TASK_ID" "$INBOX_RECORD" || exit 1
+    fi
     ring_retry="the watcher will re-ring"
     case "$ring_rc" in
     1) echo "fm-send: doorbell skipped (composer visibly holds pending text); the steer is durably recorded at $INBOX_RECORD and $ring_retry" >&2 ;;
