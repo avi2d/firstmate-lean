@@ -328,6 +328,26 @@ test_empty_message_refused() {
   pass "fm-send: an empty or whitespace-only text steer refuses before recording or typing"
 }
 
+test_ci_completion_retries_a_failed_doorbell_without_duplicate_records() {
+  local dir rec action
+  dir=$(setup_case ci-completion-retry)
+  mkdir -p "$dir/home/config"
+  : > "$dir/home/config/wait-no-turns"
+  run_send "$dir" "$dir/send.err" FM_SEND_CI_COMPLETION=1 FM_FAKE_HERDR_SEND_FAIL=1 -- t1 "CI run 123 completed with failure" ||
+    fail "CI completion was not enqueued"
+  rec="$dir/home/state/t1.inbox/001.msg"
+  [ -f "$rec" ] || fail "CI completion inbox record missing"
+  action=$(FM_HOME="$dir/home" FM_TASK_INBOX_GRACE_SECS=0 bash -c '. "$1"; fm_task_inbox_due_action "$2" t1' _ \
+    "$ROOT/bin/fm-task-inbox-lib.sh" "$dir/home/state")
+  [ "$action" = "retry $rec" ] || fail "failed CI doorbell has no retry: $action"
+  run_send "$dir" "$dir/send.err" FM_SEND_CI_COMPLETION=1 -- t1 "CI run 123 completed with failure" ||
+    fail "CI completion retry failed"
+  [ ! -e "$dir/home/state/t1.inbox/002.msg" ] || fail "retry duplicated the completion record"
+  assert_contains "$(cat "$dir/send.log")" "Firstmate instruction waiting" "retry did not ring"
+  pass "CI completion retries a failed doorbell without duplicating its record"
+}
+
+test_ci_completion_retries_a_failed_doorbell_without_duplicate_records
 test_text_steer_rides_inbox
 test_deep_home_doorbell_stays_short
 test_multiline_steer_is_legal

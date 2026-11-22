@@ -3567,12 +3567,19 @@ EOF
     fi
     ci_items=$(scan_wait_ci_completions "$STATE") || ci_items=
     if [ -n "$ci_items" ]; then
-      while IFS=$'\t' read -r ci_task ci_repo ci_run ci_key; do
-        [ -n "$ci_key" ] || continue
+      while IFS=$'\t' read -r ci_task ci_repo ci_run ci_key ci_conclusion; do
+        [ -n "$ci_key" ] && [ -n "$ci_conclusion" ] || continue
         [ ! -e "$STATE/.wait-ci-$ci_key" ] || continue
+        ci_message="CI run $ci_run in $ci_repo completed with conclusion $ci_conclusion."
+        if [ "$ci_conclusion" != success ]; then
+          ci_message="$ci_message Inspect failures with: gh run view $ci_run -R $ci_repo --log-failed"
+        fi
+        ci_sent=0
+        FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" FM_SEND_CI_COMPLETION=1 \
+          "$SCRIPT_DIR/fm-send.sh" "$ci_task" "$ci_message" >/dev/null 2>&1 || ci_sent=$?
         reason="check: wait-ci: $ci_task CI run $ci_run completed in $ci_repo"
         fm_wake_append check wait-ci "$reason" || exit 1
-        : > "$STATE/.wait-ci-$ci_key" || exit 1
+        if [ "$ci_sent" -eq 0 ]; then : > "$STATE/.wait-ci-$ci_key" || exit 1; fi
         touch "$STATE/.last-check"
         wake "$reason"
       done <<EOF

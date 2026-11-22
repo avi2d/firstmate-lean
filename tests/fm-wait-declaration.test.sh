@@ -101,13 +101,13 @@ test_cleared_wait_quiet() {
 test_raised_once_then_rearmed_by_redeclaration() {
   local dir state items
   dir=$(make_case wait-once); state="$dir/state"
-  printf 'paused [at=1792800000]: release cut | owner=ci | recheck=2026-10-24\n' > "$state/t.status"
+  printf 'paused [at=1792800000]: release cut | owner=release | recheck=2026-10-24\n' > "$state/t.status"
   items=$(scan "$state") || fail "the first scan failed"
   [ -n "$items" ] || fail "the first scan raised nothing"
   record_all "$state" "$items"
   items=$(scan "$state") || fail "the second scan failed"
   [ -z "$items" ] || fail "the same overdue wait was raised twice: $items"
-  printf 'paused [at=1793000000]: release cut | owner=ci | recheck=2026-10-25\n' >> "$state/t.status"
+  printf 'paused [at=1793000000]: release cut | owner=release | recheck=2026-10-25\n' >> "$state/t.status"
   items=$(scan "$state") || fail "the scan after redeclaring failed"
   assert_contains "$(reasons "$items")" "recheck 2026-10-25 passed 9h 0m ago" "a redeclared wait whose new recheck also passed was not raised"
   printf 'working [at=1793000100]: resumed\n' >> "$state/t.status"
@@ -121,7 +121,7 @@ test_raised_once_then_rearmed_by_redeclaration() {
 test_overdue_reminder_does_not_stop_after_first_wake() {
   local dir state items
   dir=$(make_case wait-repeat); state="$dir/state"
-  printf 'paused: release | owner=CI | recheck=2020-01-01\n' > "$state/t.status"
+  printf 'paused: release | owner=release | recheck=2020-01-01\n' > "$state/t.status"
   items=$(scan "$state")
   record_all "$state" "$items"
   [ -z "$(scan_wait_declarations "$state" "$((NOW + 3599))")" ] || fail "reminder fired too soon"
@@ -129,6 +129,17 @@ test_overdue_reminder_does_not_stop_after_first_wake() {
   printf 'working: resumed\n' >> "$state/t.status"
   [ -z "$(scan_wait_declarations "$state" "$((NOW + 7200))")" ] || fail "cleared wait repeated"
   pass "an unchanged overdue pause repeats at a bounded interval"
+}
+
+test_ci_owner_without_run_id_is_flagged() {
+  local dir state items
+  dir=$(make_case wait-ci-missing); state="$dir/state"
+  printf 'paused: waiting for checks | owner=GitHub CI | recheck=2030-01-01\n' > "$state/t.status"
+  items=$(scan "$state")
+  assert_contains "$(reasons "$items")" "run id" "a CI wait without a run id was not flagged"
+  printf 'paused: CI run 123 | owner=GitHub CI | recheck=2030-01-01\n' > "$state/t.status"
+  [ -z "$(scan "$state")" ] || fail "a CI wait with a run id was flagged"
+  pass "a CI wait without a run id is flagged"
 }
 
 test_ci_run_completion_does_not_wake_for_in_progress() {
@@ -139,7 +150,10 @@ test_ci_run_completion_does_not_wake_for_in_progress() {
   printf 'project=%s\n' "$dir" > "$state/t.meta"
   cat > "$dir/fakebin/gh-axi" <<'SCRIPT'
 #!/usr/bin/env bash
-printf 'api_response:\n  body: %s\n' "$CI_STATUS"
+case "$*" in
+  *'.conclusion'*) printf 'api_response:\n  body: success\n' ;;
+  *) printf 'api_response:\n  body: %s\n' "$CI_STATUS" ;;
+esac
 SCRIPT
   chmod +x "$dir/fakebin/gh-axi"
   for form in 'CI run 123' 'ci_run=123' 'https://github.com/example/repo/actions/runs/123'; do
@@ -150,6 +164,56 @@ SCRIPT
     assert_contains "$items" "$(printf 't\texample/repo\t123\t')" "completed run was missed"
   done
   pass "each supported run reference wakes only after completion"
+}
+
+test_completed_ci_failure_reaches_worker_once() {
+  local dir state out pid body items
+  dir=$(make_case wait-ci-delivery); state="$dir/state"
+  mkdir -p "$dir/config"
+  : > "$dir/config/wait-no-turns"
+  git -C "$dir" init -q
+  git -C "$dir" remote add origin https://github.com/example/repo.git
+  fm_write_herdr_meta "$state/t.meta" "sess:w1:p1" "kind=ship" "harness=pi" "project=$dir"
+  cat > "$dir/fakebin/herdr" <<'SCRIPT'
+#!/usr/bin/env bash
+case "${1:-} ${2:-}" in
+  'status --json') printf '%s\n' '{"client":{"version":"0.9.5","protocol":22},"server":{"running":true}}' ;;
+  'pane get') printf '{"result":{"pane":{"pane_id":"%s"}}}\n' "$3" ;;
+  'pane read') printf '%s\n' '╭────╮' '│    │' '╰────╯' ;;
+  'pane send-text') printf '%s' "$4" >> "$FM_SEND_LOG" ;;
+  'pane send-keys') : ;;
+  *) exit 1 ;;
+esac
+SCRIPT
+  chmod +x "$dir/fakebin/herdr"
+  cat > "$dir/fakebin/gh-axi" <<'SCRIPT'
+#!/usr/bin/env bash
+case "$*" in
+  *'.conclusion'*) printf 'api_response:\n  body: failure\n' ;;
+  *) printf 'api_response:\n  body: completed\n' ;;
+esac
+SCRIPT
+  chmod +x "$dir/fakebin/gh-axi"
+  printf 'paused: CI run 123 | owner=GitHub CI | recheck=2030-01-01\n' > "$state/t.status"
+  prime_status_seen "$state" "$state/t.status" || fail "priming status failed"
+  rm -f "$state/.last-check"
+  out="$dir/watch.out"
+  PATH="$dir/fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_CONFIG_OVERRIDE="$dir/config" \
+    FM_SEND_LOG="$dir/send.log" FM_SEND_SETTLE=0 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=1 FM_HEARTBEAT=999999 "$WATCH" > "$out" 2>&1 &
+  pid=$!
+  wait_for_exit "$pid" 100 || { kill "$pid" 2>/dev/null || true; fail "watcher did not finish: $(cat "$out")"; }
+  assert_contains "$(cat "$out")" "check: wait-ci: t CI run 123 completed" "supervisor wake missing"
+  [ -f "$state/t.inbox/001.msg" ] || fail "completed run did not reach the worker inbox"
+  body=$(bash -c '. "$1"; fm_task_inbox_body "$2"' _ "$ROOT/bin/fm-task-inbox-lib.sh" "$state/t.inbox/001.msg")
+  assert_contains "$body" "123" "run id missing"
+  assert_contains "$body" "failure" "conclusion missing"
+  assert_contains "$body" "gh run view 123 -R example/repo --log-failed" "failure command missing"
+  assert_contains "$(cat "$dir/send.log")" "Firstmate instruction waiting" "worker doorbell missing"
+  grep -Fqx 'delivery=fire-and-forget' "$state/t.inbox/001.msg" || fail "completion was not recorded as fire-and-forget"
+  items=$(PATH="$dir/fakebin:$PATH" scan_wait_ci_completions "$state")
+  [ -z "$items" ] || fail "the same run was sent twice"
+  pass "a failed CI run reaches the worker once and preserves the supervisor wake"
 }
 
 test_unchanged_log_is_not_folded_again() {
@@ -216,7 +280,9 @@ test_overdue_raised_with_owner_and_time
 test_cleared_wait_quiet
 test_raised_once_then_rearmed_by_redeclaration
 test_overdue_reminder_does_not_stop_after_first_wake
+test_ci_owner_without_run_id_is_flagged
 test_ci_run_completion_does_not_wake_for_in_progress
+test_completed_ci_failure_reaches_worker_once
 test_unchanged_log_is_not_folded_again
 test_older_line_flagged_once_and_still_read
 test_watcher_raises_overdue_wait
