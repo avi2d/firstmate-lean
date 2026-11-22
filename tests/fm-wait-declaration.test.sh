@@ -315,6 +315,21 @@ test_remote_ci_does_not_drop_a_failed_doorbell() {
   pass "a failed initial remote CI doorbell is retried without repeating a submitted doorbell or duplicating the message"
 }
 
+test_remote_ci_does_not_retry_forever() {
+  local dir inbox
+  dir=$(make_case wait-ci-remote-exhausted)
+  make_remote_ci_case "$dir"
+  inbox="$dir/execution/state/remote-ci.inbox"
+  remote_ci_watch "$dir" "$dir/complete.out"
+  assert_grep 'check: wait-ci: remote-ci CI run 456 completed' "$dir/complete.out" "the CI completion wake was missing"
+  remote_ci_watch "$dir" "$dir/exhausted.out" 2
+  assert_grep 'stale: remote:remote-ci.*2 doorbell delivery attempts' "$dir/exhausted.out" "exhausted retries did not name the remote task"
+  [ "$(grep -c 'Firstmate instruction waiting' "$dir/attempts")" -eq 3 ] || fail "the initial attempt and both retries did not reach the remote pane"
+  [ -f "$inbox/001.msg" ] && [ ! -e "$inbox/002.msg" ] || fail "retry exhaustion lost or duplicated the CI result"
+  [ ! -s "$dir/submitted" ] || fail "the exhausted failure fixture actually submitted"
+  pass "a remote CI doorbell that never lands wakes the supervisor when the retry budget is spent"
+}
+
 test_unchanged_log_is_not_folded_again() {
   local dir state probe items appended
   dir=$(make_case wait-unchanged); state="$dir/state"; probe="$dir/fold-probe"
@@ -383,6 +398,7 @@ test_ci_owner_without_run_id_is_flagged
 test_ci_run_completion_does_not_wake_for_in_progress
 test_completed_ci_failure_reaches_worker_once
 test_remote_ci_does_not_drop_a_failed_doorbell
+test_remote_ci_does_not_retry_forever
 test_unchanged_log_is_not_folded_again
 test_older_line_flagged_once_and_still_read
 test_watcher_raises_overdue_wait
