@@ -3,6 +3,7 @@ set -u
 
 # shellcheck source=tests/wake-helpers.sh
 . "$(dirname "${BASH_SOURCE[0]}")/wake-helpers.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-classify-lib.sh"
 # shellcheck source=/dev/null
@@ -163,6 +164,45 @@ SCRIPT
   pass "each supported run reference wakes only after completion"
 }
 
+test_completed_ci_failure_reaches_worker_once() {
+  local dir state out pid body items
+  dir=$(make_case wait-ci-delivery); state="$dir/state"
+  mkdir -p "$dir/config"
+  : > "$dir/config/wait-no-turns"
+  git -C "$dir" init -q
+  git -C "$dir" remote add origin https://github.com/example/repo.git
+  fm_write_herdr_meta "$state/t.meta" "sess:w1:p1" "kind=ship" "harness=pi" "project=$dir"
+  fm_test_fake_herdr_send "$dir/fakebin"
+  cat > "$dir/fakebin/gh-axi" <<'SCRIPT'
+#!/usr/bin/env bash
+case "$*" in
+  *'.conclusion'*) printf 'api_response:\n  body: failure\n' ;;
+  *) printf 'api_response:\n  body: completed\n' ;;
+esac
+SCRIPT
+  chmod +x "$dir/fakebin/gh-axi"
+  printf 'paused: CI run 123 | owner=GitHub CI | recheck=2030-01-01\n' > "$state/t.status"
+  prime_status_seen "$state" "$state/t.status" || fail "priming status failed"
+  rm -f "$state/.last-check"
+  out="$dir/watch.out"
+  PATH="$dir/fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_CONFIG_OVERRIDE="$dir/config" \
+    FM_SEND_LOG="$dir/send.log" FM_SEND_SETTLE=0 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=1 FM_HEARTBEAT=999999 "$WATCH" > "$out" 2>&1 &
+  pid=$!
+  wait_for_exit "$pid" 100 || { kill "$pid" 2>/dev/null || true; fail "watcher did not finish: $(cat "$out")"; }
+  assert_contains "$(cat "$out")" "check: wait-ci: t CI run 123 completed" "supervisor wake missing"
+  [ -f "$state/t.inbox/001.msg" ] || fail "completed run did not reach the worker inbox"
+  body=$(bash -c '. "$1"; fm_task_inbox_body "$2"' _ "$ROOT/bin/fm-task-inbox-lib.sh" "$state/t.inbox/001.msg")
+  assert_contains "$body" "123" "run id missing"
+  assert_contains "$body" "failure" "conclusion missing"
+  assert_contains "$body" "gh run view 123 -R example/repo --log-failed" "failure command missing"
+  assert_contains "$(cat "$dir/send.log")" "Firstmate instruction waiting" "worker doorbell missing"
+  [ -f "$state/t.inbox/.retry-ring" ] || fail "the configured retry ring was not armed"
+  items=$(PATH="$dir/fakebin:$PATH" scan_wait_ci_completions "$state")
+  [ -z "$items" ] || fail "the same run was sent twice"
+  pass "a failed CI run reaches the worker once and preserves the supervisor wake"
+}
+
 test_unchanged_log_is_not_folded_again() {
   local dir state probe items appended
   dir=$(make_case wait-unchanged); state="$dir/state"; probe="$dir/fold-probe"
@@ -229,6 +269,7 @@ test_raised_once_then_rearmed_by_redeclaration
 test_overdue_reminder_does_not_stop_after_first_wake
 test_ci_owner_without_run_id_is_flagged
 test_ci_run_completion_does_not_wake_for_in_progress
+test_completed_ci_failure_reaches_worker_once
 test_unchanged_log_is_not_folded_again
 test_older_line_flagged_once_and_still_read
 test_watcher_raises_overdue_wait
