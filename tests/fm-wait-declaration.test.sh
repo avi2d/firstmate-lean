@@ -339,6 +339,23 @@ test_remote_ci_does_not_retry_forever() {
   pass "a remote CI doorbell that never lands wakes the supervisor when the retry budget is spent"
 }
 
+test_remote_ci_retry_does_not_ring_an_acknowledged_record() {
+  local dir inbox result
+  dir=$(make_case wait-ci-remote-ack)
+  make_remote_ci_case "$dir"
+  inbox="$dir/execution/state/remote-ci.inbox"
+  remote_ci_watch "$dir" "$dir/complete.out"
+  [ -f "$inbox/001.msg" ] || fail "the completion was missing from the execution inbox"
+  mv "$inbox/001.msg" "$inbox/handled/" || fail "the worker could not acknowledge the record"
+  : > "$dir/allow-submit"
+  result=$(CI_CASE="$dir" CI_ROOT="$ROOT" PATH="$dir/fakebin:$PATH" FM_HOME="$dir/execution" \
+    "$ROOT/bin/fm-remote-worker-control.sh" ring-record remote-ci 001.msg) || fail "a stale retry was not accepted as a no-op"
+  [ "$result" = ring=0 ] || fail "the stale retry did not report that no more retries were needed"
+  [ "$(grep -c 'Firstmate instruction waiting' "$dir/attempts")" -eq 1 ] || fail "a stale fleet result re-rang the acknowledged record"
+  [ ! -s "$dir/submitted" ] || fail "a retry typed after acknowledgement"
+  pass "an acknowledgement ends remote CI retries even when a stale fleet read schedules one more ring"
+}
+
 test_unchanged_log_is_not_folded_again() {
   local dir state probe items appended
   dir=$(make_case wait-unchanged); state="$dir/state"; probe="$dir/fold-probe"
@@ -408,6 +425,7 @@ test_ci_run_completion_does_not_wake_for_in_progress
 test_completed_ci_failure_reaches_worker_once
 test_remote_ci_does_not_drop_a_failed_doorbell
 test_remote_ci_does_not_retry_forever
+test_remote_ci_retry_does_not_ring_an_acknowledged_record
 test_unchanged_log_is_not_folded_again
 test_older_line_flagged_once_and_still_read
 test_watcher_raises_overdue_wait
