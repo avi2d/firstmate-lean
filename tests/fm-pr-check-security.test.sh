@@ -3107,7 +3107,8 @@ test_external_merge_transition_retires_only_terminal_poll() {
     esac
     rc=$?
     set -e
-    [ "$rc" -eq 0 ] || fail "$label watcher cycle failed: $(cat "$dir/$label.err")"
+    [ "$rc" -eq 0 ] \
+      || fail "$label watcher cycle exited $rc: stdout: $(cat "$dir/$label.out") stderr: $(cat "$dir/$label.err")"
     case "$(cat "$dir/$label.out")" in check:*z-stop.check.sh:*stop-cycle) ;; *) fail "$label did not reach the control check" ;; esac
     [ "$(poll_artifact_snapshot "$state" task-a)" = "$before" ] || fail "$label changed the armed poll"
     ack_watcher_cycle "$state" || fail "$label control wake acknowledgement failed"
