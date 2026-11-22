@@ -630,7 +630,7 @@ IFS= read -r -d '' MACHINE_PROOF_RULES <<'EOF' || true
 - Live behavior is proven on the machine it runs on: a change to a machine's own behavior (a test runner, a shell, an OS-specific path) is proven on that machine before merge, because a run elsewhere does not count.
 - To preview a site, serve it on a local port and inspect it there; never depend on a login-gated deployment.
 - You may run a throwaway script or command under your task's scratch directory to exercise the change; do not run the repository's own tests on this machine (see Local tests).
-- Run the project's configured CI on your branch as proof in the real place. For firstmate-lean, run `gh workflow run ci.yml --ref <branch>`; pull requests do not trigger CI.
+- CI on the branch or pull request is proof in the real place. If the project's CI does not start on pull requests, dispatch it on the branch and name the run id.
 - Unfinished work is not a blocker: report what is left and keep working the rest.
 EOF
 MACHINE_PROOF_BLOCK="# Machine and proof
