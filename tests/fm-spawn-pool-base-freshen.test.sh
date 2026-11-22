@@ -1111,8 +1111,7 @@ test_stale_link_is_replaced_and_abort_removes_it() {
     lay_out_as_pool_slot
     mkdir -p "$HOME_DIR/worktrees" "$CASE_DIR/wrong"
     ln -s "$CASE_DIR/wrong" "$HOME_DIR/worktrees/$id"
-    out=$(run_spawn "$id" --scout)
-    [ $? -eq 0 ] || fail "spawn with a stale link failed: $out"
+    out=$(run_spawn "$id" --scout) || fail "spawn with a stale link failed: $out"
     [ "$(cd "$HOME_DIR/worktrees/$id" && pwd -P)" = "$(cd "$POOL_DIR" && pwd -P)" ] \
       || fail "spawn retained a stale task link"
   ) || failures=$((failures + 1))
@@ -1124,8 +1123,9 @@ test_stale_link_is_replaced_and_abort_removes_it() {
     mkdir -p "$HOME_DIR/worktrees" "$CASE_DIR/wrong"
     ln -s "$CASE_DIR/wrong" "$HOME_DIR/worktrees/$id"
     git -C "$POOL_DIR" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
-    out=$(run_spawn "$id" --mode no-mistakes --yolo off)
-    [ $? -ne 0 ] || fail "spawn unexpectedly succeeded with an unusable origin"
+    if out=$(run_spawn "$id" --mode no-mistakes --yolo off); then
+      fail "spawn unexpectedly succeeded with an unusable origin"
+    fi
     [ ! -L "$HOME_DIR/worktrees/$id" ] || fail "failed spawn left a task link"
   ) || failures=$((failures + 1))
   [ "$failures" -eq 0 ] || fail "$failures task-link spawn checks failed"

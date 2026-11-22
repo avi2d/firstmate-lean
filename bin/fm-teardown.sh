@@ -569,6 +569,8 @@ fm_backlog_directory_present "$STATE" "state directory" || {
 }
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
+# shellcheck source=bin/fm-worker-name-lib.sh
+. "$SCRIPT_DIR/fm-worker-name-lib.sh"
 # Supervision lease guard: post-landing cleanup is overlap territory between
 # the two Pi supervision actors; refuse while the OTHER actor holds this
 # task's live lease (contract: bin/fm-lease-lib.sh; no-op in homes without
@@ -641,6 +643,12 @@ fm_refuse_if_gate_agent
 FM_LOCK_LOG_PREFIX=teardown
 
 fm_backlog_record_present "$META" "task record" "$STATE" || {
+  if [ ! -e "$META" ] && [ ! -L "$META" ] && [ -f "$DATA/$ID/brief.md" ]; then
+    orphan_name=$(fm_worker_name_from_brief "$ID" "$DATA/$ID/brief.md") || orphan_name=
+    if [ -n "$orphan_name" ] && [ -L "$FM_HOME/worktrees/$orphan_name" ]; then
+      rm -f -- "$FM_HOME/worktrees/$orphan_name"
+    fi
+  fi
   echo "error: teardown refused: $FM_BACKLOG_TRANSITION_ERROR" >&2
   exit 1
 }
@@ -2527,6 +2535,15 @@ elif [ -d "$WT" ]; then
   # unclaimed until its next holder claims it, and leaves the claim in place
   # whenever the return did not actually happen.
   fm_treehouse_slot_owner_release "$WT" "$ID"
+fi
+
+TEARDOWN_WORKER_NAME=$(fm_meta_get "$META" worker_name)
+if [ -z "$TEARDOWN_WORKER_NAME" ] && [ -f "$DATA/$ID/brief.md" ]; then
+  TEARDOWN_WORKER_NAME=$(fm_worker_name_from_brief "$ID" "$DATA/$ID/brief.md") || TEARDOWN_WORKER_NAME=
+fi
+if [ -n "$TEARDOWN_WORKER_NAME" ] && fm_worker_name_valid "$ID" "$TEARDOWN_WORKER_NAME" &&
+  [ -L "$FM_HOME/worktrees/$TEARDOWN_WORKER_NAME" ]; then
+  rm -f -- "$FM_HOME/worktrees/$TEARDOWN_WORKER_NAME"
 fi
 
 teardown_export_records "$STATE" "$ID" || exit 1

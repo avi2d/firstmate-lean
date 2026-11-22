@@ -391,7 +391,9 @@ When you scaffold a brief for a numbered ticket, Firstmate looks up that ID and 
 For example, ticket `example-site-2` titled "Blog reading page" gets the worker name `example-site-2-blog-reading-page` and default ship branch `fm/example-site-2-blog-reading-page`.
 The name is stored in the brief so later title edits do not rename a worker or its branch.
 Use the original ID for every task command and for the brief and state directories.
-Treehouse still chooses the directory of the leased worktree.
+Treehouse chooses the directory of the leased worktree.
+For a pooled worktree, `<home>/worktrees/<worker name>` links to that directory until teardown.
+The task record retains the physical path, and remote workers create the link in their execution home.
 
 ### Automatic dispatch and completion
 
