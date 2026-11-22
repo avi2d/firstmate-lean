@@ -1501,6 +1501,19 @@ wait_ci_repository() {
   printf '%s' "$url"
 }
 
+wait_ci_task_repository() {
+  local state=$1 task=$2 meta="$1/$2.meta" route repo
+  if [ -z "$(sed -n 's/^remote_host=//p' "$meta" | tail -1)" ]; then
+    wait_ci_repository "$meta"
+    return
+  fi
+  route=$(sed -n 's/^remote_route=//p' "$meta" | tail -1)
+  [ -n "$route" ] || return 1
+  repo=$(fm_run_timed 15 "$_FM_CLASSIFY_LIB_DIR/fm-on.sh" "$route" fm-remote-worker-control.sh ci-repository "$task") || return 1
+  [[ $repo =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || return 1
+  printf '%s' "$repo"
+}
+
 scan_wait_ci_completions() {
   local state=$1 f task line run repo key response conclusion
   command -v gh-axi >/dev/null 2>&1 || return 0
@@ -1511,7 +1524,7 @@ scan_wait_ci_completions() {
     status_is_paused "$line" || continue
     run=$(wait_ci_run_id "$line")
     [ -n "$run" ] || continue
-    repo=$(wait_ci_repository "$state/$task.meta") || continue
+    repo=$(wait_ci_task_repository "$state" "$task" 2>/dev/null) || continue
     key=$(printf '%s' "$repo/$run" | cksum); key=${key%% *}
     [ ! -e "$state/.wait-ci-$key" ] || continue
     response=$(fm_run_timed 5 gh-axi api "repos/$repo/actions/runs/$run" --jq .status 2>/dev/null) || continue

@@ -481,6 +481,10 @@
     {
       "path": "docs/adr/0020-session-start-digest.md",
       "audience": "maintainer-architecture"
+    },
+    {
+      "path": "docs/adr/0021-steering-inbox-delivery.md",
+      "audience": "maintainer-architecture"
     }
   ]
 }

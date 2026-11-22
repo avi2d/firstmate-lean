@@ -896,6 +896,7 @@ remote_worker_teardown() {
     }
   fi
   rm -f "$STATE/.remote-agent-$ID" "$STATE/.remote-ring-$ID" "$STATE/.remote-ring-escalated-$ID" \
+    "$STATE/.remote-ci-ring-$ID" "$STATE/.remote-ci-ring-escalated-$ID" \
     || return 1
   "$SCRIPT_DIR/fm-procevent-remote-feed.sh" retire-task "$route" "$ID" \
     || echo "warning: $ID's status-feed cursor for $route was not retired; it is ignored once no record names the task" >&2

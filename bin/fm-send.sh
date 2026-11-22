@@ -555,6 +555,7 @@ fm_send_resend_env() {  # -> "FM_HOME=<q> [FM_STATE_OVERRIDE=<q> ]"
   local home state
   home=$(cd "$FM_HOME" 2>/dev/null && pwd) || home=$FM_HOME
   printf 'FM_HOME=%q ' "$home"
+  [ "${FM_SEND_CI_COMPLETION:-}" != 1 ] || printf 'FM_SEND_CI_COMPLETION=1 '
   if [ "${FM_STATE_OVERRIDE+x}" = x ]; then
     state=$(cd "$STATE" 2>/dev/null && pwd) || state=$STATE
     printf 'FM_STATE_OVERRIDE=%q ' "$state"
@@ -851,6 +852,7 @@ else
     remote_rc=0
     remote_completion_unknown=0
     REMOTE_SEND_ARGS=("$TARGET_REMOTE_ID")
+    [ "${FM_SEND_CI_COMPLETION:-}" != 1 ] || REMOTE_SEND_ARGS+=(until-rung)
     # Each transport attempt is bounded by FM_SEND_REMOTE_BUDGET seconds.
     # fm_run_timed's 124 means the attempt was killed at the bound with remote
     # completion unknown - the enqueue may have landed - so it exits through

@@ -216,6 +216,146 @@ SCRIPT
   pass "a failed CI run reaches the worker once and preserves the supervisor wake"
 }
 
+make_remote_ci_case() {
+  local dir=$1 host="$1/execution"
+  mkdir -p "$dir/data" "$host/state" "$host/projects/repo"
+  printf 'lab\n' > "$host/.fm-exec-home"
+  git -C "$host/projects/repo" init -q || fail "remote project setup failed"
+  git -C "$host/projects/repo" remote add origin https://github.com/example/remote-ci.git || fail "remote origin setup failed"
+  printf '%s\n' "- lab - stub host (host: stub; root: $ROOT; home: $host; scope: tests; projects: repo; added 2026-01-01)" > "$dir/data/remote-homes.md"
+  fm_write_meta "$dir/state/remote-ci.meta" "window=remote:remote-ci" "endpoint_task_id=remote-ci" "kind=ship" "mode=local-only" \
+    "remote_host=stub" "remote_route=lab" "worktree=/remote-only/worktree" "project=/remote-only/project"
+  fm_write_herdr_meta "$host/state/remote-ci.meta" 'fm-remote:w1:p1' 'kind=ship' 'harness=pi' "worktree=$host/worktree" "project=$host/projects/repo"
+  printf 'paused: CI run 456 | owner=GitHub CI | recheck=2099-01-01\n' > "$dir/state/remote-ci.status"
+  prime_status_seen "$dir/state" "$dir/state/remote-ci.status" || fail "priming remote status failed"
+
+  cat > "$dir/fakebin/ssh" <<'SCRIPT'
+#!/usr/bin/env bash
+set -eu
+while [ "$#" -gt 0 ]; do
+  case "$1" in -o) shift 2 ;; --) shift; break ;; *) exit 90 ;; esac
+done
+[ "$1" = stub ] || exit 91
+shift 2
+args=$(printf '%s' "$4" | base64 --decode | tr '\000' '\n')
+command=$(printf '%s\n' "$args" | head -1)
+[ "$command" = fm-remote-worker-control.sh ] || exit 92
+verb=$(printf '%s\n' "$args" | sed -n '2p')
+task=$(printf '%s\n' "$args" | sed -n '3p')
+extra=$(printf '%s\n' "$args" | sed -n '4p')
+last=$(printf '%s\n' "$args" | sed -n '5p')
+if [ "$verb" = fleet ] && [ -f "$CI_CASE/stop-after-retry" ] && [ -s "$CI_CASE/submitted" ]; then
+  printf 'needs-decision: watched another poll after the remote doorbell landed\n' >> "$CI_CASE/state/probe.status"
+fi
+unset FM_STATE_OVERRIDE FM_CONFIG_OVERRIDE
+forward=("$verb")
+[ -z "$task" ] || forward+=("$task")
+[ -z "$extra" ] || forward+=("$extra")
+[ -z "$last" ] || forward+=("$last")
+FM_HOME="$CI_CASE/execution" "$CI_ROOT/bin/$command" "${forward[@]}"
+SCRIPT
+  cat > "$dir/fakebin/herdr" <<'SCRIPT'
+#!/usr/bin/env bash
+case "${1:-} ${2:-}" in
+  'status --json') printf '%s\n' '{"client":{"version":"0.9.5","protocol":22},"server":{"running":true}}' ;;
+  'pane get') printf '{"result":{"pane":{"pane_id":"%s"}}}\n' "$3" ;;
+  'pane read') printf '%s\n' '╭────╮' '│    │' '╰────╯' ;;
+  'pane send-text')
+    [ "${FM_HOME:-}" = "$CI_CASE/execution" ] || exit 90
+    printf '%s\n' "$4" >> "$CI_CASE/attempts"
+    [ -e "$CI_CASE/allow-submit" ]
+    ;;
+  'pane send-keys') printf 'Enter\n' >> "$CI_CASE/submitted" ;;
+  *) exit 1 ;;
+esac
+SCRIPT
+  cat > "$dir/fakebin/gh-axi" <<'SCRIPT'
+#!/usr/bin/env bash
+[ "$1 $2" = 'api repos/example/remote-ci/actions/runs/456' ] || exit 1
+case "$4" in
+  .status) printf 'api_response:\n  body: completed\n' ;;
+  .conclusion) printf 'api_response:\n  body: failure\n' ;;
+  *) exit 1 ;;
+esac
+SCRIPT
+  chmod +x "$dir/fakebin/ssh" "$dir/fakebin/herdr" "$dir/fakebin/gh-axi"
+}
+
+remote_ci_watch() {
+  local dir=$1 output=$2 pid
+  CI_CASE="$dir" CI_ROOT="$ROOT" PATH="$dir/fakebin:$PATH" FM_SSH_BIN="$dir/fakebin/ssh" \
+    FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$dir/state" \
+    FM_REMOTE_FLEET_CACHE_SECS=0 FM_REMOTE_RING_GRACE=1 FM_REMOTE_RING_MAX="${3:-1}" \
+    FM_POLL=1 FM_CHECK_INTERVAL=1 FM_SIGNAL_GRACE=1 FM_HEARTBEAT=999999 \
+    "$WATCH" > "$output" 2>&1 &
+  pid=$!
+  wait_for_watcher_lock "$pid" "$dir/state" || fail "remote CI watcher did not take its lock"
+  wait_for_exit "$pid" 300 || fail "remote CI watcher did not finish: $(cat "$output")"
+}
+
+ack_remote_ci_wake() {
+  local dir=$1
+  FM_HOME="$dir" FM_STATE_OVERRIDE="$dir/state" PATH="$dir/fakebin:$PATH" \
+    "$ROOT/bin/fm-wake-drain.sh" > "$dir/drain.out" 2> "$dir/drain.err" || fail "could not read the CI completion wake"
+  FM_HOME="$dir" PATH="$dir/fakebin:$PATH" ack_drain_err "$dir/state" "$dir/drain.err" || fail "could not acknowledge the CI completion wake"
+}
+
+test_remote_ci_does_not_drop_a_failed_doorbell() {
+  local dir inbox body
+  dir=$(make_case wait-ci-remote-retry)
+  make_remote_ci_case "$dir"
+  inbox="$dir/execution/state/remote-ci.inbox"
+  remote_ci_watch "$dir" "$dir/complete.out"
+  assert_grep 'check: wait-ci: remote-ci CI run 456 completed in example/remote-ci' "$dir/complete.out" "the watcher did not find CI for a remote-only project"
+  [ -f "$inbox/001.msg" ] || fail "the CI result was not recorded in the execution home"
+  body=$(bash -c '. "$1"; fm_task_inbox_body "$2"' _ "$ROOT/bin/fm-task-inbox-lib.sh" "$inbox/001.msg")
+  assert_contains "$body" "CI run 456 in example/remote-ci completed with conclusion failure." "remote worker did not get the CI result"
+  assert_grep 'Firstmate instruction waiting' "$dir/attempts" "initial ring was not attempted on the remote worker"
+  [ ! -s "$dir/submitted" ] || fail "the initial failure fixture actually submitted"
+  : > "$dir/allow-submit"
+  : > "$dir/stop-after-retry"
+  ack_remote_ci_wake "$dir"
+  remote_ci_watch "$dir" "$dir/retry.out"
+  grep -Eq 'signal:.*probe' "$dir/retry.out" || fail "the watcher did not reach the poll after the successful retry: $(cat "$dir/retry.out")"
+  [ "$(grep -c 'Firstmate instruction waiting' "$dir/attempts")" -eq 2 ] || fail "the watcher dropped or repeated the remote retry"
+  [ -s "$dir/submitted" ] || fail "the retry did not submit the doorbell"
+  [ ! -e "$inbox/002.msg" ] || fail "the watcher enqueued the same CI result again"
+  pass "a failed initial remote CI doorbell is retried without repeating a submitted doorbell or duplicating the message"
+}
+
+test_remote_ci_does_not_retry_forever() {
+  local dir inbox
+  dir=$(make_case wait-ci-remote-exhausted)
+  make_remote_ci_case "$dir"
+  inbox="$dir/execution/state/remote-ci.inbox"
+  remote_ci_watch "$dir" "$dir/complete.out"
+  assert_grep 'check: wait-ci: remote-ci CI run 456 completed' "$dir/complete.out" "the CI completion wake was missing"
+  ack_remote_ci_wake "$dir"
+  remote_ci_watch "$dir" "$dir/exhausted.out" 2
+  grep -Eq 'stale: remote:remote-ci.*2 doorbell delivery attempts' "$dir/exhausted.out" || fail "exhausted retries did not name the remote task: $(cat "$dir/exhausted.out")"
+  [ "$(grep -c 'Firstmate instruction waiting' "$dir/attempts")" -eq 3 ] || fail "the initial attempt and both retries did not reach the remote pane"
+  [ -f "$inbox/001.msg" ] && [ ! -e "$inbox/002.msg" ] || fail "retry exhaustion lost or duplicated the CI result"
+  [ ! -s "$dir/submitted" ] || fail "the exhausted failure fixture actually submitted"
+  pass "a remote CI doorbell that never lands wakes the supervisor when the retry budget is spent"
+}
+
+test_remote_ci_retry_does_not_ring_an_acknowledged_record() {
+  local dir inbox result
+  dir=$(make_case wait-ci-remote-ack)
+  make_remote_ci_case "$dir"
+  inbox="$dir/execution/state/remote-ci.inbox"
+  remote_ci_watch "$dir" "$dir/complete.out"
+  [ -f "$inbox/001.msg" ] || fail "the completion was missing from the execution inbox"
+  mv "$inbox/001.msg" "$inbox/handled/" || fail "the worker could not acknowledge the record"
+  : > "$dir/allow-submit"
+  result=$(CI_CASE="$dir" CI_ROOT="$ROOT" PATH="$dir/fakebin:$PATH" FM_HOME="$dir/execution" \
+    "$ROOT/bin/fm-remote-worker-control.sh" ring-record remote-ci 001.msg) || fail "a stale retry was not accepted as a no-op"
+  [ "$result" = ring=0 ] || fail "the stale retry did not report that no more retries were needed"
+  [ "$(grep -c 'Firstmate instruction waiting' "$dir/attempts")" -eq 1 ] || fail "a stale fleet result re-rang the acknowledged record"
+  [ ! -s "$dir/submitted" ] || fail "a retry typed after acknowledgement"
+  pass "an acknowledgement ends remote CI retries even when a stale fleet read schedules one more ring"
+}
+
 test_unchanged_log_is_not_folded_again() {
   local dir state probe items appended
   dir=$(make_case wait-unchanged); state="$dir/state"; probe="$dir/fold-probe"
@@ -283,6 +423,9 @@ test_overdue_reminder_does_not_stop_after_first_wake
 test_ci_owner_without_run_id_is_flagged
 test_ci_run_completion_does_not_wake_for_in_progress
 test_completed_ci_failure_reaches_worker_once
+test_remote_ci_does_not_drop_a_failed_doorbell
+test_remote_ci_does_not_retry_forever
+test_remote_ci_retry_does_not_ring_an_acknowledged_record
 test_unchanged_log_is_not_folded_again
 test_older_line_flagged_once_and_still_read
 test_watcher_raises_overdue_wait

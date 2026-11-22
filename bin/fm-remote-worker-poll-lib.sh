@@ -61,9 +61,16 @@ remote_worker_note_agent() {  # <id> <host> <agent>
 }
 
 remote_worker_rering() {
-  local id=$1 host=$2 route=$3 now=$4 inbox=$5 record age ringf escf rings last doorbell ring_out reason
+  local id=$1 host=$2 route=$3 now=$4 inbox=$5 until_rung=${6:-0} record age ringf escf rings last doorbell ring_out reason
+  if [ "$until_rung" -eq 1 ]; then
+    ringf="$STATE/.remote-ci-ring-$id"
+    escf="$STATE/.remote-ci-ring-escalated-$id"
+  else
+    ringf="$STATE/.remote-ring-$id"
+    escf="$STATE/.remote-ring-escalated-$id"
+  fi
   case "$inbox" in
-    -) rm -f -- "$STATE/.remote-ring-$id" "$STATE/.remote-ring-escalated-$id"; return 0 ;;
+    -) rm -f -- "$ringf" "$escf"; return 0 ;;
     *.msg:*) ;;
     *) return 0 ;;
   esac
@@ -76,13 +83,11 @@ remote_worker_rering() {
     echo "watcher: FM_REMOTE_RING_GRACE must be a positive integer: $FM_REMOTE_RING_GRACE" >&2; return 1 ;;
   esac
   [ "$age" -ge "$FM_REMOTE_RING_GRACE" ] || return 0
-  escf="$STATE/.remote-ring-escalated-$id"
-  [ "$(cat "$escf" 2>/dev/null || true)" != "$record" ] || return 0
+  ! grep -Fxq -- "$record" "$escf" 2>/dev/null || return 0
   FM_REMOTE_RING_MAX=${FM_REMOTE_RING_MAX:-3}
   case "$FM_REMOTE_RING_MAX" in ''|*[!0-9]*|0)
     echo "watcher: FM_REMOTE_RING_MAX must be a positive integer: $FM_REMOTE_RING_MAX" >&2; return 1 ;;
   esac
-  ringf="$STATE/.remote-ring-$id"
   rings=0
   last=0
   if [ "$(sed -n 's/^record=//p' "$ringf" 2>/dev/null | head -1)" = "$record" ]; then
@@ -92,13 +97,22 @@ remote_worker_rering() {
     case "$last" in ''|*[!0-9]*) last=0 ;; esac
   fi
   [ "$((now - last))" -ge "$FM_REMOTE_RING_GRACE" ] || return 0
-  doorbell=$(fm_task_inbox_doorbell_for "$id.inbox") || return 0
   FM_REMOTE_RING_BUDGET=${FM_REMOTE_RING_BUDGET:-60}
   case "$FM_REMOTE_RING_BUDGET" in ''|*[!0-9]*|0)
     echo "watcher: FM_REMOTE_RING_BUDGET must be a positive integer: $FM_REMOTE_RING_BUDGET" >&2; return 1 ;;
   esac
-  ring_out=$(printf '%s' "$doorbell" | fm_run_timed "$FM_REMOTE_RING_BUDGET" "$SCRIPT_DIR/fm-on.sh" --stdin "$route" \
-    fm-remote-worker-control.sh ring "$id" "fm-$id" 2>/dev/null) || return 0
+  if [ "$until_rung" -eq 1 ]; then
+    ring_out=$(fm_run_timed "$FM_REMOTE_RING_BUDGET" "$SCRIPT_DIR/fm-on.sh" "$route" \
+      fm-remote-worker-control.sh ring-record "$id" "$record" 2>/dev/null) || return 0
+    if [ "$ring_out" = ring=0 ]; then
+      rm -f -- "$ringf"
+      return 0
+    fi
+  else
+    doorbell=$(fm_task_inbox_doorbell_for "$id.inbox") || return 0
+    ring_out=$(printf '%s' "$doorbell" | fm_run_timed "$FM_REMOTE_RING_BUDGET" "$SCRIPT_DIR/fm-on.sh" --stdin "$route" \
+      fm-remote-worker-control.sh ring "$id" "fm-$id" 2>/dev/null) || return 0
+  fi
   case "$ring_out" in
     ring=0|ring=1|ring=2)
       rings=$((rings + 1))
@@ -110,7 +124,11 @@ remote_worker_rering() {
   [ "$rings" -ge "$FM_REMOTE_RING_MAX" ] || return 0
   reason="stale: remote:$id (unread firstmate instruction: $rings doorbell delivery attempts to the worker on $host without acknowledgement; inspect the worker)"
   fm_wake_append stale "remote:$id" "$reason" || exit 1
-  printf '%s\n' "$record" > "$escf" || exit 1
+  if [ "$until_rung" -eq 1 ]; then
+    printf '%s\n' "$record" >> "$escf" || exit 1
+  else
+    printf '%s\n' "$record" > "$escf" || exit 1
+  fi
   wake "$reason"
 }
 
@@ -118,7 +136,7 @@ remote_worker_rering() {
 # re-rings for delivered-but-unacked steers, for every worker this home
 # placed on another host. Unknown transport stays silent by design.
 remote_worker_poll() {
-  local meta id host route fleet line agent inbox now lock
+  local meta id host route fleet line agent inbox ci_inbox now lock
   now=$(date +%s) || return 0
   for meta in "$STATE"/*.meta; do
     [ -e "$meta" ] || continue
@@ -137,8 +155,15 @@ remote_worker_poll() {
     lock=$(fm_meta_lock_path "$meta") || continue
     fm_lock_try_acquire "$lock" || continue
     remote_worker_note_agent "$id" "$host" "$agent" || true
-    inbox=$(printf '%s\n' "$line" | awk -F '\t' '{print $5}')
-    case "$agent" in dead|missing) ;; *) remote_worker_rering "$id" "$host" "$route" "$now" "$inbox" || true ;; esac
+    case "$agent" in
+      dead|missing) ;;
+      *)
+        inbox=$(printf '%s\n' "$line" | cut -s -f5)
+        ci_inbox=$(printf '%s\n' "$line" | cut -s -f6)
+        remote_worker_rering "$id" "$host" "$route" "$now" "$ci_inbox" 1 || true
+        remote_worker_rering "$id" "$host" "$route" "$now" "$inbox" || true
+        ;;
+    esac
     fm_lock_release "$lock"
   done
 }
