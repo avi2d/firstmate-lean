@@ -131,6 +131,17 @@ test_overdue_reminder_does_not_stop_after_first_wake() {
   pass "an unchanged overdue pause repeats at a bounded interval"
 }
 
+test_ci_owner_without_run_id_is_flagged() {
+  local dir state items
+  dir=$(make_case wait-ci-missing); state="$dir/state"
+  printf 'paused: waiting for checks | owner=GitHub CI | recheck=2030-01-01\n' > "$state/t.status"
+  items=$(scan "$state")
+  assert_contains "$(reasons "$items")" "run id" "a CI wait without a run id was not flagged"
+  printf 'paused: CI run 123 | owner=GitHub CI | recheck=2030-01-01\n' > "$state/t.status"
+  [ -z "$(scan "$state")" ] || fail "a CI wait with a run id was flagged"
+  pass "a CI wait without a run id is flagged"
+}
+
 test_ci_run_completion_does_not_wake_for_in_progress() {
   local dir state items form
   dir=$(make_case wait-ci); state="$dir/state"
@@ -216,6 +227,7 @@ test_overdue_raised_with_owner_and_time
 test_cleared_wait_quiet
 test_raised_once_then_rearmed_by_redeclaration
 test_overdue_reminder_does_not_stop_after_first_wake
+test_ci_owner_without_run_id_is_flagged
 test_ci_run_completion_does_not_wake_for_in_progress
 test_unchanged_log_is_not_folded_again
 test_older_line_flagged_once_and_still_read
