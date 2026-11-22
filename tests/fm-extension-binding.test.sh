@@ -342,9 +342,29 @@ if [ "${FM_TEST_OWNER_ONLY:-0}" = 1 ]; then
   exit 0
 fi
 
+# A lane that outlives this bound is hung, and its coordinator stops it. A
+# tighter bound fails healthy lanes: on a CPU-starved CI runner a healthy lane
+# has needed more than 240 seconds.
+EXTENSION_SECTION_LANE_MAX_SECONDS=600
+
+# Inside a lane, every wait ends a few seconds before the lane deadline, so the
+# section names its own stalled wait before the coordinator stops it.
+section_wait_begin() {
+  if [ -n "${FM_EXTENSION_BINDING_LANE_DEADLINE_EPOCH:-}" ]; then
+    section_wait_deadline=$((SECONDS + FM_EXTENSION_BINDING_LANE_DEADLINE_EPOCH - $(date +%s) - 3))
+  else
+    section_wait_deadline=$((SECONDS + EXTENSION_SECTION_LANE_MAX_SECONDS))
+  fi
+}
+
+section_wait_open() {
+  [ "$SECONDS" -lt "$section_wait_deadline" ]
+}
+
 wait_for_file() {
   local file=$1
-  for _ in $(seq 1 100); do
+  section_wait_begin
+  while section_wait_open; do
     [ -s "$file" ] && return 0
     sleep 0.05
   done
@@ -439,10 +459,6 @@ run_extension_section_lane() {
   return "$section_rc"
 }
 
-# The coordinator stops any section lane, including the aggregate run's, that
-# outlives this bound, so no wait inside a section can usefully run longer.
-EXTENSION_SECTION_LANE_MAX_SECONDS=34
-
 run_extension_section_lanes() {
   local section result_file section_rc timeout_seconds deadline deadline_epoch index remaining launched total maximum_sections
   local active maximum_concurrent
@@ -519,6 +535,10 @@ run_extension_section_lanes() {
     done
     [ "$remaining" -eq 0 ] && break
     if [ "$SECONDS" -ge "$deadline" ]; then
+      for index in "${!section_pids[@]}"; do
+        [ -n "${section_complete[$index]:-}" ] \
+          || printf 'extension conformance section %s outlived its %ss lane deadline\n' "${sections[$index]}" "$timeout_seconds" >&2
+      done
       terminate_section_lanes
       return 124
     fi
@@ -633,10 +653,13 @@ if [ "$extension_segment" = all ] || [ "$extension_segment" = coordinator ]; the
   if FM_EXTENSION_BINDING_COORDINATOR_TIMEOUT_SECONDS=2 \
     FM_EXTENSION_BINDING_COORDINATOR_READY="$coordinator_ready" \
     FM_EXTENSION_BINDING_COORDINATOR_PID="$coordinator_pid" \
-    run_extension_section_lanes "coordinator-stubborn"; then
+    run_extension_section_lanes "coordinator-stubborn" 2> "$coordinator_probe/deadline.err"; then
     fail "the section coordinator accepted a stalled child past its deadline"
   fi
   assert_present "$coordinator_ready" "the deadline probe did not start its stalled child"
+  assert_contains "$(cat "$coordinator_probe/deadline.err")" \
+    "extension conformance section coordinator-stubborn outlived its 2s lane deadline" \
+    "the coordinator did not name the section that outlived its deadline"
   if kill -0 "$(cat "$coordinator_pid")" 2>/dev/null; then
     fail "the coordinator left its deadline child alive"
   fi
@@ -743,7 +766,8 @@ H_CONCURRENT="$HOMES/concurrent"; new_home "$H_CONCURRENT"
 bind_package "$H_CONCURRENT" "$P_CONCURRENT_ONE" ext-concurrent \
   > "$TMP_ROOT/concurrent-first.out" 2>&1 &
 first_bind_pid=$!
-for _ in $(seq 1 200); do
+section_wait_begin
+while section_wait_open; do
   [ -s "$concurrent_marker" ] && break
   sleep 0.01
 done
@@ -981,13 +1005,15 @@ for scenario in malformed invalid-utf8 bom control multiple duplicate wrong-id u
   assert_not_contains "$out" "MERGE NOW" "extension diagnostic text escaped into host evidence"
 done
 leaked_pid=$(cat "$H_MATRIX/state/extensions/org.example.matrix/leaked.pid")
-for _ in $(seq 1 50); do
+section_wait_begin
+while section_wait_open; do
   kill -0 "$leaked_pid" 2>/dev/null || break
   sleep 0.05
 done
 kill -0 "$leaked_pid" 2>/dev/null && fail "a successful response left its background descendant alive"
 rapid_pid=$(cat "$H_MATRIX/state/extensions/org.example.matrix/foreground-leak.pid")
-for _ in $(seq 1 50); do
+section_wait_begin
+while section_wait_open; do
   kill -0 "$rapid_pid" 2>/dev/null || break
   sleep 0.05
 done
@@ -1065,7 +1091,8 @@ assert_contains "$out" '"code":"timeout"' "timeout did not produce deterministic
 timeout_state_root="$H_TIMEOUT/state/extensions/org.example.timeout"
 wait_for_file "$timeout_state_root/descendant.pid" || fail "timeout fixture never started its descendant"
 descendant=$(cat "$timeout_state_root/descendant.pid")
-for _ in $(seq 1 50); do
+section_wait_begin
+while section_wait_open; do
   kill -0 "$descendant" 2>/dev/null || break
   sleep 0.05
 done
@@ -1148,7 +1175,8 @@ host_error_case() {
     fi
     # Reconcile confirms a launch, not completion. Wait on this private source's
     # recorded runner and claim, so the next command exercises a settled retry.
-    for _ in $(seq 1 600); do
+    section_wait_begin
+    while section_wait_open; do
       runner_pid=$(sed -n '2p' "$FM_PROCEVENT_CLAIM_ROOT/$source.claim" 2>/dev/null || true)
       if [ ! -e "$home/state/procevent/$source.runner" ] && [ -z "$runner_pid" ]; then break; fi
       sleep 0.05
@@ -1264,7 +1292,8 @@ pass "one external adapter registers, invokes, captures unhandled evidence, clas
 FM_HOME="$H_FLOW" "$PROCEVENT" register-extension ext-flow crash-silent-source --config-ref crash-silent >/dev/null
 FM_HOME="$H_FLOW" "$PROCEVENT" start crash-silent-source > "$TMP_ROOT/crash-silent-start.out" 2>&1 &
 crash_silent_start_pid=$!
-for _ in $(seq 1 400); do
+section_wait_begin
+while section_wait_open; do
   if [ -f "$TMP_ROOT/claims/crash-silent-source.claim" ]; then
     # The successful crash-recovery path may release this durable claim between
     # the observation above and this best-effort cleanup PID read.
@@ -1325,16 +1354,17 @@ order_register_pid=$!
 wait_for_file "$order_marker" || fail "lock-order registration never entered binding resolution"
 FM_HOME="$H_ORDER" "$PROCEVENT" reconcile > "$TMP_ROOT/lock-order-reconcile.out" 2>&1 &
 order_reconcile_pid=$!
-for _ in $(seq 1 200); do
+section_wait_begin
+while section_wait_open; do
   [ -L "$FM_PROCEVENT_CLAIM_ROOT/order-source.lock" ] && break
   sleep 0.01
 done
 [ -L "$FM_PROCEVENT_CLAIM_ROOT/order-source.lock" ] || fail "neither lock-order contender took the source lock"
 sleep 0.2
 touch "$order_release"
-order_deadline=$((SECONDS + 12))
+section_wait_begin
 while kill -0 "$order_register_pid" 2>/dev/null || kill -0 "$order_reconcile_pid" 2>/dev/null; do
-  if [ "$SECONDS" -ge "$order_deadline" ]; then
+  if ! section_wait_open; then
     # Killing registration lets lock recovery free reconcile for cleanup.
     kill -KILL "$order_register_pid" 2>/dev/null || true
     wait "$order_register_pid" 2>/dev/null || true
@@ -1475,7 +1505,8 @@ owner_lock="$H_LOCK_OWNER/state/procevent/.extension-binding-lifecycle.lock"
 FM_HOME="$H_LOCK_OWNER" "$HOST" retire-binding org.example.lock-owner --if-binding-digest "$owner_binding_digest" > "$TMP_ROOT/lock-owner-retire.out" 2>&1 &
 owner_retire_pid=$!
 owner_worker_pid=
-for _ in $(seq 1 400); do
+section_wait_begin
+while section_wait_open; do
   if [ -e "$owner_lock/pid" ]; then
     candidate=$(cat "$owner_lock/pid" 2>/dev/null || true)
     if [ -n "$candidate" ] && kill -STOP "$candidate" 2>/dev/null; then
@@ -1516,7 +1547,8 @@ signal_lock="$H_SIGNAL_LOCK/state/procevent/.extension-binding-lifecycle.lock"
 FM_HOME="$H_SIGNAL_LOCK" "$HOST" retire-binding org.example.signal-lock --if-binding-digest "$signal_binding_digest" > "$TMP_ROOT/signal-lock-retire.out" 2>&1 &
 signal_retire_pid=$!
 signal_worker_pid=
-for _ in $(seq 1 400); do
+section_wait_begin
+while section_wait_open; do
   if [ -e "$signal_lock/pid" ]; then
     candidate=$(cat "$signal_lock/pid" 2>/dev/null || true)
     if [ -n "$candidate" ] && kill -STOP "$candidate" 2>/dev/null; then
@@ -1529,7 +1561,8 @@ done
 [ -n "$signal_worker_pid" ] || fail "signal retirement worker never acquired its lifecycle lock"
 kill -TERM "$signal_worker_pid" 2>/dev/null || fail "cannot signal retirement worker"
 kill -CONT "$signal_worker_pid" 2>/dev/null || fail "cannot resume signalled retirement worker"
-for _ in $(seq 1 400); do
+section_wait_begin
+while section_wait_open; do
   kill -0 "$signal_worker_pid" 2>/dev/null || break
   sleep 0.005
 done
@@ -1981,7 +2014,8 @@ first_invocation_owner() {  # <home>
 
 wait_for_invocation_owner() {  # <home>
   local candidate
-  for _ in $(seq 1 200); do
+  section_wait_begin
+  while section_wait_open; do
     candidate=$(first_invocation_owner "$1" 2>/dev/null || true)
     [ -n "$candidate" ] && { printf '%s\n' "$candidate"; return 0; }
     sleep 0.01
@@ -2104,7 +2138,8 @@ kill -0 "$$" 2>/dev/null || fail "ownerless cleanup signalled a reused PID"
 kill -0 -"$crash_cleanup_group_pid" 2>/dev/null || fail "ownerless cleanup signalled an unrelated group"
 orphan_dead_pid=$crash_cleanup_group_pid
 kill -TERM -"$crash_cleanup_group_pid" 2>/dev/null || fail "cannot stop private orphan fixture group"
-for _ in $(seq 1 200); do
+section_wait_begin
+while section_wait_open; do
   kill -0 -"$crash_cleanup_group_pid" 2>/dev/null || break
   sleep 0.1
 done
@@ -2154,19 +2189,13 @@ for orphan_source in orphan-first orphan-second; do
   orphan_runner=$(sed -n '2p' "$FM_PROCEVENT_CLAIM_ROOT/$orphan_source.claim" 2>/dev/null || true)
   [ -z "$orphan_runner" ] || orphan_runners+=("$orphan_source:$orphan_runner")
 done
-orphan_wait_seconds=$EXTENSION_SECTION_LANE_MAX_SECONDS
-if [ -n "${FM_EXTENSION_BINDING_LANE_DEADLINE_EPOCH:-}" ]; then
-  orphan_remaining=$((FM_EXTENSION_BINDING_LANE_DEADLINE_EPOCH - $(date +%s) - 3))
-  [ "$orphan_remaining" -ge "$orphan_wait_seconds" ] || orphan_wait_seconds=$orphan_remaining
-  [ "$orphan_wait_seconds" -ge 1 ] || orphan_wait_seconds=1
-fi
-orphan_deadline=$((SECONDS + orphan_wait_seconds))
+section_wait_begin
 while :; do
   orphan_live=()
   for orphan_runner in "${orphan_runners[@]+"${orphan_runners[@]}"}"; do
     kill -0 -"${orphan_runner#*:}" 2>/dev/null && orphan_live+=("$orphan_runner")
   done
-  [ "${#orphan_live[@]}" -gt 0 ] && [ "$SECONDS" -lt "$orphan_deadline" ] || break
+  if [ "${#orphan_live[@]}" -eq 0 ] || ! section_wait_open; then break; fi
   sleep 0.1
 done
 if [ "${#orphan_live[@]}" -gt 0 ]; then
@@ -2176,7 +2205,7 @@ if [ "${#orphan_live[@]}" -gt 0 ]; then
     kill -KILL -"${orphan_runner#*:}" 2>/dev/null || true
   done
   FM_HOME="$H_ORPHAN_READY" "$PROCEVENT" sweep-home >/dev/null 2>&1 || true
-  fail "recovered source ${orphan_live[*]%%:*} did not finish within ${orphan_wait_seconds}s"
+  fail "recovered source ${orphan_live[*]%%:*} did not finish before its wait deadline"
 fi
 for orphan_source in orphan-first orphan-second; do
   assert_present "$H_ORPHAN_READY/state/procevent-inbox/$orphan_source.1.handled" \
@@ -2441,7 +2470,8 @@ expect_failure "prior runner remains active" remote_direct fm-procevent.sh regis
 expect_failure "prior runner remains active" remote_direct fm-procevent.sh register lavish remote-active-source -- /bin/echo remote-built-in
 touch "$remote_active_release"
 remote_active_release=
-for _ in $(seq 1 400); do
+section_wait_begin
+while section_wait_open; do
   [ ! -e "$H_REMOTE/state/procevent/remote-active-source.source" ] && break
   sleep 0.01
 done
@@ -2608,7 +2638,8 @@ example_registration=$(FM_HOME="$H_EXAMPLE" "$PROCEVENT" register-extension file
 example_token=$(printf '%s\n' "$example_registration" | sed -n 's/^owner-token: //p')
 FM_HOME="$H_EXAMPLE" "$PROCEVENT" start example-file > "$TMP_ROOT/example-start.out" &
 example_start=$!
-for _ in $(seq 1 100); do
+section_wait_begin
+while section_wait_open; do
   [ -f "$FM_PROCEVENT_CLAIM_ROOT/example-file.claim" ] && break
   sleep 0.05
 done
@@ -2633,7 +2664,8 @@ symlinked_registration=$(FM_HOME="$H_EXAMPLE_SYMLINKED" "$PROCEVENT" register-ex
 symlinked_token=$(printf '%s\n' "$symlinked_registration" | sed -n 's/^owner-token: //p')
 FM_HOME="$H_EXAMPLE_SYMLINKED" "$PROCEVENT" start example-symlinked > "$TMP_ROOT/example-symlinked-start.out" &
 symlinked_start=$!
-for _ in $(seq 1 100); do
+section_wait_begin
+while section_wait_open; do
   [ -f "$FM_PROCEVENT_CLAIM_ROOT/example-symlinked.claim" ] && break
   sleep 0.05
 done
@@ -2663,7 +2695,8 @@ handshake_orphan_pid=$(cat "$handshake_orphan_pid_file")
 assert_contains "$handshake_orphan_out" "process-leak" "handshake leak did not reject binding publication"
 assert_absent "$H_HANDSHAKE_ORPHAN/config/extensions.d/org.example.handshake-orphan.json" "handshake orphan published an enabled binding"
 kill -0 "$handshake_orphan_pid" 2>/dev/null && fail "handshake leak escaped invocation-group cleanup"
-for _ in $(seq 1 50); do
+section_wait_begin
+while section_wait_open; do
   kill -0 "$handshake_orphan_pid" 2>/dev/null || break
   sleep 0.05
 done
