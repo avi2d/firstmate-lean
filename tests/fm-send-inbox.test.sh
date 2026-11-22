@@ -337,7 +337,6 @@ test_ci_completion_retries_a_failed_doorbell_without_duplicate_records() {
     fail "CI completion was not enqueued"
   rec="$dir/home/state/t1.inbox/001.msg"
   [ -f "$rec" ] || fail "CI completion inbox record missing"
-  rm -f "$dir/home/state/t1.inbox/.retry-ring"
   action=$(FM_HOME="$dir/home" FM_TASK_INBOX_GRACE_SECS=0 bash -c '. "$1"; fm_task_inbox_due_action "$2" t1' _ \
     "$ROOT/bin/fm-task-inbox-lib.sh" "$dir/home/state")
   [ "$action" = "retry $rec" ] || fail "failed CI doorbell has no retry: $action"
