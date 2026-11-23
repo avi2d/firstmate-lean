@@ -20,11 +20,12 @@ Before dispatching an agent-driven contribution, follow the [Firstmate role and 
 ## Maintaining required checks
 
 GitHub required checks are configured in the repository's existing main ruleset, not activated by committing workflow YAML.
-Tests run on `main` only: CI runs every job on each push to `main`, once a day, and on a manual dispatch on `main`.
-Pull requests do not run CI checks.
-The next run on `main` is the test gate for a merged pull request.
+Each pull request runs the lint job and the behavior tests its changes select, in six shards.
+The repository-wide documentation audit test runs on every pull request too.
+A push to `main` runs the lint, typecheck, test coverage, and static checks.
+The full behavior suite runs once a day and on a manual dispatch on `main`.
 No check is a required check in the ruleset.
-Never dispatch CI on a branch: its `Tests run on main only` job fails the run before any other job starts.
+Never dispatch CI on a branch: its `Select test scope` job fails the run before any other job starts.
 A red run is triaged by hand from its run page.
 Snapshot the current ruleset, amend that same rule with the authenticated GitHub API or settings UI, and read back both the ruleset and effective branch rules.
 Verify any required missing or reported red checks prevent ordinary merging without creating a test merge; administrator override intentionally remains available.

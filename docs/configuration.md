@@ -633,12 +633,13 @@ The flag is a home-local preference.
 The optional gitignored `config/ci-main-only` lists GitHub repository URLs, one exact `https://host/owner/repo` URL per line.
 For a listed repository, `bin/fm-pr-merge.sh` permits an empty check rollup when no required checks are missing.
 A reported failing or pending check still prevents merging, and an unlisted repository still needs a passing check.
-For Firstmate, add `https://github.com/avi2d/firstmate-lean` to this file when that is the target repository.
+Firstmate's pull requests report CI checks, so it needs no entry here.
 
 ## No local tests
 
 The optional local, gitignored `config/no-local-tests` presence flag makes CI the only test run for this home's workers.
-Firstmate's own CI runs on `main` only, and pull requests do not run CI checks.
+Firstmate's CI runs on every pull request and on `main`.
+Its full behavior suite runs on `main` only.
 [`CONTRIBUTING.md`](../CONTRIBUTING.md#maintaining-required-checks) owns that schedule.
 With it present, every ship and scout brief gains a `# Local tests` section saying that the repository's own tests never run on the worker machine, in any repository, including any `package.json` test script and any test runner.
 The section allows a throwaway check: a small script written in the worker's temporary folder outside the repository, run once to see one behavior, never committed, and finishing in about a minute without a browser, simulator, or App.

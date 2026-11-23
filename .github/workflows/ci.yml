@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+  pull_request:
   schedule:
     - cron: '17 6 * * *'
   workflow_dispatch:
@@ -31,34 +32,39 @@ env:
 # condition skips reports success.
 
 jobs:
-  # Every other job needs this job, and a test job runs only when it reports
-  # run-tests=true.
-  main-only:
-    name: Tests run on main only
+  # Every other job needs this job. Its scope output selects what this run
+  # executes: the changed shards on a pull request, the checks on a push to
+  # main, and the full suite on a scheduled or manual run on main.
+  test-scope:
+    name: Select test scope
     runs-on: ubuntu-24.04
     # Fast tier: one shell comparison.
     timeout-minutes: 5
     outputs:
-      run-tests: ${{ steps.ref.outputs.run-tests }}
+      scope: ${{ steps.ref.outputs.scope }}
     steps:
-      - name: Refuse tests on a ref other than main
+      - name: Select the scope of this run
         id: ref
         env:
           EVENT: ${{ github.event_name }}
           REF: ${{ github.ref }}
         run: |
           set -eu
-          if [ "$REF" = refs/heads/main ]; then
-            echo 'run-tests=true' >> "$GITHUB_OUTPUT"
-          else
-            echo "::error::Tests run on main only, and this $EVENT run is on $REF. Dispatch CI on main."
-            exit 1
-          fi
+          case "$EVENT:$REF" in
+            pull_request:*) echo 'scope=changed' >> "$GITHUB_OUTPUT" ;;
+            push:refs/heads/main) echo 'scope=checks' >> "$GITHUB_OUTPUT" ;;
+            schedule:refs/heads/main|workflow_dispatch:refs/heads/main)
+              echo 'scope=full' >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "::error::The full test suite runs on main only, and this $EVENT run is on $REF. Dispatch CI on main."
+              exit 1
+              ;;
+          esac
 
   lint:
     name: Lint ${{ matrix.shard }}
     runs-on: ubuntu-24.04
-    needs: main-only
+    needs: test-scope
     # Lint cap (see the timeout policy above).
     timeout-minutes: 15
     strategy:
@@ -130,7 +136,8 @@ jobs:
   typecheck:
     name: Typecheck
     runs-on: ubuntu-24.04
-    needs: main-only
+    needs: test-scope
+    if: ${{ needs.test-scope.outputs.scope != 'changed' }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
@@ -143,8 +150,8 @@ jobs:
   effect-runtime:
     name: Effect runtime
     runs-on: ubuntu-24.04
-    needs: main-only
-    if: ${{ needs.main-only.outputs.run-tests == 'true' }}
+    needs: test-scope
+    if: ${{ needs.test-scope.outputs.scope == 'full' }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
@@ -169,7 +176,8 @@ jobs:
   test-coverage:
     name: Test coverage guard
     runs-on: ubuntu-24.04
-    needs: main-only
+    needs: test-scope
+    if: ${{ needs.test-scope.outputs.scope != 'changed' }}
     # Fast tier: the coverage guard is a seconds-long local computation.
     timeout-minutes: 5
     steps:
@@ -179,11 +187,90 @@ jobs:
 
   # Two duration-balanced portable parallel shards of the Phase 2 proven-isolated
   # set only. Composition owner: bin/fm-test-run.sh.
+  # Pull-request lane: the changed selection in six shards. The repository-wide
+  # audit tests run on shard 1 on every pull request.
+  tests-changed:
+    name: Behavior changed shard ${{ matrix.shard }}
+    runs-on: ubuntu-24.04
+    needs: test-scope
+    if: ${{ needs.test-scope.outputs.scope == 'changed' }}
+    # Normal tier (see the timeout policy above).
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Install pinned ShellCheck
+        run: |
+          set -eu
+          bin/fm-install-shellcheck.sh "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Install pinned actionlint
+        run: |
+          set -eu
+          bin/fm-install-actionlint.sh "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Require tmux for e2e tests
+        run: |
+          set -eu
+          command -v tmux >/dev/null || {
+            echo "::error::tmux is required for real afk injection e2e coverage"
+            exit 1
+          }
+          tmux -V
+      - name: Restore cached tasks-axi
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/lib/node_modules/tasks-axi
+            /usr/local/bin/tasks-axi
+          key: tasks-axi-${{ env.FM_CI_TASKS_AXI_VERSION }}-${{ runner.os }}
+      - name: Install tasks-axi
+        run: |
+          set -eu
+          if [ -x /usr/local/bin/tasks-axi ] && [ "$(tasks-axi --version)" = "${FM_CI_TASKS_AXI_VERSION}" ]; then
+            echo "tasks-axi ${FM_CI_TASKS_AXI_VERSION} restored from cache"
+          else
+            npm install -g "tasks-axi@${FM_CI_TASKS_AXI_VERSION}"
+          fi
+          tasks-axi --version
+      - name: Restore cached Pi package
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/lib/node_modules/@earendil-works/pi-coding-agent
+            /usr/local/bin/pi
+          key: pi-coding-agent-${{ env.FM_CI_PI_VERSION }}-${{ runner.os }}
+      - name: Install the Pi package for the Pi extension tests
+        run: |
+          set -eu
+          installed=$(sed -n 's/^[[:space:]]*"version":[[:space:]]*"\([^"]*\)".*/\1/p' /usr/local/lib/node_modules/@earendil-works/pi-coding-agent/package.json 2>/dev/null | head -1)
+          if [ "${installed}" = "${FM_CI_PI_VERSION}" ]; then
+            echo "pi-coding-agent ${FM_CI_PI_VERSION} restored from cache"
+          else
+            npm install -g "@earendil-works/pi-coding-agent@${FM_CI_PI_VERSION}"
+          fi
+          npm ls -g --depth 0 @earendil-works/pi-coding-agent
+      - name: Run changed shard ${{ matrix.shard }}
+        run: |
+          set -eu
+          bin/fm-test-run.sh --changed-shard "${{ matrix.shard }}of6" --base origin/main \
+            --fail-on-gate-skip 'Pi extension typecheck prerequisite not found'
+      - name: Run the repository-wide audit tests
+        if: ${{ matrix.shard == 1 }}
+        run: |
+          set -eu
+          bin/fm-test-run.sh tests/fm-documentation-audiences.test.sh --fail-on-gate-skip 'Pi extension typecheck prerequisite not found'
+
   tests-portable-parallel-1:
     name: Behavior portable parallel 1
     runs-on: ubuntu-24.04
-    needs: main-only
-    if: ${{ needs.main-only.outputs.run-tests == 'true' }}
+    needs: test-scope
+    if: ${{ needs.test-scope.outputs.scope == 'full' }}
     # Normal tier (see the timeout policy above).
     timeout-minutes: 30
     steps:
@@ -251,8 +338,8 @@ jobs:
   tests-portable-parallel-2:
     name: Behavior portable parallel 2
     runs-on: ubuntu-24.04
-    needs: main-only
-    if: ${{ needs.main-only.outputs.run-tests == 'true' }}
+    needs: test-scope
+    if: ${{ needs.test-scope.outputs.scope == 'full' }}
     # Normal tier (see the timeout policy above).
     timeout-minutes: 30
     steps:
@@ -308,8 +395,8 @@ jobs:
   tests-portable-serial:
     name: Behavior portable serial ${{ matrix.shard }}
     runs-on: ubuntu-24.04
-    needs: main-only
-    if: ${{ needs.main-only.outputs.run-tests == 'true' }}
+    needs: test-scope
+    if: ${{ needs.test-scope.outputs.scope == 'full' }}
     # Normal tier (see the timeout policy above).
     timeout-minutes: 30
     strategy:
@@ -412,8 +499,8 @@ jobs:
   tests-herdr:
     name: Behavior tests (Herdr)
     runs-on: ubuntu-24.04
-    needs: main-only
-    if: ${{ needs.main-only.outputs.run-tests == 'true' }}
+    needs: test-scope
+    if: ${{ needs.test-scope.outputs.scope == 'full' }}
     # Heavy tier (see the timeout policy above): the last-resort job backstop.
     # The family-run step below owns the hang tripwire, so a wedged suite fails
     # there with the always() cleanup and timing upload still running.
@@ -556,12 +643,12 @@ jobs:
     # Fast tier: aggregation is seconds of work over lane artifacts.
     timeout-minutes: 5
     needs:
-      - main-only
+      - test-scope
       - tests-portable-parallel-1
       - tests-portable-parallel-2
       - tests-portable-serial
       - tests-herdr
-    if: ${{ always() && needs.main-only.outputs.run-tests == 'true' }}
+    if: ${{ always() && needs.test-scope.outputs.scope == 'full' }}
     steps:
       - uses: actions/checkout@v6
       - name: Download lane timing artifacts
@@ -595,8 +682,8 @@ jobs:
   macos-stock-bash:
     name: Stock macOS Bash snapshot compatibility
     runs-on: macos-latest
-    needs: main-only
-    if: ${{ needs.main-only.outputs.run-tests == 'true' && vars.FM_CI_SKIP_MACOS != '1' }}
+    needs: test-scope
+    if: ${{ needs.test-scope.outputs.scope == 'full' && vars.FM_CI_SKIP_MACOS != '1' }}
     # Normal tier (see the timeout policy above).
     timeout-minutes: 30
     steps:
@@ -669,7 +756,8 @@ jobs:
   static:
     name: Static checks
     runs-on: ubuntu-24.04
-    needs: main-only
+    needs: test-scope
+    if: ${{ needs.test-scope.outputs.scope != 'changed' }}
     permissions:
       contents: read
       actions: read
