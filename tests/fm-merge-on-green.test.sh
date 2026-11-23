@@ -289,9 +289,15 @@ SH
   write_view "$c" "$HEAD_B" '[]'
   mv "$c/view.json" "$c/view-pushed.json"
   write_view "$c" "$HEAD_A" "$green_rollup"
-  sweep "$c"
+  local sweep_rc=0
+  sweep "$c" > "$c/sweep.stdout" 2> "$c/sweep.stderr" || sweep_rc=$?
   [ "$(merge_calls "$c")" -eq 0 ] || fail "pushed-after-green: a head pushed after the green reading was merged with no check of its own: $(cat "$c/gh.log")"
-  assert_grep "not the expected head $HEAD_A" "$c/state/merge-on-green.log" "pushed-after-green: the merge was not refused for the changed head"
+  if ! grep -F -- "not the expected head $HEAD_A" "$c/state/merge-on-green.log" >/dev/null; then
+    printf 'sweep exit: %s\nstdout:\n%s\nstderr:\n%s\nmerge log:\n%s\nforge calls:\n%s\n' \
+      "$sweep_rc" "$(cat "$c/sweep.stdout")" "$(cat "$c/sweep.stderr")" \
+      "$(cat "$c/state/merge-on-green.log")" "$(cat "$c/gh.log")" >&2
+    fail "pushed-after-green: the merge was not refused for the changed head"
+  fi
   pass "a head pushed between the green reading and the merge is refused instead of merged on the earlier head's checks"
 }
 
