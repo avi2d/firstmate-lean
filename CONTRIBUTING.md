@@ -23,6 +23,8 @@ GitHub required checks are configured in the repository's existing main ruleset,
 Each pull request runs the lint job and the behavior tests its changes select, in six shards.
 The repository-wide documentation audit test runs on every pull request too.
 A push to `main` runs the lint, typecheck, test coverage, and static checks.
+A pull request that changes a workflow, and every push to `main`, also runs `bin/fm-action-versions-check.sh`, which fails on any action whose major version is behind the action's latest release.
+Dependabot opens one grouped pull request a week with those action updates.
 The full behavior suite runs once a day and on a manual dispatch on `main`.
 No check is a required check in the ruleset.
 Never dispatch CI on a branch: its `Select test scope` job fails the run before any other job starts.
