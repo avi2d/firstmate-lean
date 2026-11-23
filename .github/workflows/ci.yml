@@ -1,9 +1,5 @@
 name: CI
 
-# Tests run on main only. A pull request runs lint, the static gate, and the
-# coverage guard, and the main-only job skips every test job on it. A run
-# dispatched on any other ref fails in the main-only job, and every other job
-# needs that job, so none of them starts.
 on:
   push:
     branches: [main]
@@ -57,7 +53,7 @@ jobs:
           if [ "$REF" = refs/heads/main ]; then
             echo 'run-tests=true' >> "$GITHUB_OUTPUT"
           elif [ "$EVENT" = pull_request ]; then
-            echo "::notice::Tests run on main only. This pull request runs lint, the static gate, and the coverage guard."
+            echo "::notice::Tests run on main only. This pull request runs lint, typecheck, the static gate, and the coverage guard."
             echo 'run-tests=false' >> "$GITHUB_OUTPUT"
           else
             echo "::error::Tests run on main only, and this $EVENT run is on $REF. Open a pull request for lint and the static checks, or dispatch CI on main."
@@ -136,6 +132,19 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-24.04
+    needs: main-only
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.FM_CI_BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+
   effect-runtime:
     name: Effect runtime
     runs-on: ubuntu-24.04
@@ -148,7 +157,6 @@ jobs:
         with:
           bun-version: ${{ env.FM_CI_BUN_VERSION }}
       - run: bun install --frozen-lockfile
-      - run: bun run typecheck
       - run: bun test runtime
       - run: bun run build
       - name: Compare the built command with its source
