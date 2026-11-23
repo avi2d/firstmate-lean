@@ -156,6 +156,20 @@ expect_stays_open() {  # <case> <verdict> <reason-fragment> <label>
   expect_verdict "$1" "$2" "$3" "$4"
 }
 
+test_renamed_checkout_keeps_its_registered_yolo() {
+  local c
+  c=$(make_case renamed-checkout)
+  mkdir -p "$c/projects/checkout"
+  git -C "$c/projects/checkout" init -q
+  git -C "$c/projects/checkout" remote add origin https://github.com/example/widget.git
+  printf '%s\n' '- widget [direct-PR +yolo] - github.com/example/widget' > "$c/home/data/projects.md"
+  fm_write_meta "$c/state/task-x1.meta" \
+    "window=fm-task-x1" "worktree=$c/wt" "project=$c/projects/checkout" \
+    "kind=ship" "mode=direct-PR" "yolo=on" "pr=$URL"
+  expect_verdict "$c" green "every check is green" renamed-checkout
+  pass "a renamed checkout uses its registry entry and keeps +yolo"
+}
+
 test_settled_green_pull_request_merges_on_its_first_sweep() {
   local c
   c=$(make_case green)
@@ -604,6 +618,7 @@ test_records_waiting_on_a_merge_word_are_not_reresolved_from_the_forge_every_swe
   pass "a record waiting on the captain costs no forge read per sweep, and a long report history costs one lookup"
 }
 
+test_renamed_checkout_keeps_its_registered_yolo
 test_settled_green_pull_request_merges_on_its_first_sweep
 test_green_without_a_settled_finish_merges_on_the_second_sighting
 test_unsettled_green_waits
