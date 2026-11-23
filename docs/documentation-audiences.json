@@ -431,8 +431,8 @@
       "audience": "operator-current"
     },
     {
-      "path": "skills/projectstatus/SKILL.md",
-      "audience": "public-product"
+      "path": ".agents/skills/projectstatus/SKILL.md",
+      "audience": "agent-runtime"
     },
     {
       "path": "skills/stow/SKILL.md",
