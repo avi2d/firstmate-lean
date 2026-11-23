@@ -93,8 +93,13 @@ github_read_required_contexts() {
     rm -f "$api_err"
   fi
 
-  FM_PR_GITHUB_REQUIRED=$(printf '%s\n%s\n' "$classic" "$ruleset" | jq -sc '
+  if ! FM_PR_GITHUB_REQUIRED=$(printf '%s\n%s\n' "$classic" "$ruleset" | jq -sce '
     unique_by([.context, .app_id]) | group_by(.context)
-    | map(if any(.[]; .app_id != null) then map(select(.app_id != null)) else . end) | add // []')
+    | map(if any(.[]; .app_id != null) then map(select(.app_id != null)) else . end) | add // []') \
+    || [ -z "$FM_PR_GITHUB_REQUIRED" ]; then
+    FM_PR_GITHUB_REQUIRED='[]'
+    FM_PR_GITHUB_REQUIRED_ERROR="${FM_PR_GITHUB_REQUIRED_ERROR:+$FM_PR_GITHUB_REQUIRED_ERROR
+}the required checks for base branch $base could not be combined"
+  fi
   [ -z "$FM_PR_GITHUB_REQUIRED_ERROR" ]
 }
