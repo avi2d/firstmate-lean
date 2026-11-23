@@ -27,6 +27,7 @@ printf '%s\n' "\$2" >> "$world/gh.log"
 [ ! -e "$world/gh/\$key.fail" ] || { printf 'error: "boom"\n'; exit 1; }
 [ -f "$world/gh/\$key.json" ] || { printf 'error: "gh: Not Found (HTTP 404)"\ncode: NOT_FOUND\n'; exit 1; }
 printf 'api_response:\n  body: "%s"\n  truncated: false\n' "\$(jq -r "\$5" "$world/gh/\$key.json")"
+if [ -e "$world/large-gh-tail" ]; then printf '%02000000d\n' 0; fi
 SH
   cat > "$fakebin/git" <<SH
 #!/usr/bin/env bash
@@ -144,6 +145,16 @@ assert_lines() {
   local expected=$1 out=$2
   [ "$(printf '%s' "$out" | grep -c '^practice drift: ')" = "$expected" ] \
     || fail "expected $expected report line(s): $out"
+}
+
+test_large_github_response_tail_does_not_emit_broken_pipe() {
+  local world out
+  world=$(make_world large-tail)
+  kit_release "$world" v0.69.0
+  : > "$world/large-gh-tail"
+  out=$(trap '' PIPE; run_check "$world" "$NOV_1_2026_1600")
+  assert_equals "" "$out" "a large GitHub response tail emitted a broken pipe"
+  pass "a large GitHub response tail does not emit a broken pipe"
 }
 
 test_tidy_kit_user_is_not_reported_as_drift() {
@@ -443,6 +454,7 @@ test_org_repo_with_unread_org_vars_is_unreadable_not_missing() {
 }
 
 fm_test_run \
+  test_large_github_response_tail_does_not_emit_broken_pipe \
   test_tidy_kit_user_is_not_reported_as_drift \
   test_first_sweep_names_each_drifted_practice_on_one_line \
   test_same_findings_next_day_are_silent_and_changes_are_reported \
