@@ -65,6 +65,7 @@ make_case() {
     'base=main' > "$case_dir/github-outcome"
   printf '0\n' > "$case_dir/github-compare"
   : > "$case_dir/github-rules"
+  printf '%s\n' '{"check_runs":[]}' > "$case_dir/github-runs.json"
   # The base branch the forge reports by default: unprotected, with no ruleset
   # rule, so nothing is required unless a case says otherwise.
   write_github_required "$case_dir"
@@ -5054,6 +5055,39 @@ test_required_checks_reported_and_green_merge() {
   pass "fm-pr-merge merges when every required check reported and is green"
 }
 
+test_head_runs_missing_from_rollup_must_be_green_and_at_head() {
+  local case_dir head scenario status conclusion sha
+  head=4a0dc78849b4dea33717af6d91a8bfdca884a243
+  for scenario in green red pending empty stale malformed unreadable; do
+    case_dir=$(make_case "github-head-runs-$scenario")
+    add_gh_mocks "$case_dir" "$head"
+    write_github_rollup_json "$case_dir" "$head" "$(status_context 'checks / checks' SUCCESS)"
+    status=completed conclusion=success sha=$head
+    case "$scenario" in
+      red) conclusion=failure ;;
+      pending) status=in_progress; conclusion=null ;;
+      stale) sha=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb ;;
+    esac
+    if [ "$conclusion" = null ]; then conclusion=null; else conclusion="\"$conclusion\""; fi
+    printf '{"check_runs":[{"name":"checks / checks","head_sha":"%s","status":"%s","conclusion":%s},{"name":"browser / test","head_sha":"%s","status":"completed","conclusion":"skipped"}]}\n' \
+      "$sha" "$status" "$conclusion" "$head" > "$case_dir/github-runs.json"
+    case "$scenario" in
+      empty) printf '%s\n' '{"check_runs":[]}' > "$case_dir/github-runs.json" ;;
+      malformed) printf '%s\n' '{}' > "$case_dir/github-runs.json" ;;
+      unreadable) rm "$case_dir/github-runs.json" ;;
+    esac
+    run_required_case "$case_dir" 2002
+    if [ "$scenario" = green ]; then
+      expect_code 0 "$RC" "head-runs-$scenario: captured green checks must merge"
+      assert_logged_gh_merge "$case_dir" 2002 example/repo --squash
+    else
+      expect_code 1 "$RC" "head-runs-$scenario: unsafe checks must refuse"
+      assert_no_grep 'pr merge' "$case_dir/gh.log" "head-runs-$scenario: unsafe merge"
+    fi
+  done
+  pass "fm-pr-merge checks head runs omitted from the rollup"
+}
+
 test_empty_rollup_on_unprotected_base_does_not_merge() {
   local case_dir head
   head=b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1
@@ -5387,6 +5421,7 @@ test_allow_red_refused_on_gitlab
 test_required_check_that_never_reported_refuses
 test_required_checks_reported_and_green_merge
 test_empty_rollup_on_unprotected_base_does_not_merge
+test_head_runs_missing_from_rollup_must_be_green_and_at_head
 test_main_only_config_refuses_red_or_missing_required_checks
 test_red_and_unreported_checks_are_reported_together
 test_unreadable_required_set_refuses
