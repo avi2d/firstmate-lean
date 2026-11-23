@@ -92,3 +92,16 @@ out=$(FM_HOME="$HOME_DIR" bash "$ROOT/bin/fm-send.sh" w1 'inspect the session' 2
 pass "a remote text steer rides the inbox with its body verbatim"
 out=$(FM_HOME="$HOME_DIR" bash "$ROOT/bin/fm-send.sh" w1 --key C-c 2>&1) || fail "remote key steer refused: $out"
 pass "a remote key steer crosses to the remote endpoint"
+
+mkdir -p "$HOME_DIR/state/procevent-inbox"
+printf 'session:\n  status: feedback\nprompts[1]{uid,prompt,selector,tag,text}:\n  "","move the button","","message",""\n' > "$HOME_DIR/state/procevent-inbox/remote-board.1.result"
+printf 'lavish\n' > "$HOME_DIR/state/procevent-inbox/remote-board.1.adapter"
+printf 'w1\n' > "$HOME_DIR/state/procevent-inbox/remote-board.1.owner-task"
+chmod 600 "$HOME_DIR/state/procevent-inbox/remote-board.1."*
+rm -f "$FM_TEST_STDIN_CAPTURE"
+FM_HOME="$HOME_DIR" FM_PROCEVENT_CLAIM_ROOT="$TMP_ROOT/claims" bash "$ROOT/bin/fm-procevent.sh" reconcile >/dev/null 2>&1 || true
+[ -f "$FM_TEST_STDIN_CAPTURE" ] || fail "remote board feedback was written only to the local inbox"
+assert_grep 'move the button' "$FM_TEST_STDIN_CAPTURE" "remote board feedback omitted the captured answer"
+assert_not_contains "$(cat "$FM_TEST_STDIN_CAPTURE")" "$HOME_DIR/state/procevent-inbox" "remote board feedback named an inaccessible local result"
+[ ! -e "$HOME_DIR/state/w1.inbox/001.msg" ] || fail "remote board feedback was also written to the local inbox"
+pass "remote board feedback reaches the remote inbox with the answer instead of a local path"
