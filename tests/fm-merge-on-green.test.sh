@@ -98,10 +98,10 @@ case "${1:-} ${2:-}" in
   "pr update-branch") printf 'updated\n' ;;
   "pr merge") printf 'merged\n' ;;
   "api graphql") cat "$FM_TEST_CASE/outcome" ;;
-  "api --paginate") printf '{"check_runs":[]}\n' ;;
   "api repos/"*/compare/*) cat "$FM_TEST_CASE/behind" ;;
   api\ *)
     case " $* " in
+      *"/check-runs"*) printf '{"check_runs":[]}\n' ;;
       *"pulls/"*"/files"*)
         case " $* " in
           *"&page=1 "*) cat "$FM_TEST_CASE/files.json" 2>/dev/null || printf '[]\n' ;;
