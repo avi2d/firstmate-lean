@@ -308,8 +308,12 @@ sync_project() {
     echo "$label: skipped: not a clone root (git would act on $proj_top)"
     return 0
   fi
-  if ! mode_line=$("$FM_ROOT/bin/fm-project-mode.sh" "$label" 2>/dev/null); then
-    echo "$label: skipped: registry entry does not resolve to a delivery posture (run bin/fm-project-mode.sh $label for the refusal)"
+  registry_name=$(python3 "$SCRIPT_DIR/fm-project-name.py" "${FM_DATA_OVERRIDE:-$FM_HOME/data}/projects.md" "$PROJ") || {
+    echo "$label: skipped: project registry lookup failed"
+    return 0
+  }
+  if ! mode_line=$("$FM_ROOT/bin/fm-project-mode.sh" "$registry_name" 2>/dev/null); then
+    echo "$label: skipped: registry entry does not resolve to a delivery posture (run bin/fm-project-mode.sh $registry_name for the refusal)"
     return 0
   fi
   mode=${mode_line%% *}
