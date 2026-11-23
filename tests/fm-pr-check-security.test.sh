@@ -3517,7 +3517,8 @@ SH
     rc=0
     FM_TEST_GH_LOG="$dir/gh.log" FM_TEST_GH_STATE=OPEN \
       run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/watch-open.out" 2> "$dir/watch-open.err" || rc=$?
-    [ "$rc" -eq 0 ] || fail "$scenario open watcher failed: $(cat "$dir/watch-open.err")"
+    [ "$rc" -eq 0 ] \
+      || fail "$scenario open watcher exited $rc: stdout: $(cat "$dir/watch-open.out") stderr: $(cat "$dir/watch-open.err")"
     ! grep -F 'rejected unauthenticated state checks' "$dir/watch-open.out" >/dev/null \
       || fail "$scenario revoked an intact generation before its merge: $(cat "$dir/watch-open.out")"
     case "$(cat "$dir/watch-open.out")" in
