@@ -625,9 +625,20 @@ fm_lint_assert_flag_log() {
     || fail "ShellCheck flags were not external-sources=$expected_follow exclude=$expected_exclude"$'\n'"$(cat "$flag_log")"
 }
 
-test_changed_mode_drops_external_sources_and_excludes_cross_file_codes() {
-  local tmp fakebin log flag_log mode_log diff_file telemetry out target
+test_changed_mode_counts_source_directives_without_following_them() {
+  local tmp fakebin log flag_log mode_log diff_file telemetry out target test_root
   tmp=$(fm_test_tmproot fm-lint-local-nox)
+  test_root="$tmp/repo"
+  mkdir -p "$test_root/bin/backends" "$test_root/tests" "$test_root/.github/workflows"
+  cp "$LINT" "$ROOT/bin/fm-lint-workflows.sh" "$test_root/bin/"
+  cp "$ROOT"/.github/workflows/* "$test_root/.github/workflows/"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$test_root/bin/backends/noop.sh"
+  target="tests/fm-lint-source-count.test.sh"
+  cat > "$test_root/$target" <<'SH'
+#!/usr/bin/env bash
+# shellcheck source=bin/backends/noop.sh
+. "$(dirname "$0")/../bin/backends/noop.sh"
+SH
   fakebin=$(fm_fakebin "$tmp")
   fm_lint_stub_git "$fakebin"
   log="$tmp/shellcheck.log"
@@ -636,14 +647,13 @@ test_changed_mode_drops_external_sources_and_excludes_cross_file_codes() {
   telemetry="$tmp/telemetry.tsv"
   fm_lint_stub_shellcheck "$fakebin" "$log"
   diff_file="$tmp/diff.nul"
-  target="bin/fm-usage-warner.sh"
   fm_lint_write_diff_file "$diff_file" "$target"
 
   out=$(PATH="$fakebin:$PATH" GITHUB_ACTIONS='' CI='' FM_LINT_JOBS=1 \
     FM_TEST_GIT_BRANCH=feature \
     FM_TEST_GIT_DIFF_FILE="$diff_file" \
     FM_TEST_FLAG_LOG="$flag_log" FM_TEST_MODE_LOG="$mode_log" \
-    "$LINT" --telemetry "$telemetry" 2>&1) \
+    "$test_root/bin/fm-lint.sh" --telemetry "$telemetry" 2>&1) \
     || fail "changed-mode local lint failed"$'\n'"$out"
   [ "$(cat "$log")" = "$target" ] \
     || fail "changed-mode lint did not run ShellCheck on exactly the changed file"$'\n'"logged: $(cat "$log")"
@@ -654,7 +664,7 @@ test_changed_mode_drops_external_sources_and_excludes_cross_file_codes() {
     "changed-mode local lint did not disclose dropped source following"
   assert_grep $'analysis_mode\tlocal' "$telemetry" \
     "telemetry did not record local analysis mode"
-  assert_grep $'source_directives\t6' "$telemetry" \
+  assert_grep $'source_directives\t1' "$telemetry" \
     "telemetry did not count the changed root's source directives"
   assert_grep $'source_followed_directives\t0' "$telemetry" \
     "telemetry reported followed sources in no-external-sources mode"
@@ -2253,7 +2263,7 @@ test_main_branch_forces_full_lint
 test_explicit_path_bypasses_changed_logic
 test_zero_changed_files_exits_clean
 test_list_files_respects_changed_mode
-test_changed_mode_drops_external_sources_and_excludes_cross_file_codes
+test_changed_mode_counts_source_directives_without_following_them
 test_changed_mode_invokes_shellcheck_once_per_root
 test_ci_keeps_external_sources_without_local_exclusions
 test_main_branch_keeps_external_sources

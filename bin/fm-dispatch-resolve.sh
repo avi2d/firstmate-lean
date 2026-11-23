@@ -20,6 +20,8 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 
 # shellcheck source=bin/fm-quota-axi-lib.sh
 . "$SCRIPT_DIR/fm-quota-axi-lib.sh"
+# shellcheck source=bin/fm-subquo-lib.sh
+. "$SCRIPT_DIR/fm-subquo-lib.sh"
 # shellcheck source=bin/fm-quota-assessment-lib.sh
 . "$SCRIPT_DIR/fm-quota-assessment-lib.sh"
 # shellcheck source=bin/fm-worker-account-lib.sh
@@ -75,6 +77,9 @@ emit_error() {
   record_task error || true
   echo "dispatch-resolve: error ($reason)" >&2
   printf 'dispatch-resolve:\n  status: error\n  reason: %s\n' "$reason"
+  if [ -n "${QUOTA_FALLBACK:-}" ]; then
+    printf '  quota_source: %s; falling back to quota-axi\n' "$QUOTA_FALLBACK"
+  fi
   exit 0
 }
 usage() {
@@ -114,7 +119,7 @@ Scout briefs classify among rules whose when text contains the word scout
   Ship briefs classify among the remaining rules, plus default.
 
 Shared-quota opt-out: a top-level "shared_quota": true in the rules file makes
-  no quota-axi call, applies no quota floor or runway gate, and resolves the
+  no quota read, applies no quota floor or runway gate, and resolves the
   matched profiles in declared order after preferred_provider narrows them.
   Each candidate line then ends "eligible (quota ranking off: home declares a
   single shared quota)".
@@ -576,40 +581,83 @@ jq -e --argjson criteria "$CRITERIA" --slurpfile rules "$RULES" '
        (.usage.output_tokens | type) == "number"))' \
   "$RESP_FILE" >/dev/null 2>&1 || emit_error "response is not a rule Choice answer"
 
-# ---- quota evidence: one quota-axi --json snapshot, skipped entirely under the
-# ---- shared-quota opt-out (a stub keeps the slurpfile contract intact) ---------
-SQ=false
-SHARED_QUOTA=$(jq -r '.shared_quota // false' "$RULES" 2>/dev/null) || SHARED_QUOTA=false
-if [ "$SHARED_QUOTA" = true ]; then
-  printf '{"providers":[]}\n' > "$QUOTA"
-  SQ=true
-else
-  command -v quota-axi >/dev/null 2>&1 || emit_error "quota-axi not installed"
-  quota-axi --json > "$QUOTA" 2>/dev/null || emit_error "quota-axi --json failed"
-  fm_quota_json_valid < "$QUOTA" || emit_error "quota-axi --json returned an invalid snapshot"
+SQ=$(jq -r '.shared_quota // false' "$RULES")
+SUBQUO='{}'
+LEGACY_ERROR=
+printf '{"providers":[]}\n' > "$QUOTA"
+if [ "$SQ" != true ]; then
+  SUBQUO=$(fm_subquo_snapshot)
 fi
 
-# ---- account evidence: one clauth snapshot, only when a profile names an account
+dispatch_quota_needs() {
+  jq -c --argjson subquo "$SUBQUO" "$FM_QUOTA_ROW_JQ$(fm_subquo_row_jq)"'
+    def profiles($v): if ($v | type) == "array" then $v elif ($v | type) == "object" then [$v] else [] end;
+    ([.rules[]?.use, .default] | map(profiles(.))) as $groups |
+    [$groups[][]] as $profiles |
+    {accounts: [$profiles[].claude_account | values] | unique,
+     legacy: (((.shared_quota // false) | not) and (
+       any($profiles[] | select(.claude_account == null);
+           . as $p | subquo_missing($subquo; subquo_row($subquo; $p.provider; quota_lane($p.harness; $p.model))) != null) or
+       (.array_order != "preference" and any($profiles[]; .claude_account == null)) or
+       any(.rules[]? | .floor | values; .provider as $p | subquo_missing($subquo; subquo_row($subquo; $p; "")) != null) or
+       any($groups[]; any(.[]; (.model // "" | contains("haiku"))) and any(.[]; (.model // "" | contains("muse-spark"))))
+     ))}
+  ' "$RULES"
+}
+
+NEEDS=$(dispatch_quota_needs) || emit_error "could not determine quota sources"
+if [ "$(jq -r '.legacy' <<< "$NEEDS")" = true ]; then
+  if ! command -v quota-axi >/dev/null 2>&1; then LEGACY_ERROR="quota-axi not installed"
+  elif ! quota-axi --json > "$QUOTA" 2>/dev/null; then LEGACY_ERROR="quota-axi --json failed"
+  elif ! fm_quota_json_valid < "$QUOTA"; then LEGACY_ERROR="quota-axi --json returned an invalid snapshot"
+  fi
+  if [ -n "$LEGACY_ERROR" ]; then
+    QUOTA_FALLBACK=$(jq -r '.unavailable // empty' <<< "$SUBQUO")
+    [ -z "$QUOTA_FALLBACK" ] || emit_error "$LEGACY_ERROR"
+    printf '{"providers":[]}\n' > "$QUOTA"
+  fi
+fi
+
 ACCOUNTS='{}'
 CLAUTH_STATUS='null'
-if jq -e '
-  def profiles($v): if ($v | type) == "array" then $v elif ($v | type) == "object" then [$v] else [] end;
-  any(((.rules // [])[] | profiles(.use)[]), profiles(.default // null)[]; has("claude_account"))' "$RULES" >/dev/null; then
+if jq -e '.accounts | length > 0' <<< "$NEEDS" >/dev/null; then
   ACCOUNTS=$(fm_claude_accounts_json "$CONFIG" 2>"$RESP_HEADERS") || die "$(sed 's/^error: //' "$RESP_HEADERS")"
-  if CLAUTH_STATUS=$(fm_clauth_status 2>"$RESP_HEADERS"); then
-    CLAUTH_STATUS=$(jq -c . <<<"$CLAUTH_STATUS")
-  else
-    CLAUTH_STATUS=$(jq -cn --arg reason "$(cat "$RESP_HEADERS")" '{unavailable: $reason}')
+  if jq -e --argjson accounts "$ACCOUNTS" --argjson subquo "$SUBQUO" "$(fm_subquo_row_jq)"'
+      any(.accounts[]; . as $a | $accounts[$a] == "ordinary" or
+        ($accounts | has($a)) and subquo_missing($subquo; subquo_row($subquo; "claude"; $a)) != null)
+    ' <<< "$NEEDS" >/dev/null; then
+    if CLAUTH_STATUS=$(fm_clauth_status 2>"$RESP_HEADERS"); then
+      CLAUTH_STATUS=$(jq -c . <<<"$CLAUTH_STATUS")
+    else
+      CLAUTH_STATUS=$(jq -cn --arg reason "$(cat "$RESP_HEADERS")" '{unavailable: $reason}')
+    fi
   fi
 fi
 
 # ---- resolution: declared gates + quota evidence + argmax, all in jq ------------
 RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg none_criterion "$DEFAULT_WHEN" --argjson sq "$SQ" \
-  --argjson accounts "$ACCOUNTS" --argjson clauth "$CLAUTH_STATUS" \
-  --slurpfile resp "$RESP_FILE" --slurpfile rules "$RULES" --slurpfile quota "$QUOTA" "$FM_QUOTA_ROW_JQ$FM_CLAUTH_ROW_JQ$(fm_quota_assessment_jq)"'
+  --argjson accounts "$ACCOUNTS" --argjson clauth "$CLAUTH_STATUS" --argjson subquo "$SUBQUO" --arg legacy_error "$LEGACY_ERROR" \
+  --slurpfile resp "$RESP_FILE" --slurpfile rules "$RULES" --slurpfile quota "$QUOTA" "$FM_QUOTA_ROW_JQ$FM_CLAUTH_ROW_JQ$(fm_subquo_row_jq)$(fm_quota_assessment_jq)"'
   ($resp[0]) as $r | ($rules[0]) as $cfg | ($quota[0]) as $q | ($r.answers.rule) as $a |
   def profiles($v): if ($v | type) == "array" then $v elif ($v | type) == "object" then [$v] else [] end;
-  def prov($p; $lane): quota_row($q; $p; $lane);
+  def prov($p; $lane):
+    ($p // "") as $provider |
+    subquo_row($subquo; $provider; $lane) as $saved |
+    subquo_missing($subquo; $saved) as $missing |
+    quota_row($q; $p; $lane) as $legacy |
+    if $missing then
+      ($legacy // {}) + {source: "quota-axi", fallback: $missing, absent: ($legacy == null)}
+    else $saved end;
+  def apply_legacy_rank($row; $p; $lane):
+    if $row.source != "subquo" or $row.namedClaude or $cfg.array_order == "preference" then $row
+    else
+      quota_row($q; $p; $lane) as $legacy |
+      $row | .quotaSemantics.effectiveAvailability |= map(.scope as $scope |
+        (first($legacy.quotaSemantics.effectiveAvailability[]? | select(.scope == $scope)) // null) as $old |
+        . + (if $old.selection then {selection: $old.selection, rankSource: "quota-axi"} else {} end)
+          + (if .runway.status == "unknown" and ($old.runway.status == "through_reset" or $old.runway.status == "projected_exhaustion")
+             then {runway: $old.runway} else {} end))
+    end;
   def provider_of($c): $c.provider;
   def lane_of($c): quota_lane($c.harness; $c.model);
   def row_measured($row):
@@ -617,21 +665,33 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg non
   def floor_state($f; $p; $lane): quota_floor_state($f; prov($p; $lane));
   def account_row($account):
     if ($accounts | has($account) | not) then {unusable: "config/claude-accounts declares no login for account \($account)"}
-    elif $clauth.unavailable then {unusable: "\($clauth.unavailable), so account \($account) is unverified"}
+    elif $accounts[$account] == "ordinary" and $clauth.unavailable then
+      {unusable: "\($clauth.unavailable), so account \($account) is unverified"}
     elif $accounts[$account] == "ordinary" and $clauth.active_profile != $account then
       {unusable: "the ordinary Claude login is clauth profile \($clauth.active_profile // "none"), not \($account)"}
-    else clauth_row($clauth; $account)
+    else
+      subquo_row($subquo; "claude"; $account) as $saved |
+      subquo_missing($subquo; $saved) as $missing |
+      if $missing then
+        (if $clauth.unavailable then {unusable: "\($clauth.unavailable), so account \($account) is unverified"}
+         else clauth_row($clauth; $account) end) + {source: "clauth", fallback: $missing}
+      else
+        $saved + {namedClaude: true}
+        | if any(.windows[]; .scope == "all" and .id == "five-hour") and any(.windows[]; .scope == "all" and .id == "weekly") then .
+          else . + {uncertainty: "subquo reading lacks a 5h or 7d window"} end
+      end
     end;
   def evidence($rows):
     $rows | map({scope, status, pct: (.effectivePercentRemaining // null), runway: (.runway.status // null), spendPriority: (.selection.spendPriority // null)});
   def evaluate($c):
     (provider_of($c)) as $p | (lane_of($c)) as $lane |
-    (if $c.claude_account then account_row($c.claude_account) else prov($p; $lane) end) as $row |
+    (if $c.claude_account then account_row($c.claude_account)
+     else apply_legacy_rank(prov($p; $lane); $p; $lane) end) as $row |
     if $sq and ($row.unusable | not) then
       {profile: $c, provider: $p, eligible: true, sq: true, reason: "ok"}
     elif $p == null then {profile: $c, eligible: false, reason: "no provider family for harness \($c.harness); declare provider on the profile"}
     elif $row.unusable then {profile: $c, provider: $p, eligible: false, reason: $row.unusable}
-    elif $row == null then
+    elif $row.absent then
       {profile: $c, provider: $p, eligible: true, unranked: true,
        reason: (if any($q.providers[]; .provider == $p)
                 then "provider \($p) has no quota row for account \(if $lane == "" then "default" else $lane end)"
@@ -666,12 +726,16 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg non
       elif any($rows[]; .status != "known") then
         ($rows | map(select(.status != "known")) | first) as $bad |
         {profile: $c, provider: $p, bounds: $bounds, scope: $bad.scope, eligible: true, unranked: true, unknown: true, reason: "quota row \($bad.scope) unknown: not rankable"}
-      elif $row.clauth then
+      elif $row.clauth or $row.namedClaude then
         ($rows | min_by(.effectivePercentRemaining)) as $limiting |
         {profile: $c, provider: $p, bounds: $bounds, scope: $limiting.scope, pct: $limiting.effectivePercentRemaining, runway: $limiting.runway.status, eligible: true}
         + (if $row.uncertainty then {unranked: true} else {} end)
         + (if $cfg.array_order == "preference" then {reason: (["ok", ($row.uncertainty // empty)] | join(": "))}
-           else {unranked: true, reason: ("clauth measures windows, not spendPriority: not rankable" + (if $row.uncertainty then ": " + $row.uncertainty else "" end))} end)
+           else {unranked: true, reason: ("\($row.source // "clauth") measures windows, not spendPriority: not rankable" + (if $row.uncertainty then ": " + $row.uncertainty else "" end))} end)
+      elif $row.source == "subquo" and $cfg.array_order == "preference" then
+        ($rows | min_by(.effectivePercentRemaining)) as $limiting |
+        {profile: $c, provider: $p, bounds: $bounds, scope: $limiting.scope, pct: $limiting.effectivePercentRemaining,
+         runway: $limiting.runway.status, eligible: true, reason: "ok"}
       elif any($rows[]; (.selection.spendPriority | type) != "number") then
         ($rows | map(select((.selection.spendPriority | type) != "number")) | first) as $bad |
         {profile: $c, provider: $p, bounds: $bounds, scope: $bad.scope, pct: $bad.effectivePercentRemaining, runway: $bad.runway.status, eligible: true, unranked: true, reason: "spendPriority missing or non-numeric at \($bad.scope): not rankable"}
@@ -684,19 +748,33 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg non
           (quota_floor_reset($c.floor; $row)) as $reset |
           . + {floor_skipped: "profile floor \($c.floor.scope) below \($c.floor.min_percent)% skipped: window \($reset.windows | join(",")) resets at \($reset.resetsAt)"}
         else . end
-    end;
+    end
+    | if $sq then . else
+        . + {source: $row.source, fallback: $row.fallback,
+          rank_source: (if any(quota_applicable_rows($row; ($c.model // ""); ($c.quota_scope // null))[]; .rankSource == "quota-axi") then "quota-axi" else null end),
+          windows: (if $row.source == "subquo" then
+            [quota_applicable_rows($row; ($c.model // ""); ($c.quota_scope // null))[] | .boundedBy[]] as $ids |
+            [$row.windows[] | select(.id as $id | $ids | index($id)) | {name: .id, remaining: .percentRemaining, resetsAt}]
+            else [] end),
+          account_label: (if $row.source == "subquo" then $row.accountKey else null end)}
+      end;
   # No schema field carries the Haiku promotion, and a second Haiku entry is
   # refused as a duplicate profile, so the resolver reorders in code.
   def haiku_profile: ((.model // "") | contains("haiku"));
   def muse_profile: ((.model // "") | contains("muse-spark"));
   def window_at($snap; $provider; $id):
-    ([(quota_row($snap; $provider; "") | .windows[]?) | select(.id == $id)] | first);
+    (prov($provider; "")) as $row |
+    (if $row.source == "subquo" then
+      ($id | if . == "seven_day" then "weekly" elif . == "five_hour" then "five-hour" else . end) as $name |
+      first($row.windows[] | select(.scope == "all" and (.id == $name or ($name == "rolling" and .id == "five-hour")))) // null
+     else first((quota_row($snap; $provider; "") | .windows[]?) | select(.id == $id)) // null end);
   def window_number($win; $path):
     (($win | getpath($path)) as $v | if ($v | type) == "number" then $v else null end);
   def haiku_promotion_holds($snap):
     (window_at($snap; "opencode-go"; "monthly")) as $monthly |
-    ((($monthly | .pace) | select(type == "object")) // null) as $pace |
-    (window_number($monthly; ["pace", "reservePercentPoints"])) as $reserve |
+    (first(quota_row($snap; "opencode-go"; "").windows[]? | select(.id == "monthly")) // null) as $pace_window |
+    ($pace_window.pace // null) as $pace |
+    (window_number($pace_window; ["pace", "reservePercentPoints"])) as $reserve |
     (window_number(window_at($snap; "opencode-go"; "weekly"); ["percentRemaining"])) as $weekly_left |
     (window_number(window_at($snap; "opencode-go"; "rolling"); ["percentRemaining"])) as $rolling_left |
     (window_number(window_at($snap; "claude"; "seven_day"); ["percentRemaining"])) as $seven_day_left |
@@ -759,8 +837,9 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg non
    else {source: $choice, use: profiles($rule.use), note: "rule matched"} end) as $sel |
   def when_of($c): (if rule_at($c) == null then $none_criterion else rule_at($c).when end | .[0:60]);
   {
-    model: $r.model, latency_ms: $lat, tokens: ($r.usage // null),
+    model: $r.model, latency_ms: $lat, tokens: ($r.usage // null), legacy_error: $legacy_error,
     rule: $picked,
+    rule_floor_fallback: (if $sq or $rule.floor == null then null else prov($rule.floor.provider; "").fallback end),
     rule_when: when_of($picked),
     confidence: $a.confidence, probabilities: $a.probabilities
   }
@@ -829,13 +908,21 @@ TEXT=$(jq -r '
   (if .note then "  note: \(.note | flat)" else empty end),
   (if .preferred_provider then "  preferred_provider: \(.preferred_provider | flat)" else empty end),
   (if .unranked_note then "  note: \(.unranked_note | flat)" else empty end),
+  (if .legacy_error != "" then "  quota_fallback_error: \(.legacy_error | flat)" else empty end),
+  (if .rule_floor_fallback then "  rule_floor_source: quota-axi (fallback: \(.rule_floor_fallback | flat))" else empty end),
   (.candidates[]? | "  candidate: \(.profile.harness | flat):\(show(.profile.model))"
       + (if .profile.claude_account then "  account=\(.profile.claude_account | flat)" else "" end)
       + (if .provider then "  provider=\(.provider | flat)" else "" end)
       + (if .scope then "  scope=\(.scope | flat)  remaining=\(show(.pct))%  spendPriority=\(show(.spendPriority))  runway=\(show(.runway))" else "" end)
       + (if .floor_skipped then "  floor=skipped (\(.floor_skipped | flat))" else "" end)
       + (if (.bounds // [] | length) > 1 then "  bounds=" + ([.bounds[] | "\(.scope | flat):\(show(.pct))%/\((.runway // .status) | flat)"] | join(",")) else "" end)
-      + "  -> " + (if .unranked then "eligible, \(if $ordered then "uncertain" else "unranked" end): \(.reason | flat): disclosed uncertainty" elif .sq then "eligible (quota ranking off: home declares a single shared quota)" elif .eligible then "eligible" else "not eligible: \(.reason | flat)" end)),
+      + (if (.windows // [] | length) > 0 then "  windows=" +
+          ([.windows[] | "\(.name):\(show(.remaining))%@\(show(.resetsAt))"] | join(",")) else "" end)
+      + "  -> " + (if .unranked then "eligible, \(if $ordered then "uncertain" else "unranked" end): \(.reason | flat): disclosed uncertainty" elif .sq then "eligible (quota ranking off: home declares a single shared quota)" elif .eligible then "eligible" else "not eligible: \(.reason | flat)" end)
+      + (if .source then "  source=\(.source | flat)" else "" end)
+      + (if .fallback then " (fallback: \(.fallback | flat))" else "" end)
+      + (if .rank_source then "  spendPrioritySource=\(.rank_source | flat)" else "" end)
+      + (if .account_label and (.profile.claude_account | not) then "  account=\(.account_label | flat)" else "" end)),
   (if .chosen then "  profile: --harness \(.chosen.profile.harness | shell_arg)"
       + (if .chosen.profile.model then " --model \(.chosen.profile.model | shell_arg)" else "" end)
       + (if .chosen.profile.effort then " --effort \(.chosen.profile.effort | shell_arg)" else "" end)

@@ -3,22 +3,22 @@
 `bin/fm-usage-warner.sh` is an opt-in, macOS-only threshold warner for Claude usage windows.
 It is a warner, not a viewer: it never renders a live usage report, and it speaks only once when a configured window reaches a configured percentage of itself consumed.
 
-The read itself is not new.
-[`quota-axi`](configuration.md) is the one Claude-quota reader this fleet depends on, already exposing `--json`, `--full`, `--tui`, and `--no-credential-refresh`; this script runs that exact read (through `bin/fm-quota-axi-lib.sh`'s own provider-row join) and never re-implements it.
-Every call passes `--no-credential-refresh`, so the read is strictly read-only; the script never passes `--allow-keychain-prompt` or any other credential-refreshing flag.
+The warner reads the default Claude account from the [local subquo snapshot](configuration.md#quota-snapshot).
+If the snapshot has no usable reading for that account, it falls back to quota-axi with `--no-credential-refresh`.
+It never requests a credential refresh or a Keychain prompt.
 
 ## Opt-in is load-bearing
 
 An unconfigured home sees no behaviour change: `check` stays completely silent, and `arm` refuses outright rather than registering a check that would never have anything to warn about.
-Nothing here makes `quota-axi` a dependency of anything beyond this one feature.
 
 ## Configuring thresholds (config/usage-warner)
 
 Thresholds live in `config/usage-warner`, local and gitignored; its `<window-id>:<percent>` schema is owned by [`configuration.md`](configuration.md#local-claude-usage-warner-configusage-warner).
-`<window-id>` reuses `quota-axi`'s own `--json` `id` vocabulary - `five_hour`, `seven_day`, `model:<name>`, and so on - rather than inventing a second one.
+`<window-id>` keeps its quota-axi spelling.
+On a subquo read, `five_hour` matches `five-hour`, `seven_day` matches `weekly`, `seven_day_opus` matches `opus-weekly`, and `model:fable` matches `fable-weekly`.
 A configured window id the account does not return is silently never compared: this is a local convenience feature, not a critical monitor, so a stale or unavailable id is not treated as a misconfiguration to flag.
 
-The two account-level windows, `five_hour` and `seven_day`, are the reliable targets: they exist for every account regardless of what per-model windows a given account happens to return.
+Use the account-wide `five_hour` and `seven_day` thresholds when you do not need per-model warnings.
 See [`docs/examples/usage-warner`](examples/usage-warner) for a starting point to copy into a local `config/usage-warner`.
 
 ## Behaviour: one read, two callers, edge-triggered
@@ -46,8 +46,8 @@ Notification Center is macOS-only, so `arm` refuses on any other platform.
 
 ## Relationship to the quota process-event source
 
-[`bin/fm-procevent-quota.sh`](../bin/fm-procevent-quota.sh) reads the same `quota-axi` snapshot, so the two are worth telling apart.
-That source arms a blocking poll that fires at most once, wakes firstmate with a durable `check:` event, compares a tracked provider's aggregate `effectivePercentRemaining`, and must be re-armed by hand for any further monitoring.
+[`bin/fm-procevent-quota.sh`](../bin/fm-procevent-quota.sh) reads the same snapshot but checks account and model headroom against a remaining-quota threshold.
+It sends one wake, then you must re-arm it to keep monitoring.
 This warner is the standing half of that problem: it compares each named window separately and re-arms itself every time a window reads back below its threshold.
 A crossing raises a macOS notification and, once armed, also reaches firstmate as one `check:` wake per crossing, because the armed shim's report line is what the watcher turns into that wake.
 Naming the window is the point, because the session and weekly windows exhaust at very different times, so an aggregate figure does not say which one is about to run out.
@@ -61,9 +61,9 @@ The shim writer refuses a symlink at its destination and renames a completed fil
 
 ## What this never does
 
-Install, refresh, or write any credential; read or render a live usage report; or make `quota-axi` a dependency of anything beyond this one opt-in feature.
+The warner does not install, refresh, or write credentials or display a usage report.
 Account or seat switching is explicitly out of scope: only the default account lane is ever read.
 
 It also does not stop or pace anything: crossing a threshold posts a warning and nothing else, so dispatch, running work, and merge behaviour are all unchanged.
-Its coverage is exactly what `quota-axi` can see locally.
-A plan or organisation spend cap that `quota-axi` does not report is therefore not covered by any threshold configured here, and surfaces only as an error in a harness pane; a silent warner means no configured window crossed, never that no cap is close.
+The warner cannot detect a cap that the quota reading does not report.
+Silence means no measured window crossed a configured threshold, not that every cap has room.

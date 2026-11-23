@@ -32,8 +32,12 @@ fm_quota_spawn_assess() {
        {blocked: false, floor_state: $floor_state, floor_skipped: "profile floor \($floor.scope) below \($floor.min_percent)% skipped: window \($reset.windows | join(",")) resets at \($reset.resetsAt)"}
      else {blocked: false, floor_state: $floor_state} end) as $decision |
     ([quota_rows($row)[] | select(.scope == $decision.scope)] | first) as $blocking |
-    (if ($blocking.runway.limitingWindowId // null) != null then [$blocking.runway.limitingWindowId] else ($blocking.limitingWindowIds // []) end) as $window_ids |
-    ([$row.windows[]? | select(.id as $id | $window_ids | index($id)) | .resetsAt | select((type == "string" and length > 0) or type == "number")]) as $window_resets |
+    (if $row.source == "subquo" and $decision.remaining != null then $blocking.boundedBy
+     elif $row.source == "subquo" and $decision.blocked then [$exhausted[].limitingWindowIds[]] | unique
+     elif ($blocking.runway.limitingWindowId // null) != null then [$blocking.runway.limitingWindowId]
+     else ($blocking.limitingWindowIds // []) end) as $window_ids |
+    ([$row.windows[]? | select(.id as $id | $window_ids | index($id)) |
+      select($row.source != "subquo" or $decision.remaining == null or (.percentRemaining // 0) < $floor.min_percent) | .resetsAt | select((type == "string" and length > 0) or type == "number")]) as $window_resets |
     (($window_resets | map(if type == "number" then ((. / (if . > 1000000000000 then 1000 else 1 end) | floor) | todateiso8601) else . end) | max) // $row.resetsAt // null) as $resets_at |
     $decision + {resetsAt: $resets_at, unmeasured: ($row == null or $floor_state == "unknown" or ($rows | length) == 0 or any($rows[]; .status != "known"))}
   ' <<< "$row"
@@ -84,13 +88,19 @@ fm_quota_spawn_gate() {
     resolved_profiles=$(jq -cn --argjson profiles "$resolved_profiles" --argjson profile "$profile" --arg provider "$provider" '$profiles + [($profile + {_quota_provider: $provider})]') || return 2
   done < <(jq -c '.[]' <<< "$profiles")
   profiles=$(jq -c --argjson all "$resolved_profiles" '$all | map(. as $profile | if $profile.floor then .floor.min_percent = ([$all[] | select(._quota_provider == $profile._quota_provider and .floor.scope == $profile.floor.scope) | .floor.min_percent] | max) else . end)' <<< "$resolved_profiles") || return 2
+  local subquo
+  subquo=$(fm_subquo_snapshot)
   while IFS= read -r profile; do
     [ -n "$profile" ] || continue
     provider=$(jq -r '._quota_provider' <<< "$profile")
     lane=$(jq -rn --arg h "$harness" --arg m "$model" "$FM_QUOTA_ROW_JQ"'quota_lane($h; $m)')
     floor=$(jq -c '.floor // null' <<< "$profile")
-    # A matched profile names either no account or this launch's account, so the launch's account is the one whose quota applies.
     if [ -n "$account" ]; then
+      row=$(fm_subquo_row "$subquo" claude "$account") || return 2
+    else
+      row=$(fm_subquo_row "$subquo" "$provider" "$lane") || return 2
+    fi
+    if [ "$row" = null ] && [ -n "$account" ]; then
       if [ -z "$clauth_snapshot" ]; then
         clauth_snapshot=$(fm_clauth_status 2>/dev/null) || {
           FM_QUOTA_GATE_NOTE='skipped:clauth reading unavailable'
@@ -104,7 +114,7 @@ fm_quota_spawn_gate() {
         printf 'quota gate skipped: clauth cannot verify account %s\n' "$account" >&2
         return 0
       fi
-    else
+    elif [ "$row" = null ]; then
       if [ -z "$snapshot" ]; then
         command -v quota-axi >/dev/null 2>&1 || {
           FM_QUOTA_GATE_NOTE='skipped:quota-axi unavailable'

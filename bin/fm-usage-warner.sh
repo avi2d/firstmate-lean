@@ -27,6 +27,8 @@ MAX_LINE=1000
 . "$SCRIPT_DIR/fm-check-lib.sh"
 # shellcheck source=bin/fm-quota-axi-lib.sh
 . "$SCRIPT_DIR/fm-quota-axi-lib.sh"
+# shellcheck source=bin/fm-subquo-lib.sh
+. "$SCRIPT_DIR/fm-subquo-lib.sh"
 
 usage() {
   cat <<'EOF'
@@ -102,24 +104,9 @@ id_in_list() {
   printf '%s\n' "$1" | grep -qxF -- "$2"
 }
 
-# --- the one read ---------------------------------------------------------
-# On success (exit 0), prints "<window-id>\t<percentUsed>" once per window
-# quota-axi returns for $PROVIDER's default account. On failure (exit 1),
-# prints one plain-text reason instead - the caller is always invoked through
-# command substitution, which runs this function in a subshell, so a side
-# channel global would never make it back to the caller; the captured stdout
-# is the only channel that does. quota_row is the exact join
-# bin/fm-quota-axi-lib.sh's dispatch consumers already use to pick a provider's
-# row, so this never invents a second selection rule; an empty lane resolves to
-# the default account on a schema-6 snapshot, matching schema 5's single row
-# per provider. Account or seat switching is out of scope for this feature, so
-# only the default lane is ever read here.
 usage_warner_read() {
-  local json rc=0 rows
-  command -v quota-axi >/dev/null 2>&1 || {
-    printf 'quota-axi is not installed\n'
-    return 1
-  }
+  local json rc=0 rows subquo started=$SECONDS fallback_timeout
+
   command -v jq >/dev/null 2>&1 || {
     printf 'jq is not installed\n'
     return 1
@@ -128,7 +115,30 @@ usage_warner_read() {
     printf 'quota-axi read not measured: FM_CHECK_TIMEOUT of %ss leaves no room for a read\n' "$CHECK_TIMEOUT"
     return 1
   fi
-  json=$(fm_run_timed "$READ_TIMEOUT_SECS" quota-axi --provider "$PROVIDER" --json --full --no-credential-refresh 2>/dev/null)
+  subquo=$(fm_subquo_row "$(fm_subquo_snapshot "$READ_TIMEOUT_SECS")" "$PROVIDER" "")
+  rows=$(jq -r '
+    .windows[]? | select((.percentUsed | type) == "number") |
+    (if .scope == "all" and .id == "five-hour" then "five_hour"
+     elif .scope == "all" and .id == "weekly" then "seven_day"
+     elif .scope == "opus" and .id == "opus-weekly" then "seven_day_opus"
+     elif .scope != "all" then "model:" + .scope
+     else .id end) as $name |
+    [$name, .percentUsed] | @tsv
+  ' <<< "$subquo")
+  if [ -n "$rows" ]; then
+    printf '%s\n' "$rows"
+    return
+  fi
+  command -v quota-axi >/dev/null 2>&1 || {
+    printf 'quota-axi is not installed\n'
+    return 1
+  }
+  fallback_timeout=$((READ_TIMEOUT_SECS - (SECONDS - started)))
+  if [ "$fallback_timeout" -lt 1 ]; then
+    printf 'quota read did not finish within the %ss budget\n' "$READ_TIMEOUT_SECS"
+    return 1
+  fi
+  json=$(fm_run_timed "$fallback_timeout" quota-axi --provider "$PROVIDER" --json --full --no-credential-refresh 2>/dev/null)
   rc=$?
   if [ "$rc" -eq 124 ]; then
     printf 'quota-axi read did not finish within the %ss budget\n' "$READ_TIMEOUT_SECS"

@@ -7,7 +7,14 @@ fm_quota_assessment_jq() {
     (quota_bare_model($model)) as $bare |
     [quota_rows($row)[] | select(
       .scope == "all_models" or .scope == "all_products" or
-      ($model != "" and (.scope == ("model:" + $bare) or .scope == ("product:" + $bare))) or
+      ($model != "" and (
+        .scope == ("model:" + $bare) or .scope == ("product:" + $bare) or
+        (.scope as $scope | $row.source == "subquo" and
+          (if $row.provider == "claude" then
+            any($bare | ascii_downcase | splits("[^a-z0-9]+"); ("model:" + .) == $scope)
+          elif $row.provider == "codex" then
+            $scope == ("model:" + ($bare | ascii_downcase | gsub("[^a-z0-9]+"; "_") | sub("^_"; "") | sub("_$"; "")))
+          else false end)))) or
       ($quota_scope != null and .scope == $quota_scope)
     )];
   def quota_applicable_rows($row; $model): quota_applicable_rows($row; $model; null);

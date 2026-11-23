@@ -331,6 +331,36 @@ test_schema6_snapshot_reads_the_default_account_lane() {
   pass "fm-usage-warner: a schema-6 snapshot resolves the default account lane"
 }
 
+test_subquo_threshold_rejects_another_account_and_preserves_legacy_window_ids() {
+  local home fakebin out observed deadline
+  home=$(make_home subquo-windows)
+  fakebin="$home/fakebin"
+  printf '%s\n' 'five_hour:80' 'model:fable:80' > "$home/config/usage-warner"
+  fake_quota_axi "$fakebin" '{"id":"five_hour","percentUsed":0}'
+  : > "$fakebin/.argv-log"
+  observed=$(jq -nr 'now | floor | todateiso8601 | sub("Z$"; ".000Z")')
+  deadline=$(jq -nr --arg at "$observed" '$at | sub("\\.000Z$"; "Z") | fromdateiso8601 + 120 | todateiso8601 | sub("Z$"; ".000Z")')
+  jq -n --arg at "$observed" --arg until "$deadline" '
+    {version: "subquo.v1", writtenAt: $at, accounts:
+      [{id: "other", session: 0, fable: 0}, {id: "default", session: 60, fable: 19}]
+      | map({id, provider: "claude", observation: {
+         status: "fresh", source: "provider", observedAt: $at, validUntil: $until,
+         windows: [{id: "five-hour", scope: "all", percentLeft: .session, resetsAt: null},
+                   {id: "fable-weekly", scope: "fable", percentLeft: .fable, resetsAt: null}]
+      }})}
+  ' > "$fakebin/snapshot.json"
+  cat > "$fakebin/subquo" <<'SH'
+#!/usr/bin/env bash
+[ "$*" = 'read --json' ] || exit 2
+cat "$(dirname "$0")/snapshot.json"
+SH
+  chmod +x "$fakebin/subquo"
+  out=$(run_check "$home" "$fakebin")
+  assert_contains "$out" 'model:fable at 81%' "the model threshold still uses utilization, not headroom"
+  assert_not_contains "$out" 'five_hour' "an exhausted different account does not raise a warning"
+  [ ! -s "$fakebin/.argv-log" ] || fail "fresh default account should not read quota-axi"
+}
+
 test_quota_axi_missing_is_reported_once() {
   local home fakebin out1 out2
   home=$(make_home no-quota-axi)
@@ -579,6 +609,7 @@ test_check_ignores_a_window_the_account_does_not_return
 test_check_absent_window_keeps_its_crossing_recorded
 test_check_never_requests_a_refresh
 test_schema6_snapshot_reads_the_default_account_lane
+test_subquo_threshold_rejects_another_account_and_preserves_legacy_window_ids
 test_quota_axi_missing_is_reported_once
 test_jq_missing_is_reported
 test_malformed_quota_axi_output_is_reported
