@@ -708,7 +708,8 @@ An unknown key, a repeated single key, or a malformed value makes the whole file
 
 A pressure file is any producer of the `lookout.beat` 1.x shape, read by its own file age on this machine; a missing, stale, or unreadable one is skipped with its reason and the host's own probes stand in, so a broken beat never blocks anything.
 `captain-idle` reads input idle time locally and publishes only `present` or `idle`, never the idle time itself.
-`quota-provider` is the only key that makes the script reach the network, through `quota-axi`, bounded to five seconds.
+`quota-provider` reads the [quota snapshot](#quota-snapshot) first.
+If it needs a fallback or a runway projection, it runs a quota-axi read bounded to five seconds.
 
 While the file exists, the watcher runs `bin/fm-capacity.sh --publish` detached at most every 30 seconds, writing this home's lane facts to `state/lane-capacity.json`: its lanes, its cap and limits, its machine's pressure and boots, its watcher's freshness, and its own admission verdict.
 Publishing is best-effort and never changes what the watcher does; no spawn reads the verdict.
@@ -1146,14 +1147,17 @@ Models on other providers refuse `claude_account`.
 
 ### How resolution reads an account
 
-[Typed dispatch resolution](#typed-dispatch-resolution-env-fm_dispatch_provider-fm_dispatch_model) takes one `clauth status --json` snapshot when any profile names an account, and reads the account's own windows instead of quota-axi's `claude` row, which measures only the active login.
+[Typed dispatch resolution](#typed-dispatch-resolution-env-fm_dispatch_provider-fm_dispatch_model) reads the named Claude account from the [quota snapshot](#quota-snapshot).
+Without a current reading for that account, it reads the named profile from `clauth status --json` instead of the ambient quota-axi `claude` row.
 
 - `all_models` remaining is 100 minus the larger of the 5-hour and 7-day utilization, and a per-model weekly window such as `7d fable` adds `model:fable`.
 - A profile `floor`, such as `{ "scope": "all_models", "min_percent": 30 }`, makes the account ineligible below 30% remaining, and 0% remaining is exhausted.
-  clauth reports no reset time, so an account floor never skips near a reset.
-- An account is ineligible, with the reason on its candidate line, when clauth is missing or fails, has no such profile, reports its sign-in or usage reading as failed, or reports the reading stale; when `config/claude-accounts` does not map it; or when an `ordinary` account is not the active profile.
+  A floor can be skipped only when every window holding it below the floor resets within 24 hours and none is exhausted.
+  clauth reports no reset time, so a clauth fallback cannot lift the floor.
+- An account is ineligible if the home does not map it, an `ordinary` login is not active in clauth, or a required clauth fallback cannot vouch for the account.
   An unverifiable account is never treated as available.
-- clauth projects no `spendPriority`, so under `spendPriority` ranking an account candidate stays eligible but unranked; order accounts with `"array_order": "preference"`.
+- Neither subquo nor clauth supplies `spendPriority` for a named Claude account.
+  Use `"array_order": "preference"` to order named accounts.
 - A chosen account rides on the profile line as `--claude-account <name>`.
 
 ### Launch checks, records, and inheritance
@@ -1395,7 +1399,7 @@ Firstmate resolves the rule's profile object or array under `AGENTS.md` section 
 - A stated override keeps the full candidate accounting and waives only the requirement that the chosen profile is one of those candidates.
 - The same spawn, and any relaunch, checks quota against every profile whose harness, model, and effort match the launch, and refuses one exhausted now or below a profile `floor` unless `--quota-override-reason` states why.
   A floor skipped near its window's reset under "Profile quota floors" below needs no override, prints the skip, and records it as `quota_gate=checked:<skip>`.
-- A profile without `claude_account` also matches a launch that passes `--claude-account`, and is checked against that account's clauth reading.
+- A profile without `claude_account` also matches a launch that passes `--claude-account`, and is checked against that account's [quota reading](#quota-snapshot).
 - A launch that matches no profile prints a warning naming the launch and records `quota_gate=skipped:no matching dispatch profile` instead of refusing, because a stated user override may choose a profile outside the rules.
   Firstmate reports that warning to the user.
 - Relaunches reuse the recorded task and its original proof.
@@ -1446,8 +1450,10 @@ This section is the single owner of the canonical schema and its per-field seman
 **Array order**
 
 Without `array_order`, every profile array is ranked by `spendPriority` after the gates `quota-array-dispatch` owns.
-With `"array_order": "preference"`, every profile array, in rules and in `default`, is an ordered preference instead: the first candidate that passes those same gates against the current `quota-axi` output is chosen, and `spendPriority` does not rank the array.
-`quota-axi` still decides usability, so an `exhausted_now` or otherwise failing candidate is skipped to the next one, while unknown quota keeps a candidate eligible with disclosed uncertainty.
+With `"array_order": "preference"`, every profile array, in rules and in `default`, is an ordered preference instead: the first candidate that passes those same gates against the current [quota reading](#quota-snapshot) is chosen.
+`spendPriority` does not rank the array.
+The resolver skips exhausted candidates and candidates that fail a floor.
+It discloses unknown quota.
 Any other value is a configuration error, and so is a rule `select` in a file that declares `array_order`, because the two would disagree about how that rule's array is chosen.
 
 **Preferred provider**
@@ -1625,13 +1631,37 @@ That one diagnostic names the list line number at most and never prints the list
 
 An absent rules file, a default-only file, or `rules: []` returns the non-clear reason `no rules to match` without a model or quota request, leaving firstmate's existing routing in control; an existing but unreadable or malformed rules file, including a broken symlink, remains an actionable exit 2 configuration error.
 
+### Quota snapshot
+
+Firstmate reads the local [`subquo.v1` snapshot](https://github.com/avi2d/subquo/blob/main/docs/design.md) with `subquo read --json`.
+Dispatch, the spawn quota guard, capacity, and quota warnings use the same decoder.
+Install subquo and run its collector on each machine that uses the snapshot.
+Firstmate does not collect or refresh credentials through subquo.
+
+For a named Claude profile, match its `claude_account` to the subquo label, for example `example-claude`.
+For a Pi lane, use the lane's provider ID, for example `openai-codex-work`.
+Use `codex-home` for native Codex.
+When no lane is named, Firstmate looks for a matching provider's account labeled `default` or with the provider's name, such as `opencode-go`.
+It never picks an account by position or combines headroom across accounts.
+
+If a reading is missing, unreadable, stale, or unavailable, Firstmate falls back to clauth for a named Claude account and quota-axi otherwise.
+Dispatch prints the source and fallback reason beside each candidate, plus the applicable window names, remaining percentages, and reset times when it uses subquo.
+Subquo does not report `spendPriority`, projected runway, or monthly pace.
+Firstmate still reads those fields from quota-axi when the decision needs them.
+A current subquo window decides whether it is exhausted, not a legacy projection.
+
+Pass a captured subquo JSON snapshot to `bin/fm-quota-choose.sh` with `--provider <family>` when every candidate uses the same provider.
+The helper checks for known positive headroom without making another read.
+It also accepts quota-axi TOON or JSON.
+Use typed dispatch for mixed-provider arrays or when a candidate lacks a current reading.
+
 **Checks performed after the answer**
 
 After the answer, code applies all remaining checks and ranking:
 
 - The confidence floor and the matched rule's `approval` and `floor`.
 - Each candidate's `provider`, `quota_scope`, and `floor`.
-- Every applicable account-wide and model/product row from one `quota-axi --json` snapshot.
+- Every applicable account-wide and model or product row from the [quota snapshot](#quota-snapshot) or its fallback.
 - The optional `preferred_provider` restriction under the [profile-array procedure](../.agents/skills/quota-array-dispatch/SKILL.md#rank-by-spendpriority).
 - The numeric `spendPriority` argmax within that candidate pool, using each candidate's limiting row, or, when the file declares `array_order` preference, the first eligible candidate of that pool in array order.
 - With the home's `shared_quota: true` declaration ("Crew dispatch profiles"), the quota snapshot, floors, runway gates, and `spendPriority` argmax are skipped entirely; resolution is the matched rule's declared profile order (`preferred_provider` still narrows the pool; declared order then picks within it).
@@ -2033,7 +2063,9 @@ Arm the check once per home with `bin/fm-tool-update-check.sh arm`.
 
 `config/usage-warner` is an optional local, gitignored set of Claude usage-window thresholds.
 It is opt-in and load-bearing: an unconfigured home sees no behaviour change, and [`bin/fm-usage-warner.sh`](../bin/fm-usage-warner.sh) refuses to arm without at least one valid threshold.
-This is a threshold warner, not a usage viewer - it runs the existing `quota-axi` read (`--no-credential-refresh`, never a credential-refreshing flag) and speaks only once when a configured window crosses a configured percentage, batching several crossings from the same read into one notification and re-arming once a window reads back below its threshold.
+The warner reads the default Claude account from the [quota snapshot](#quota-snapshot) or from quota-axi with `--no-credential-refresh`.
+It sends one notification for all windows that cross a threshold in the same read.
+A window re-arms when it next reads below the threshold.
 Warnings post through macOS Notification Center.
 
 This section is the single owner of the canonical schema.
@@ -2044,7 +2076,8 @@ This section is the single owner of the canonical schema.
 ```
 
 One directive per non-empty, non-comment line, split on the last colon so a per-model window id such as `model:fable` still parses.
-`<window-id>` is exactly the `id` field `quota-axi`'s own `--json` output already uses.
+Keep the quota-axi window ID in `<window-id>`.
+For example, `five_hour` and `seven_day` still match the subquo `five-hour` and `weekly` windows.
 `<percent>` is how much of that window has been CONSUMED, a whole number from 1 to 100, compared against the window's own `percentUsed`: `seven_day:90` warns once the weekly window is 90% used, with 10% of it left.
 See [`usage-warner.md`](usage-warner.md) for the full behaviour reference and [`docs/examples/usage-warner`](examples/usage-warner) for a starting point to copy into local `config/usage-warner`.
 
