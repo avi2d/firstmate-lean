@@ -2,6 +2,8 @@
 name: projectstatus
 description: Report project work in the captain's priority order, including the orc backlog. Use when the captain invokes /projectstatus or asks for project work status in priority order.
 user-invocable: true
+metadata:
+  internal: true
 ---
 
 # Project status
