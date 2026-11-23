@@ -108,8 +108,23 @@ case "${1:-} ${2:-}" in
           *) printf '[]\n' ;;
         esac
         ;;
-      *" repos/"*"/rules/branches/"*) printf '[]\n' ;;
-      *" repos/"*"/branches/"*) printf '{"name":"main","protected":false}\n' ;;
+      *" repos/"*"/rules/branches/"*)
+        if [ -f "$FM_TEST_CASE/rules-error" ]; then
+          cat "$FM_TEST_CASE/rules-error" >&2
+          exit 1
+        elif [ -f "$FM_TEST_CASE/rules.json" ]; then
+          cat "$FM_TEST_CASE/rules.json"
+        else
+          printf '[]\n'
+        fi
+        ;;
+      *" repos/"*"/branches/"*)
+        if [ -f "$FM_TEST_CASE/branch.json" ]; then
+          cat "$FM_TEST_CASE/branch.json"
+        else
+          printf '{"name":"main","protected":false}\n'
+        fi
+        ;;
       *) printf '[]\n' ;;
     esac
     ;;
@@ -271,6 +286,58 @@ test_empty_check_list_is_not_merged_without_proof_the_base_expects_none() {
   : > "$c/merged.json"
   expect_stays_open "$c" wait "no check has reported" empty-unreadable-history
   pass "an empty check list stays open when the base has no merged pull request or its history is unreadable"
+}
+
+make_main_only_case() {
+  local c
+  c=$(make_case "$1")
+  mkdir -p "$c/home/config"
+  printf '%s\n' "${URL%/pull/*}" > "$c/home/config/ci-main-only"
+  write_merged "$c" "$(passed_checks 'build on main')"
+  write_view "$c" "$HEAD_A" '[]'
+  printf '%s\n' "$c"
+}
+
+test_explicit_main_only_ci_does_not_wait_for_an_old_check() {
+  local c
+  c=$(make_main_only_case main-only)
+  expect_verdict "$c" green "main-only CI is configured and the base requires no pull-request checks" main-only
+  assert_no_grep 'pr list ' "$c/gh.log" "main-only: PR history was consulted"
+  printf '%s\n' "${URL%/pull/*}-other" > "$c/home/config/ci-main-only"
+  expect_verdict "$c" wait "no check has reported" main-only-other-repo
+  pass "only an exact main-only entry allows an empty rollup without a required PR check"
+}
+
+test_main_only_ci_does_not_waive_missing_required_pr_checks() {
+  local c
+  c=$(make_main_only_case main-only-required)
+  printf '%s\n' '{"protected":true,"protection":{"required_status_checks":{"contexts":["required PR build"]}}}' > "$c/branch.json"
+  printf '%s\n' '[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"required PR lint","integration_id":42}]}}]' > "$c/rules.json"
+  expect_stays_open "$c" wait "required checks for main have not reported: required PR build, required PR lint" main-only-required
+  pass "a main-only entry does not waive required PR checks from branch protection or a ruleset"
+}
+
+test_main_only_ci_does_not_treat_unknown_checks_as_empty() {
+  local c
+  c=$(make_main_only_case main-only-unreadable)
+  printf '%s\n' 'HTTP 502: branch rules unavailable' > "$c/rules-error"
+  expect_stays_open "$c" wait "required checks for main could not be read" main-only-unreadable-rules
+  rm "$c/rules-error"
+  write_view "$c" "$HEAD_A" 'null'
+  expect_stays_open "$c" wait "the checks could not be read" main-only-unreadable-rollup
+  write_view "$c" "$HEAD_A" '[]' false UNKNOWN
+  expect_stays_open "$c" wait "mergeability could not be confirmed" main-only-unknown-mergeability
+  pass "a main-only entry does not turn unreadable checks or unknown mergeability into green"
+}
+
+test_main_only_ci_does_not_ignore_reported_checks() {
+  local c
+  c=$(make_main_only_case main-only-reported)
+  write_view "$c" "$HEAD_A" "$red_rollup"
+  expect_stays_open "$c" skip "checks are not green: ci" main-only-red
+  write_view "$c" "$HEAD_A" "$pending_rollup"
+  expect_verdict "$c" wait "checks are still running" main-only-pending
+  pass "a main-only entry does not excuse failing or pending checks that reported"
 }
 
 test_head_pushed_after_the_green_reading_is_not_merged_on_the_earlier_heads_checks() {
@@ -635,6 +702,10 @@ test_updated_head_without_checks_is_not_merged
 test_head_with_no_check_yet_is_not_merged_while_the_base_carries_checks
 test_head_reporting_only_its_first_workflow_is_not_merged_before_the_rest_report
 test_empty_check_list_is_not_merged_without_proof_the_base_expects_none
+test_explicit_main_only_ci_does_not_wait_for_an_old_check
+test_main_only_ci_does_not_waive_missing_required_pr_checks
+test_main_only_ci_does_not_treat_unknown_checks_as_empty
+test_main_only_ci_does_not_ignore_reported_checks
 test_head_pushed_after_the_green_reading_is_not_merged_on_the_earlier_heads_checks
 test_draft_and_conflicting_stay_open
 test_yolo_must_be_on_in_the_registry_and_the_task

@@ -22,6 +22,8 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
+# shellcheck source=bin/fm-github-required-checks-lib.sh
+. "$SCRIPT_DIR/fm-github-required-checks-lib.sh"
 # shellcheck source=bin/fm-backlog-transition-lib.sh
 . "$SCRIPT_DIR/fm-backlog-transition-lib.sh"
 # shellcheck source=bin/fm-merge-outcome-lib.sh
@@ -848,70 +850,6 @@ github_head_behind_base() {
   printf '%s' "$behind"
 }
 
-FM_PR_GITHUB_REQUIRED=
-FM_PR_GITHUB_REQUIRED_ERROR=
-github_read_required_contexts() {
-  local base=$1 branch_path branch_json rules_json classic='' ruleset='' api_err api_err_text
-  FM_PR_GITHUB_REQUIRED='[]'
-  FM_PR_GITHUB_REQUIRED_ERROR=
-  branch_path=$(github_urlencode_path_segment "$base")
-
-  if ! branch_json=$(gh api "repos/$PR_OWNER/$PR_REPO/branches/$branch_path" 2>/dev/null) \
-    || [ -z "$branch_json" ] \
-    || ! classic=$(printf '%s' "$branch_json" | jq -c '
-      if type != "object" or (.protected | type) != "boolean" then
-        error("branch payload is unreadable")
-      elif .protected == false then
-        empty
-      elif (.protection.required_status_checks | type) != "object" then
-        error("branch protection summary is unreadable")
-      else
-        .protection.required_status_checks
-        | ((.checks // []) | if type == "array" then .[] else error("invalid checks") end
-           | {context, app_id}),
-          ((.contexts // []) | if type == "array" then .[] else error("invalid contexts") end
-           | {context: ., app_id: null})
-        | if (.context | type) == "string" and (.context | length) > 0
-             and (.app_id == null or (.app_id | type) == "number")
-          then . else error("invalid required check") end
-        | if .app_id == -1 then .app_id = null else . end
-      end' 2>/dev/null); then
-    classic=''
-    FM_PR_GITHUB_REQUIRED_ERROR="the branch protection summary for base branch $base could not be read"
-  fi
-
-  if ! api_err=$(mktemp "${TMPDIR:-/tmp}/fm-pr-merge-required-rules.XXXXXX"); then
-    FM_PR_GITHUB_REQUIRED_ERROR="${FM_PR_GITHUB_REQUIRED_ERROR:+$FM_PR_GITHUB_REQUIRED_ERROR
-}the branch rules for base branch $base could not be read"
-  else
-    if ! rules_json=$(gh api --paginate "repos/$PR_OWNER/$PR_REPO/rules/branches/$branch_path" 2>"$api_err"); then
-      api_err_text=$(cat "$api_err" 2>/dev/null)
-      if ! github_branch_rules_unavailable_on_plan "$api_err_text"; then
-        FM_PR_GITHUB_REQUIRED_ERROR="${FM_PR_GITHUB_REQUIRED_ERROR:+$FM_PR_GITHUB_REQUIRED_ERROR
-}the branch rules for base branch $base could not be read"
-      fi
-    elif [ -z "$rules_json" ] || ! ruleset=$(printf '%s' "$rules_json" | jq -c '
-        if type != "array" then error("rules payload is unreadable") else .[] end
-        | select(type != "object" or .type == "required_status_checks")
-        | if type == "object" and (.parameters.required_status_checks | type) == "array"
-          then .parameters.required_status_checks[] else error("invalid required check rule") end
-        | if type == "object" and (.context | type) == "string" and (.context | length) > 0
-             and (.integration_id == null or (.integration_id | type) == "number")
-          then {context, app_id: .integration_id} else error("invalid required check rule") end
-        | if .app_id == -1 then .app_id = null else . end' 2>/dev/null); then
-      ruleset=''
-      FM_PR_GITHUB_REQUIRED_ERROR="${FM_PR_GITHUB_REQUIRED_ERROR:+$FM_PR_GITHUB_REQUIRED_ERROR
-}the branch rules for base branch $base could not be read"
-    fi
-    rm -f "$api_err"
-  fi
-
-  FM_PR_GITHUB_REQUIRED=$(printf '%s\n%s\n' "$classic" "$ruleset" | jq -sc '
-    unique_by([.context, .app_id]) | group_by(.context)
-    | map(if any(.[]; .app_id != null) then map(select(.app_id != null)) else . end) | add // []')
-  [ -z "$FM_PR_GITHUB_REQUIRED_ERROR" ]
-}
-
 github_required_checks_missing() {
   local json=$1 required=$2 producers=$3
   printf '%s' "$json" | jq -r --argjson required "$required" --argjson producers "$producers" '
@@ -996,7 +934,7 @@ FIELDS
   FM_PR_GITHUB_LIVE_HEAD=$live_head
   [ "$merge_state" != BEHIND ] || FM_PR_GITHUB_BEHIND=true
   if printf '%s' "$json" | jq -e '(.statusCheckRollup | type) == "array" and (any(.statusCheckRollup[]; .__typename == "CheckRun") | not)' >/dev/null 2>&1 \
-    && ! { [ -f "$FM_HOME/config/ci-main-only" ] && grep -Fxq -- "$PROJECT_URL" "$FM_HOME/config/ci-main-only" && printf '%s' "$json" | jq -e '.statusCheckRollup | length == 0' >/dev/null 2>&1; }; then
+    && ! github_main_only_empty_rollup "$FM_HOME" "$PROJECT_URL" "$json"; then
     if ! runs=$(gh api --paginate "repos/$PR_OWNER/$PR_REPO/commits/$live_head/check-runs" 2>/dev/null) \
       || ! json=$(printf '%s' "$runs" | jq -sc --arg head "$live_head" --argjson pr "$json" '
         if length == 0 then error("empty response") else . end
@@ -1088,12 +1026,12 @@ $red
 EOF
 
   unreported=''
-  if ! { [ -f "$FM_HOME/config/ci-main-only" ] && grep -Fxq -- "$PROJECT_URL" "$FM_HOME/config/ci-main-only" && printf '%s' "$json" | jq -e '.statusCheckRollup | type == "array" and length == 0' >/dev/null 2>&1; } && ! printf '%s' "$json" | jq -e 'any(.statusCheckRollup[]; .__typename == "CheckRun" and .status == "COMPLETED" and .conclusion == "SUCCESS")' >/dev/null 2>&1; then
+  if ! github_main_only_empty_rollup "$FM_HOME" "$PROJECT_URL" "$json" && ! printf '%s' "$json" | jq -e 'any(.statusCheckRollup[]; .__typename == "CheckRun" and .status == "COMPLETED" and .conclusion == "SUCCESS")' >/dev/null 2>&1; then
     FM_PR_GITHUB_UNREPORTED=true
     refusals="$refusals  - no passing check run has reported at head $live_head; start this branch's pull-request checks, or dispatch CI for it only when the project's CI does not run on pull requests and accepts a branch run
 "
   fi
-  if ! github_read_required_contexts "$base"; then
+  if ! github_read_required_contexts "$PR_PATH" "$base" gh; then
     FM_PR_GITHUB_OTHER_REFUSAL=true
     while IFS= read -r line; do
       refusals="$refusals  - $line, so a required check that has not reported cannot be ruled out
@@ -1326,38 +1264,6 @@ github_read_outcome() {
     return 0
   fi
   echo "error: could not read the GitHub pull request outcome after the merge attempt: the gh read failed and the gh-axi view could not prove the outcome either; PR metadata and merge poll remain recorded" >&2
-  return 1
-}
-
-github_urlencode_path_segment() {
-  local LC_ALL=C input=$1 encoded='' char octet hex
-  while [ -n "$input" ]; do
-    char=${input%"${input#?}"}
-    input=${input#?}
-    case "$char" in
-      [-._~a-zA-Z0-9]) encoded=$encoded$char ;;
-      *)
-        printf -v octet '%d' "'$char"
-        [ "$octet" -ge 0 ] || octet=$((octet + 256))
-        printf -v hex '%02X' "$octet"
-        encoded=$encoded%$hex
-        ;;
-    esac
-  done
-  printf '%s' "$encoded"
-}
-
-# Whether a failed branch-rules read (the gh stderr given) is GitHub's
-# plan-gated 403 ("Upgrade to GitHub Pro or make this repository public"),
-# which means the repository's plan cannot expose branch rules at all, on
-# GitHub or GitHub Enterprise Server - not that this script failed to read
-# them, and not that the token lacks a permission. Such a repository has no
-# active ruleset rule of any kind. Any other failure (auth, rate limit,
-# network, a 404, an unrelated 403) is not this and stays unreadable.
-github_branch_rules_unavailable_on_plan() {
-  case "$1" in
-    *"Upgrade to GitHub Pro or make this repository public"*) return 0 ;;
-  esac
   return 1
 }
 
