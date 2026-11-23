@@ -5698,6 +5698,27 @@ PATCH
   pass "reusing exact base action pins does not require approval"
 }
 
+test_workflow_changed_sha_and_new_action_are_held() {
+  local case_dir
+  case_dir=$(make_case workflow-new-pins)
+  add_gh_mocks "$case_dir" 1010101010101010101010101010101010101010
+  printf '%s\n' '{"truncated":false,"tree":[{"path":".github/workflows/base.yml","type":"blob","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}' > "$case_dir/github-workflow-tree.json"
+  jq -n --arg content "$(printf '%s\n' '  - uses: actions/checkout@fbc6f399e25b97a973c6f5b150c3c9a32f41d8fc' | base64 | tr -d '\n')" '{encoding:"base64",content:$content}' > "$case_dir/github-workflow-blob.json"
+  write_workflow_files_json "$case_dir/github-files.json" .github/workflows/ci.yml <<'PATCH'
+@@ -1,2 +1,4 @@
+ steps:
++  - uses: actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
++  - uses: stranger/scan@fbc6f399e25b97a973c6f5b150c3c9a32f41d8fc
+   - run: make test
+PATCH
+  run_workflow_merge "$case_dir" 71
+  expect_code 1 "$WORKFLOW_MERGE_RC" "workflow-new-pins: new action and new SHA must require approval"
+  assert_grep 'actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' "$case_dir/stderr" "workflow-new-pins: changed SHA was not named"
+  assert_grep 'stranger/scan@fbc6f399e25b97a973c6f5b150c3c9a32f41d8fc' "$case_dir/stderr" "workflow-new-pins: new action was not named"
+  [ -z "$(grep '^pr merge ' "$case_dir/gh.log" || true)" ] || fail "workflow-new-pins: merge reached the forge"
+  pass "a changed SHA and a different action are held"
+}
+
 test_workflow_edit_adding_an_outside_action_still_needs_the_captain() {
   local case_dir
   case_dir=$(make_case workflow-outside-action)
@@ -5793,6 +5814,7 @@ test_forgejo_security_path_diff_is_refused
 test_plain_workflow_edit_is_not_held_for_the_captain
 test_workflow_edit_adding_secrets_still_needs_the_captain
 test_workflow_reusing_base_pins_is_not_held_as_new
+test_workflow_changed_sha_and_new_action_are_held
 test_workflow_edit_adding_an_outside_action_still_needs_the_captain
 test_workflow_edit_adding_the_repository_owners_action_is_not_held
 test_workflow_owners_config_replaces_the_repository_owner

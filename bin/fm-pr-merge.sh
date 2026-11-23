@@ -1532,11 +1532,47 @@ workflow_owners() {
   printf '%s\n' "$owners"
 }
 
+workflow_base_action_pins() {
+  local base tree entries sha blob content
+  [ "$PROVIDER" = github ] && [ -n "${FM_PR_GITHUB_BASE:-}" ] || return 1
+  base=$(github_urlencode_path_segment "$FM_PR_GITHUB_BASE") || return 1
+  tree=$(gh api "repos/$PR_OWNER/$PR_REPO/git/trees/$base?recursive=1" 2>/dev/null) || return 1
+  entries=$(printf '%s' "$tree" | jq -er '
+    if .truncated == false and (.tree | type == "array") then
+      [.tree[] | select(.type == "blob" and (.path | test("^\\.github/workflows/[^/]+\\.ya?ml$"))) | .sha | select(test("^[0-9a-f]{40}$"))] | .[]
+    else error("incomplete tree") end' 2>/dev/null) || return 1
+  while IFS= read -r sha; do
+    [ -n "$sha" ] || continue
+    blob=$(gh api "repos/$PR_OWNER/$PR_REPO/git/blobs/$sha" 2>/dev/null) || return 1
+    content=$(printf '%s' "$blob" | jq -er 'select(.encoding == "base64") | .content | @base64d' 2>/dev/null) || return 1
+    printf '%s\n' "$content" | LC_ALL=C awk '
+      function lead(s) { match(s, /^[ \t]*/); return RLENGTH }
+      {
+        indent = lead($0)
+        if ($0 ~ /^[ \t]*(#|$)/) next
+        if (block && indent > blockindent) next
+        block = 0
+        if ($0 ~ /:[ \t]*[|>][-+0-9]*[ \t]*(#.*)?$/) { block = 1; blockindent = indent; next }
+        line = tolower($0)
+        if (line !~ /^[ \t]*(-[ \t]+)?uses[ \t]*:/) next
+        sub(/^[ \t]*(-[ \t]+)?uses[ \t]*:[ \t]*/, "", line)
+        sub(/^["\047]/, "", line)
+        sub(/["\047 \t#,}].*/, "", line)
+        if (line ~ /^[a-z0-9_.-]+\/[a-z0-9_.\/-]+@[0-9a-f]+$/) {
+          n = split(line, parts, "@")
+          if (n == 2 && length(parts[2]) == 40) print line
+        }
+      }' || return 1
+  done <<PINS
+$entries
+PINS
+}
+
 # Reads one patch on stdin and prints each changed line that touches
 # permissions, secrets or tokens, or adds an action from outside <owners>.
 workflow_patch_findings() {
-  local owners=$1
-  LC_ALL=C awk -v owners=" $owners " '
+  local owners=$1 pins=${2:-}
+  LC_ALL=C awk -v owners=" $owners " -v pins=" $pins " '
     function lead(s) { match(s, /^[ \t]*/); return RLENGTH }
     function finding(why) { printf "  %s: %s\n", why, $0 }
     /^@@/ { inblock = 0; next }
@@ -1571,6 +1607,7 @@ workflow_patch_findings() {
       sub(/^["\047]/, "", ref)
       sub(/["\047 \t#,}].*/, "", ref)
       if (ref ~ /^\.\//) next
+      if (index(pins, " " ref " ") > 0) next
       owner = ref
       if (index(owner, "/") == 0 || owner ~ /^docker:/) {
         finding("adds an action from outside the owner list")
@@ -1585,7 +1622,7 @@ workflow_patch_findings() {
 # Prints why the workflow files among <hits> cannot merge on their own, and
 # prints nothing only when every one of them was read and is free of them.
 workflow_change_findings() {
-  local files=$1 hits=$2 owners entry name renamed patch findings
+  local files=$1 hits=$2 owners entry name renamed patch findings pins='' checked_pins=false
   if ! owners=$(workflow_owners); then
     printf '  %s cannot be read or has no owners\n' "$(workflow_owners_file)"
     return 0
@@ -1604,10 +1641,17 @@ workflow_change_findings() {
       printf '  %s: renamed, so its whole content is not in the diff\n' "$name"
     elif [ -z "$patch" ]; then
       printf '  %s: its diff could not be read\n' "$name"
-    elif ! findings=$(printf '%s\n' "$patch" | workflow_patch_findings "$owners"); then
-      printf '  %s: its diff could not be checked\n' "$name"
-    elif [ -n "$findings" ]; then
-      printf '%s:\n%s\n' "$name" "$findings"
+    else
+      if [ "$checked_pins" = false ]; then
+        pins=$(workflow_base_action_pins) || pins=''
+        pins=${pins//$'\n'/ }
+        checked_pins=true
+      fi
+      if ! findings=$(printf '%s\n' "$patch" | workflow_patch_findings "$owners" "$pins"); then
+        printf '  %s: its diff could not be checked\n' "$name"
+      elif [ -n "$findings" ]; then
+        printf '%s:\n%s\n' "$name" "$findings"
+      fi
     fi
   done <<FILES
 $files
