@@ -185,8 +185,7 @@ print step.fetch("run")
   cat "$root/output" "$root/log"
 }
 
-# Lint, the static gate, and the coverage guard run no test, so a pull request runs them.
-PULL_REQUEST_JOBS='lint main-only static test-coverage'
+PULL_REQUEST_JOBS='lint main-only static test-coverage typecheck'
 
 job_timeout() {
   ruby -ryaml -e '
@@ -203,7 +202,7 @@ workflow_jobs() {
 # must join a tier, so no one-off timeout value appears outside these lists.
 LINT_TIER_JOBS='lint'
 STATIC_TIER_JOBS='static'
-FAST_TIER_JOBS='main-only effect-runtime test-coverage tests-timing-aggregate'
+FAST_TIER_JOBS='main-only effect-runtime test-coverage tests-timing-aggregate typecheck'
 NORMAL_TIER_JOBS='tests-portable-parallel-1 tests-portable-parallel-2 tests-portable-serial macos-stock-bash'
 HEAVY_TIER_JOBS='tests-herdr'
 ALL_TIER_JOBS="$LINT_TIER_JOBS $STATIC_TIER_JOBS $FAST_TIER_JOBS $NORMAL_TIER_JOBS $HEAVY_TIER_JOBS"
@@ -258,8 +257,8 @@ test_a_pull_request_runs_no_test_job() {
   actual=$(jobs_running_under pull_request '' false | LC_ALL=C sort) \
     || fail "could not resolve the job conditions for pull_request"
   [ "$actual" = "$expected" ] \
-    || fail "a pull request must run only lint, the static gate, and the coverage guard"$'\n'"ran: $(printf '%s' "$actual" | tr '\n' ' ')"$'\n'"wanted: $(printf '%s' "$expected" | tr '\n' ' ')"
-  pass "a pull request runs lint, the static gate, and the coverage guard, and no test job"
+    || fail "a pull request must run only lint, typecheck, the static gate, and the coverage guard"$'\n'"ran: $(printf '%s' "$actual" | tr '\n' ' ')"$'\n'"wanted: $(printf '%s' "$expected" | tr '\n' ' ')"
+  pass "a pull request runs lint, typecheck, the static gate, and the coverage guard, and no test job"
 }
 
 test_no_job_starts_before_main_only_has_passed() {
