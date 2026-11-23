@@ -1074,7 +1074,7 @@ $red
 EOF
 
   unreported=''
-  if ! printf '%s' "$json" | jq -e 'any(.statusCheckRollup[]; .__typename == "CheckRun" and .status == "COMPLETED" and .conclusion == "SUCCESS")' >/dev/null 2>&1; then
+  if ! { [ -f "$FM_HOME/config/ci-main-only" ] && grep -Fxq -- "$PROJECT_URL" "$FM_HOME/config/ci-main-only" && printf '%s' "$json" | jq -e '.statusCheckRollup | type == "array" and length == 0' >/dev/null 2>&1; } && ! printf '%s' "$json" | jq -e 'any(.statusCheckRollup[]; .__typename == "CheckRun" and .status == "COMPLETED" and .conclusion == "SUCCESS")' >/dev/null 2>&1; then
     FM_PR_GITHUB_UNREPORTED=true
     refusals="$refusals  - no passing check run has reported at head $live_head; start this branch's pull-request checks, or dispatch CI for it only when the project's CI does not run on pull requests and accepts a branch run
 "

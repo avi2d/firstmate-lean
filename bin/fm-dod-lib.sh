@@ -522,7 +522,7 @@ Do not run any test runner, such as `bun test`, `vitest`, or `playwright`, on an
 A throwaway check is allowed: a small script you write in your temporary folder outside the repository and run once to see one behavior, such as running the built CLI once, calling a local server, or trying a snippet.
 A throwaway check is never committed, never uses the repository's test setup, finishes in about a minute, and starts no browser, simulator, or App.
 Build, lint, and typecheck commands may still run.
-CI on the branch or pull request is proof in the real place. If the project's CI does not start on pull requests, dispatch it on the branch and name the run id. If the project's own instructions say its tests run on its main branch only, do not dispatch CI on the branch. Its pull-request checks are then the proof, and the main branch runs the tests after the merge.
+CI on the branch or pull request is proof in the real place. If the project's CI does not start on pull requests, dispatch it on the branch and name the run id, unless its instructions restrict CI to main. For a main-only project, run lint and typecheck locally, report the PR without waiting for CI, and identify the main run that will test it after merge.
 EOF
 }
 
