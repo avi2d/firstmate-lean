@@ -820,8 +820,11 @@ remote_worker_teardown() {
   project_name=${project_name##*/}
   [ -n "$mode" ] || mode=no-mistakes
   pr_url=$(fm_meta_get "$META" pr)
+  remote_target=$(fm_meta_get "$META" remote_target)
   done_args=()
-  if [ "$kind" = scout ]; then
+  if [ "$remote_target" = pending ]; then
+    TEARDOWN_BACKLOG_TRANSITION=retain
+  elif [ "$kind" = scout ]; then
     if [ -f "$DATA/$ID/report.md" ]; then
       data_relative=$(fm_backlog_data_relative "$DATA") || return 1
       done_args=(--report "$data_relative/$ID/report.md")
@@ -856,16 +859,19 @@ remote_worker_teardown() {
   esac
   [ "$rc" -eq 0 ] || printf '%s\n' "$out" | grep -E '^(warning: treehouse return left pool slot |  )' >&2 || true
   teardown_export_records "$STATE" "$ID" || return 1
-  remote_target=$(fm_meta_get "$META" remote_target)
-  if [ -n "$remote_target" ]; then
-    for candidate in accepted dropped failed; do
-      if grep -Fxq -- "task-result $remote_target $candidate" <<< "$out"; then
-        if [ -n "$remote_result" ]; then remote_result=''; break; fi
-        remote_result=$candidate
-      fi
-    done
+  if [ "$remote_target" = pending ]; then
+    result=missing
+  else
+    if [ -n "$remote_target" ]; then
+      for candidate in accepted dropped failed; do
+        if grep -Fxq -- "task-result $remote_target $candidate" <<< "$out"; then
+          if [ -n "$remote_result" ]; then remote_result=''; break; fi
+          remote_result=$candidate
+        fi
+      done
+    fi
+    result=$(teardown_task_result "$kind" "$mode" "$pr_url" "$remote_result")
   fi
-  result=$(teardown_task_result "$kind" "$mode" "$pr_url" "$remote_result")
   teardown_archive_result "$kind" "$mode" "$result" || {
     echo "error: could not archive the result for $ID; retaining task records for retry" >&2
     return 1
@@ -910,7 +916,7 @@ remote_worker_teardown() {
     || echo "warning: $ID's status-feed cursor for $route was not retired; it is ignored once no record names the task" >&2
   fm_lock_release "$META_LOCK"
   META_LOCK_HELD=0
-  if [ "$kind" != scout ] && [ "$mode" != local-only ]; then
+  if [ "$remote_target" != pending ] && [ "$kind" != scout ] && [ "$mode" != local-only ]; then
     [ -z "$project_name" ] || [ ! -d "$FM_HOME/projects/$project_name" ] \
       || "$FM_ROOT/bin/fm-fleet-sync.sh" "$project_name" || true
   fi

@@ -17,6 +17,14 @@ shopt -u patsub_replacement 2>/dev/null || true
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+spawn_record_remote_prelaunch_failure() {
+  local status=$1
+  if [ -n "${FM_REMOTE_SPAWN_PRELAUNCH_RECEIPT:-}" ] && [ "$status" -gt 0 ] && [ "$status" -lt 124 ]; then
+    : > "$FM_REMOTE_SPAWN_PRELAUNCH_RECEIPT" || true
+  fi
+}
+[ -z "${FM_REMOTE_SPAWN_PRELAUNCH_RECEIPT:-}" ] || trap 'spawn_record_remote_prelaunch_failure "$?"' EXIT
+
 usage() {
   sed -n '2,${/^#/!q;p;}' "$0" | sed 's/^# \{0,1\}//'
 }
@@ -744,18 +752,23 @@ spawn_remote_worker() {
   launch_args=("$ID" "$project" "$KIND" "$mode_arg" "$yolo_arg" "$BRANCH_PREFIX" "$base_arg" "$harness" "$model_arg" "$effort_arg" "$backend")
   [ -z "$CLAUDE_ACCOUNT" ] || launch_args+=("$CLAUDE_ACCOUNT")
   out=$("$SCRIPT_DIR/fm-on.sh" --stdin "$route" fm-remote-worker-control.sh launch "${launch_args[@]}" < "$brief" 2>&1) || rc=$?
-  if [ "$rc" -eq 75 ]; then
+  if [ "$rc" -eq 75 ] || { [ "$rc" -eq 76 ] && grep -Fxq 'launch=rolled-back' <<< "$out"; }; then
     printf '%s\n' "$out" >&2
+    if { [ "$started_row" -eq 1 ] || { [ "$rc" -eq 76 ] && [ "$transition" -eq 1 ]; }; } &&
+      ! fm_backlog_mutate "$DATA" reopen "$ID"; then
+      echo "error: task $ID's backlog item could not return to Queued ($FM_BACKLOG_TRANSITION_ERROR); its pending record is preserved" >&2
+      return 1
+    fi
     if ! fm_backlog_atomic_transition remove "$meta" "task record" "$STATE"; then
-      echo "error: remote launch deferred for task $ID, but its pending task record could not be removed ($FM_BACKLOG_TRANSITION_ERROR)" >&2
+      echo "error: could not remove the pending remote record for $ID ($FM_BACKLOG_TRANSITION_ERROR)" >&2
       return 1
     fi
-    if [ "$started_row" -eq 1 ] && ! fm_backlog_mutate "$DATA" reopen "$ID"; then
-      echo "error: remote launch deferred for task $ID, but its backlog item could not return to Queued ($FM_BACKLOG_TRANSITION_ERROR); it can be dispatched again as it stands" >&2
-      return 1
+    if [ "$rc" -eq 75 ]; then
+      echo "error: remote launch deferred for task $ID; its backlog item stays queued - dispatch it again once the host has room" >&2
+    else
+      echo "error: remote launch of $ID failed before the worker started; its brief is preserved for retry" >&2
     fi
-    echo "error: remote launch deferred for task $ID; its backlog item stays queued - dispatch it again once the host has room" >&2
-    return 75
+    return "$rc"
   fi
   if [ "$rc" -ne 0 ]; then
     printf '%s\n' "$out" >&2
@@ -885,6 +898,11 @@ spawn_abort_cleanup() {
     fi
   fi
   if [ "$HERDR_PRESENTATION_ORDER_LOCK_HELD" = 1 ]; then
+    if [ -n "${FM_REMOTE_SPAWN_PRELAUNCH_RECEIPT:-}" ] && [ "$status" -ne 0 ] &&
+      [ "$SPAWN_LAUNCH_SENT" = 0 ] && [ "${SPAWN_CREATED_PRESENTATION_JOURNAL:-0}" = 1 ] &&
+      fm_backend_herdr_projection_token_workspace_gone "$HERDR_SES" "$HERDR_PRESENTATION_JOURNAL" "$ID"; then
+      rm -f -- "$HERDR_PRESENTATION_JOURNAL" || true
+    fi
     HERDR_PRESENTATION_ORDER_LOCK_HELD=0
     fm_lock_release "$HERDR_PRESENTATION_ORDER_LOCK" || true
   fi
@@ -969,6 +987,10 @@ spawn_abort_cleanup() {
       rm -rf "$GIT_HOOKS_DIR" 2>/dev/null || true
     fi
     fm_lock_release "$SPAWN_TASK_LOCK" || true
+  fi
+  if [ -n "${FM_REMOTE_SPAWN_PRELAUNCH_RECEIPT:-}" ] && [ "$SPAWN_LAUNCH_SENT" = 0 ] &&
+    [ ! -e "$STATE/$ID.meta" ] && [ ! -L "$STATE/$ID.meta" ]; then
+    spawn_record_remote_prelaunch_failure "$status"
   fi
   return "$status"
 }
@@ -1103,6 +1125,7 @@ spawn_herdr_project_task() {  # <session> <cwd> <launcher-pane> [project-path]
     return 0
   fi
   projection_id=$(fm_backend_herdr_projection_journal_create "$STATE" "$ID") || exit 1
+  SPAWN_CREATED_PRESENTATION_JOURNAL=1
   projection_label=$(fm_backend_herdr_projection_workspace_label "$ID" "$projection_id" "$WORKER_NAME")
   if ! FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_projection_create_task \
     "$cwd" "$projection_label" "$W" "$session"; then
@@ -1367,6 +1390,7 @@ if [ "$RELAUNCH" -eq 0 ]; then
 fi
 SPAWN_TASK_LOCK="$STATE/.spawn-$ID.lock"
 if ! fm_lock_try_acquire "$SPAWN_TASK_LOCK"; then
+  unset FM_REMOTE_SPAWN_PRELAUNCH_RECEIPT
   echo "error: another spawn is already creating task $ID" >&2
   exit 1
 fi
