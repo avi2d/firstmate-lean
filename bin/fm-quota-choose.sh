@@ -17,9 +17,10 @@ usage() {
   cat <<'USAGE'
 Usage: fm-quota-choose.sh [--snapshot <path>] [--provider <family>] [--candidate <harness:model>]...
 
-Reads an already captured subquo.v1 JSON snapshot with an explicit common
-provider, or quota-axi TOON or JSON. Reads stdin by default.
-With legacy input and no --provider, uses the harness's primary family.
+Reads a captured subquo.v1 JSON snapshot or quota-axi TOON or JSON.
+Reads stdin by default. Pass --provider for subquo input.
+With --provider, every candidate must use that provider.
+Without --provider, each candidate must use its harness's primary family.
 Prints the first viable "<harness> <model>", or "none" and exits 1.
 USAGE
   exit 2
