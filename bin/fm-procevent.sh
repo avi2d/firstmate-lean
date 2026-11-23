@@ -867,7 +867,7 @@ cmd_register_extension() {
 # and drains until `fm_procevent_mark_handled` records it.
 publish_result() {  # <result-file>
   local result=$1 id seq adapter line status=1 owner_task='' message='' record=''
-  local ring_backend ring_target ring_meta ring_rc inbox_dir handled_dir pre_existing existing new_record
+  local ring_backend ring_target ring_meta ring_rc inbox_dir handled_dir pre_existing existing new_record remote_host feedback
   id=$(fm_procevent_result_source_id "$result")
   seq=$(fm_procevent_result_sequence "$result")
   fm_procevent_source_id_valid "$id" || return 1
@@ -894,6 +894,31 @@ publish_result() {  # <result-file>
         fi
         unset FM_PROCEVENT_CAPTURE_SOURCE_LOCK_HELD
         message="Lavish review feedback is captured for task $owner_task at $result. Read it with bin/fm-procevent-lavish.sh read $result, apply the round, and re-arm the board with the reply."
+      fi
+      ring_meta="$STATE/$owner_task.meta"
+      remote_host=''
+      if [ -f "$ring_meta" ] && [ ! -L "$ring_meta" ]; then
+        remote_host=$(fm_meta_get "$ring_meta" remote_host)
+      fi
+      if [ -n "$remote_host" ]; then
+        feedback=$("$SCRIPT_DIR/fm-procevent-lavish.sh" read "$result") || {
+          fm_procevent_source_lock_release "$id"
+          return 1
+        }
+        if adapter_result_is_terminal "$adapter" "$result"; then
+          message="Lavish review $id sequence $seq is terminal. Stop and conclude the review. Tell firstmate to acknowledge this round and retire the board.
+
+$feedback"
+        else
+          message="Lavish review $id sequence $seq has feedback. Apply the round and tell firstmate when the reply is ready so the board can be re-armed.
+
+$feedback"
+        fi
+        if FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-send.sh" "$owner_task" "$message" >/dev/null 2>&1; then
+          status=0
+        fi
+        fm_procevent_source_lock_release "$id"
+        return "$status"
       fi
       # Snapshot the records that already exist (active and handled) before
       # the idempotent write, so a dedup match - including one already

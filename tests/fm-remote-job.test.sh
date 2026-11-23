@@ -16,6 +16,7 @@ STATE_ROOT="$TMP_ROOT/remote-jobs"
 RUNTIME_BIN="$TMP_ROOT/runtime-bin"
 FAKE_PERL_LOG="$TMP_ROOT/perl.log"
 REAL_GIT=$(command -v git)
+FIXTURE_PATH=$PATH
 OTHER_PID=
 RECOVERY_WORKER_PID=
 REPEAT_WORKER_PID=
@@ -1130,9 +1131,8 @@ fi
 exec '$(command -v sleep)' "\$@"
 SH
 chmod +x "$STALL_BIN/sleep"
-# shellcheck disable=SC2031 # Cadence fixture PATH changes stayed in their subshells.
 HOME="$STALL_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_REMOTE_JOB_STATE_ROOT="$STALL_STATE" \
-  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux PATH="$STALL_BIN:$PATH" \
+  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux PATH="$STALL_BIN:$FIXTURE_PATH" \
   "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" --serve \
   > "$TMP_ROOT/stall-lost.out" 2> "$TMP_ROOT/stall-lost.err" &
 STALL_WORKER_PID=$!
@@ -1159,31 +1159,33 @@ assert_present "$STALL_HELD" "shutdown did not reach its stop loop behind its ow
 assert_present "$STALL_STATE/worker.lock/quarantine" \
   "the worker held in its stop loop did not hold its own quarantine"
 rm -rf -- "$STALL_STATE/worker.lock"
-HOME="$STALL_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_REMOTE_JOB_STATE_ROOT="$STALL_STATE" \
-  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" --serve \
+STALL_REPLACEMENT_BIN="$TMP_ROOT/stall-replacement-bin"
+mkdir -p "$STALL_REPLACEMENT_BIN"
+# Publishing the lock PID precedes TERM setup. Hold readiness publication so
+# the replacement can handle TERM but cannot reclaim the old worker's job.
+cat > "$STALL_REPLACEMENT_BIN/mv" <<SH
+#!/bin/sh
+'$(command -v mv)' "\$@" || exit
+for target do :; done
+if [ "\$target" = '$STALL_STATE/worker.ready' ]; then
+  while [ -e '$STALL_HELD' ]; do /bin/sleep 0.05; done
+fi
+SH
+chmod +x "$STALL_REPLACEMENT_BIN/mv"
+PATH="$STALL_REPLACEMENT_BIN:$FIXTURE_PATH" HOME="$STALL_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" \
+  FM_REMOTE_JOB_STATE_ROOT="$STALL_STATE" FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux \
+  "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" --serve \
   > "$TMP_ROOT/stall-replacement.out" 2> "$TMP_ROOT/stall-replacement.err" &
 STALL_REPLACEMENT_PID=$!
 STALL_DEADLINE=$((SECONDS + 30))
-until [ "$(cat "$STALL_STATE/worker.lock/pid" 2>/dev/null || true)" = "$STALL_REPLACEMENT_PID" ] \
+until [ "$(cat "$STALL_STATE/worker.ready" 2>/dev/null || true)" = "$STALL_REPLACEMENT_PID" ] \
   || [ "$SECONDS" -ge "$STALL_DEADLINE" ]; do
   sleep 0.05
 done
-[ "$(cat "$STALL_STATE/worker.lock/pid" 2>/dev/null || true)" = "$STALL_REPLACEMENT_PID" ] \
-  || fail "the replacement did not take ownership while the old worker was stopped in shutdown"
+[ "$(cat "$STALL_STATE/worker.ready" 2>/dev/null || true)" = "$STALL_REPLACEMENT_PID" ] \
+  || fail "the replacement did not publish readiness while the old worker was stopped in shutdown"
 printf 'replacement guard\n' > "$STALL_STATE/worker.lock/quarantine"
 STALL_QUARANTINE_INODE=$(file_inode "$STALL_STATE/worker.lock/quarantine")
-# Both workers stop the job's recorded execution and then delete its records.
-# A worker resumed while the other is deleting can lose a record read and exit
-# before its quarantine clear, so freeze the replacement until the ousted
-# worker has finished.
-kill -STOP "$STALL_REPLACEMENT_PID"
-STALL_DEADLINE=$((SECONDS + 30))
-until [ "$(ps -o state= -p "$STALL_REPLACEMENT_PID" 2>/dev/null | cut -c1)" = T ] \
-  || [ "$SECONDS" -ge "$STALL_DEADLINE" ]; do
-  sleep 0.05
-done
-[ "$(ps -o state= -p "$STALL_REPLACEMENT_PID" 2>/dev/null | cut -c1)" = T ] \
-  || fail "the replacement could not be held while the ousted worker resumed"
 kill -KILL -- "-$STALL_JOB_GROUP" 2>/dev/null || true
 STALL_DEADLINE=$((SECONDS + 30))
 until ! kill -0 -- "-$STALL_JOB_GROUP" 2>/dev/null || [ "$SECONDS" -ge "$STALL_DEADLINE" ]; do
@@ -1205,7 +1207,6 @@ wait "$STALL_WORKER_PID" 2>/dev/null || STALL_WORKER_RC=$?
 STALL_WORKER_PID=
 [ "$STALL_WORKER_RC" -eq 0 ] \
   || fail "the ousted worker did not finish shutdown through its lost-ownership exit (exit $STALL_WORKER_RC: $(cat "$TMP_ROOT/stall-lost.err"))"
-kill -CONT "$STALL_REPLACEMENT_PID"
 kill -0 "$STALL_REPLACEMENT_PID" 2>/dev/null \
   || fail "the ousted worker's resumed shutdown terminated the replacement"
 [ "$(cat "$STALL_STATE/worker.lock/pid" 2>/dev/null || true)" = "$STALL_REPLACEMENT_PID" ] \
@@ -1213,7 +1214,8 @@ kill -0 "$STALL_REPLACEMENT_PID" 2>/dev/null \
 [ "$(cat "$STALL_STATE/worker.lock/quarantine" 2>/dev/null || true)" = "replacement guard" ] \
   && [ "$(file_inode "$STALL_STATE/worker.lock/quarantine")" = "$STALL_QUARANTINE_INODE" ] \
   || fail "the ousted worker wrote or cleared the replacement quarantine during shutdown"
-kill -TERM "$STALL_REPLACEMENT_PID"
+kill -TERM "$STALL_REPLACEMENT_PID" || fail "could not signal the replacement"
+rm -f -- "$STALL_HELD"
 STALL_DEADLINE=$((SECONDS + 30))
 until [ "$(ps -o state= -p "$STALL_REPLACEMENT_PID" 2>/dev/null | cut -c1)" = Z ] \
   || ! kill -0 "$STALL_REPLACEMENT_PID" 2>/dev/null || [ "$SECONDS" -ge "$STALL_DEADLINE" ]; do
@@ -1222,8 +1224,9 @@ done
 [ "$(ps -o state= -p "$STALL_REPLACEMENT_PID" 2>/dev/null | cut -c1)" = Z ] \
   || ! kill -0 "$STALL_REPLACEMENT_PID" 2>/dev/null \
   || fail "the replacement did not finish its own TERM shutdown"
-wait "$STALL_REPLACEMENT_PID" 2>/dev/null || true
+wait "$STALL_REPLACEMENT_PID" || fail "replacement shutdown exited $?: $(cat "$TMP_ROOT/stall-replacement.err")"
 STALL_REPLACEMENT_PID=
+assert_absent "$STALL_STATE/worker.lock" "the replacement's shutdown left its lock behind"
 STALL_JOB_GROUP=
 pass "an ousted worker in shutdown leaves the replacement quarantine untouched"
 
