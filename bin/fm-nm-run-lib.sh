@@ -557,6 +557,41 @@ fm_nm_run_parked_awaiting_agent() {  # <toon-output>
   return 0
 }
 
+fm_nm_run_gate() {  # <toon-output> -> the gate a parked run waits at
+  local gate
+  gate=$(fm_nm_trim "$(printf '%s\n' "$1" | sed -n 's/^[[:space:]]*gate:[[:space:]]*//p' | head -1)")
+  [ -n "$gate" ] || gate=$(printf '%s\n' "$1" | grep -Eo 'awaiting_approval|fix_review' | head -1)
+  [ -n "$gate" ] || gate=$(fm_nm_strip_quotes "$(fm_nm_field "$1" status)")
+  [ -n "$gate" ] || gate=gate
+  printf '%s' "$gate"
+}
+
+# What captured `axi status` TOON $1 proves about branch $2's run for a worker
+# paused on it: no run at all, or a run parked at a gate. Prints nothing when
+# the answer proves neither, such as an executing run or another branch's run.
+fm_nm_branch_wait_fact() {  # <toon-output> <branch>
+  local toon=$1 branch=$2 id
+  case "$(fm_nm_strip_quotes "$(printf '%s\n' "$toon" | sed -n 's/^error: //p' | head -1)")" in
+    "repo not initialized"*)
+      printf 'no no-mistakes run exists for branch %s, and the repository is not initialized for no-mistakes' "$branch"
+      return 0
+      ;;
+  esac
+  if [ "$(fm_nm_strip_quotes "$(fm_nm_field "$toon" current_branch)")" = "$branch" ] \
+    && [ "$(fm_nm_strip_quotes "$(fm_nm_field "$toon" runs_on_current_branch)")" = 0 ]; then
+    printf 'no no-mistakes run exists for branch %s' "$branch"
+    return 0
+  fi
+  [ "$(fm_nm_strip_quotes "$(fm_nm_field "$toon" branch)")" = "$branch" ] || return 0
+  id=$(fm_nm_strip_quotes "$(fm_nm_field "$toon" id)")
+  case "$id" in ''|*[!A-Za-z0-9_-]*) return 0 ;; esac
+  if fm_nm_run_parked_awaiting_agent "$toon"; then
+    printf 'no-mistakes run %s for branch %s is parked at %s waiting on the agent' "$id" "$branch" "$(fm_nm_run_gate "$toon")"
+  elif fm_nm_run_is_parked "$toon"; then
+    printf 'no-mistakes run %s for branch %s is parked at %s with an ask-user finding waiting on firstmate' "$id" "$branch" "$(fm_nm_run_gate "$toon")"
+  fi
+}
+
 # 0 if the run in captured `axi status` TOON $1 is EXECUTING: in flight and
 # actively working (pending, running, fixing, or ci), not parked at a gate.
 # Read-only current-state reporting (fm-crew-state.sh) treats an executing run

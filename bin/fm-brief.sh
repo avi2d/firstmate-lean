@@ -181,12 +181,15 @@ esac
 # shellcheck source=bin/fm-worker-name-lib.sh
 . "$SCRIPT_DIR/fm-worker-name-lib.sh"
 PAUSED_VERB=${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}
+AGENT_RECHECK_TEXT=$(wait_overdue_text "$(wait_agent_recheck_secs)")
 IFS= read -r -d '' CREWMATE_PAUSE_INSTRUCTIONS <<EOF || true
    Use \`$PAUSED_VERB: {why}\` - distinct from \`blocked:\` - when deliberately waiting for work or an external condition expected to clear on its own, including your own validation round.
    Before ending your turn with your own background shell or monitor still running, or before waiting on your own pipeline run or a long foreground command, append \`$PAUSED_VERB [at=<epoch>]: {job and completion condition} | owner=<who> | recheck=<YYYY-MM-DD>\` to the status file.
    Name what you are waiting for and what will let you resume; do not repeat the declaration on every poll.
    End every \`$PAUSED_VERB\` or \`blocked\` line with \` | owner=<who> | recheck=<YYYY-MM-DD>\`: owner names who or what clears the wait (you, firstmate, the captain, a CI run, an outside service), and recheck is the UTC date - or \`<YYYY-MM-DDTHH:MMZ>\` time - after which a wait still standing is overdue.
    Firstmate flags a wait missing either field, and raises one still standing once its recheck has passed.
+   When the owner is no-mistakes, the pipeline or you, Firstmate raises the wait $AGENT_RECHECK_TEXT after it first sees the line, whatever recheck you wrote, checks no-mistakes for your branch, and sends you what it found; append a fresh \`$PAUSED_VERB\` line if the wait still stands.
+   Only a wait owned by CI that names its CI run id, such as \`CI run 123456\`, keeps a later recheck.
    Do not declare active implementation or reasoning as a wait.
    Firstmate may still raise one first-sight alert; the declared wait then uses the existing long recheck cadence instead of repeated possible-wedge alarms.
    When you know when the wait clears, include \`until <YYYY-MM-DDTHH:MMZ>\` (UTC) for a recheck at that time; for your own background job or command with a timeout, that time is its start plus its timeout, rounded up to the minute.

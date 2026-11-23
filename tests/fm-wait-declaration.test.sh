@@ -414,6 +414,144 @@ test_watcher_raises_overdue_wait() {
   pass "the watcher raises an overdue wait through the real entry point"
 }
 
+test_no_mistakes_wait_is_not_silenced_by_a_distant_recheck() {
+  local dir state items text
+  dir=$(make_case wait-agent-bound); state="$dir/state"
+  printf 'paused [at=1793000000]: no-mistakes drive waits for its next gate or CI verdict | owner=no-mistakes | recheck=2026-10-26T12:14Z\n' > "$state/a.status"
+  printf 'paused [at=1793000000]: no-mistakes resolving rebase conflict | owner=no-mistakes pipeline | recheck=2026-10-26T12:32Z\n' > "$state/b.status"
+  printf 'paused [at=1793000000]: my test run | owner=me | recheck=2026-10-27\n' > "$state/c.status"
+  items=$(scan "$state") || fail "the first-sight scan failed"
+  [ -z "$items" ] || fail "an agent-side wait was raised on first sight: $items"
+  items=$(scan_wait_declarations "$state" "$((NOW + 1199))") || fail "the scan before the bound failed"
+  [ -z "$items" ] || fail "an agent-side wait was raised before its bound: $items"
+  items=$(scan_wait_declarations "$state" "$((NOW + 1200))") || fail "the scan at the bound failed"
+  text=$(reasons "$items")
+  assert_contains "$text" "wait overdue: a paused waiting on no-mistakes, still standing 20m after first seen, past the 20m limit for a no-mistakes, pipeline or agent wait (declared recheck 2026-10-26T12:14Z): no-mistakes drive waits for its next gate or CI verdict" \
+    "a no-mistakes wait with a recheck hours out was not raised at the bound"
+  assert_contains "$text" "wait overdue: b paused waiting on no-mistakes pipeline, still standing 20m" "a pipeline wait was not raised at the bound"
+  assert_contains "$text" "wait overdue: c paused waiting on me, still standing 20m" "the worker's own wait was not raised at the bound"
+  [ "$(printf '%s\n' "$items" | while IFS= read -r item; do wait_declaration_item_bounded_task "$item" && printf '\n'; done | sort | tr '\n' ' ')" = "a b c " ] \
+    || fail "the bounded items did not name their tasks: $items"
+  pass "a no-mistakes, pipeline or agent wait is raised at the bound whatever recheck it names"
+}
+
+test_ci_wait_naming_its_run_keeps_its_declared_recheck() {
+  local dir state items
+  dir=$(make_case wait-ci-bound); state="$dir/state"
+  printf 'paused [at=1793000000]: CI run 123456 | owner=GitHub CI | recheck=2026-10-26T12:32Z\n' > "$state/a.status"
+  printf 'paused [at=1793000000]: no-mistakes CI step, CI run 123456 | owner=no-mistakes CI | recheck=2026-10-26T12:32Z\n' > "$state/b.status"
+  printf 'paused [at=1793000000]: release cut | owner=daily-release workflow | recheck=2026-10-26T12:32Z\n' > "$state/c.status"
+  scan "$state" >/dev/null || fail "the first-sight scan failed"
+  items=$(scan_wait_declarations "$state" "$((NOW + 1200))") || fail "the scan at the bound failed"
+  [ -z "$items" ] || fail "a CI wait naming its run or an outside wait was cut to the agent bound: $items"
+  items=$(scan_wait_declarations "$state" "$((NOW + 3 * 3600 + 1920))") || fail "the scan after the recheck failed"
+  [ "$(printf '%s\n' "$items" | grep -c '^overdue')" -eq 3 ] || fail "the declared recheck no longer raises these waits: $items"
+  pass "a CI wait naming its run id, and a wait owned outside the agent, keep their declared recheck"
+}
+
+test_redeclared_agent_wait_does_not_inherit_old_first_sight() {
+  local dir state items
+  dir=$(make_case wait-agent-redeclared); state="$dir/state"
+  printf 'paused [at=1793000000]: nm run | owner=no-mistakes | recheck=2026-10-27\n' > "$state/t.status"
+  scan "$state" >/dev/null || fail "the first-sight scan failed"
+  printf 'paused [at=1793001000]: nm run, second round | owner=no-mistakes | recheck=2026-10-27\n' >> "$state/t.status"
+  scan_wait_declarations "$state" "$((NOW + 1000))" >/dev/null || fail "the redeclared scan failed"
+  items=$(scan_wait_declarations "$state" "$((NOW + 1200))") || fail "the scan at the old bound failed"
+  [ -z "$items" ] || fail "a fresh paused line inherited the bound of the line it replaced: $items"
+  items=$(scan_wait_declarations "$state" "$((NOW + 2200))") || fail "the scan at the new bound failed"
+  assert_contains "$(reasons "$items")" "nm run, second round" "the fresh paused line was not raised at its own bound"
+  printf 'working [at=1793002000]: resumed\n' >> "$state/t.status"
+  scan_wait_declarations "$state" "$((NOW + 2300))" >/dev/null || fail "the scan after clearing failed"
+  if compgen -G "$state/.wait-flag-*" >/dev/null; then
+    fail "a first-sight marker outlived its wait: $(ls -a "$state")"
+  fi
+  pass "a fresh paused line starts its own bound and its marker goes when the wait clears"
+}
+
+seed_first_seen() {  # <state> <task> <age>
+  wait_first_seen "$1" "$2" "$(status_declared_wait_line "$1/$2.status")" "$(( $(date +%s) - $3 ))" >/dev/null
+}
+
+bounded_wait_watch_case() {  # <name> <axi-status-toon> -> case dir, after the watcher ran
+  local dir state out pid wt
+  dir=$(make_case "$1"); state="$dir/state"; wt="$dir/wt"
+  mkdir -p "$dir/config" "$wt"
+  : > "$dir/config/wait-no-turns"
+  git -C "$wt" init -q
+  git -C "$wt" symbolic-ref HEAD refs/heads/fm/stall
+  fm_write_herdr_meta "$state/t.meta" "sess:w1:p1" "kind=ship" "harness=pi" "worktree=$wt"
+  cat > "$dir/fakebin/herdr" <<'SCRIPT'
+#!/usr/bin/env bash
+case "${1:-} ${2:-}" in
+  'status --json') printf '%s\n' '{"client":{"version":"0.9.5","protocol":22},"server":{"running":true}}' ;;
+  'pane get') printf '{"result":{"pane":{"pane_id":"%s"}}}\n' "$3" ;;
+  'pane read') printf '%s\n' '╭────╮' '│    │' '╰────╯' ;;
+  'pane send-text') printf '%s' "$4" >> "$FM_SEND_LOG" ;;
+  'pane send-keys') : ;;
+  *) exit 1 ;;
+esac
+SCRIPT
+  printf '%s\n' "$2" > "$dir/axi-status.toon"
+  cat > "$dir/fakebin/no-mistakes" <<SCRIPT
+#!/usr/bin/env bash
+[ "\$*" = 'axi status' ] || exit 1
+cat '$dir/axi-status.toon'
+SCRIPT
+  chmod +x "$dir/fakebin/herdr" "$dir/fakebin/no-mistakes"
+  printf 'paused [at=1793000000]: no-mistakes drive waits for its next gate or CI verdict | owner=no-mistakes | recheck=2099-01-01\n' > "$state/t.status"
+  prime_status_seen "$state" "$state/t.status" || fail "priming status failed"
+  seed_first_seen "$state" t 1300
+  rm -f "$state/.last-check"
+  out="$dir/watch.out"
+  PATH="$dir/fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_CONFIG_OVERRIDE="$dir/config" \
+    FM_SEND_LOG="$dir/send.log" FM_SEND_SETTLE=0 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=1 FM_HEARTBEAT=999999 "$WATCH" > "$out" 2>&1 &
+  pid=$!
+  wait_for_exit "$pid" 100 || { kill "$pid" 2>/dev/null || true; fail "watcher did not finish: $(cat "$out")"; }
+  printf '%s\n' "$dir"
+}
+
+bounded_wait_inbox_body() {  # <case dir>
+  [ -f "$1/state/t.inbox/001.msg" ] || fail "the worker got no steer: $(ls -a "$1/state")"
+  bash -c '. "$1"; fm_task_inbox_body "$2"' _ "$ROOT/bin/fm-task-inbox-lib.sh" "$1/state/t.inbox/001.msg"
+}
+
+test_watcher_does_not_leave_a_runless_no_mistakes_wait_silent() {
+  local dir body
+  dir=$(bounded_wait_watch_case wait-bound-no-run "$(printf 'current_branch: fm/stall\nruns_on_current_branch: 0\n')")
+  assert_contains "$(cat "$dir/watch.out")" "check: wait-declaration: wait overdue: t paused waiting on no-mistakes, still standing" \
+    "the watcher did not raise the bounded wait: $(cat "$dir/watch.out")"
+  assert_contains "$(cat "$dir/watch.out")" "; no no-mistakes run exists for branch fm/stall" \
+    "the supervisor wake did not say the branch has no run: $(cat "$dir/watch.out")"
+  body=$(bounded_wait_inbox_body "$dir")
+  assert_contains "$body" "no no-mistakes run exists for branch fm/stall" "the worker steer did not say the branch has no run"
+  assert_contains "$(cat "$dir/send.log")" "Firstmate instruction waiting" "the worker doorbell was not rung"
+  pass "a wait on no-mistakes with no run for the branch reaches firstmate and the worker at the bound"
+}
+
+test_watcher_does_not_leave_a_wait_on_a_parked_gate_silent() {
+  local dir body toon
+  toon=$(cat <<'EOF'
+run:
+  id: "01REVIEWPARKED01"
+  branch: fm/stall
+  status: awaiting_approval
+  awaiting_agent: parked 61m2s
+  head: "abc1234"
+  pr: ""
+  findings[1]{id,severity,file,line,action,description}:
+    r1,warning,a.go,,auto-fix,ignored error
+gate: review
+EOF
+)
+  dir=$(bounded_wait_watch_case wait-bound-parked "$toon")
+  assert_contains "$(cat "$dir/watch.out")" "; no-mistakes run 01REVIEWPARKED01 for branch fm/stall is parked at review waiting on the agent" \
+    "the supervisor wake did not name the parked gate: $(cat "$dir/watch.out")"
+  body=$(bounded_wait_inbox_body "$dir")
+  assert_contains "$body" "parked at review waiting on the agent" "the worker steer did not name the parked gate"
+  pass "a wait on no-mistakes whose run is parked at a gate reaches firstmate and the worker at the bound"
+}
+
 test_accepted_shape_quiet_before_recheck
 test_refused_shape_flagged
 test_overdue_raised_with_owner_and_time
@@ -429,3 +567,8 @@ test_remote_ci_retry_does_not_ring_an_acknowledged_record
 test_unchanged_log_is_not_folded_again
 test_older_line_flagged_once_and_still_read
 test_watcher_raises_overdue_wait
+test_no_mistakes_wait_is_not_silenced_by_a_distant_recheck
+test_ci_wait_naming_its_run_keeps_its_declared_recheck
+test_redeclared_agent_wait_does_not_inherit_old_first_sight
+test_watcher_does_not_leave_a_runless_no_mistakes_wait_silent
+test_watcher_does_not_leave_a_wait_on_a_parked_gate_silent

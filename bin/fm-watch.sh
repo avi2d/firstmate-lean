@@ -1986,11 +1986,7 @@ nm_parked_agent_ring() {  # <window> <task>
   case "$id" in ''|*[!A-Za-z0-9_-]*) return 1 ;; esac
   case "$last" in *"$id"*) ;; *) return 1 ;; esac
   fm_nm_run_parked_awaiting_agent "$toon" || return 1
-  gate=$(printf '%s\n' "$toon" | sed -n 's/^[[:space:]]*gate:[[:space:]]*//p' | head -1)
-  gate=$(fm_nm_trim "$gate")
-  [ -n "$gate" ] || gate=$(printf '%s\n' "$toon" | grep -Eo 'awaiting_approval|fix_review' | head -1)
-  [ -n "$gate" ] || gate=$(fm_nm_strip_quotes "$(fm_nm_field "$toon" status)")
-  [ -n "$gate" ] || gate=gate
+  gate=$(fm_nm_run_gate "$toon")
   msg="no-mistakes run $id is parked at $gate waiting on you. Answer it with axi respond, then resume; if it already cleared, resume and this note needs no reply."
   rec=$(fm_task_inbox_write_idempotent "$STATE" "$task" "$msg") || return 1
   case "$rec" in */handled/*) ;; *)
@@ -2000,6 +1996,34 @@ nm_parked_agent_ring() {  # <window> <task>
   esac
   triage_log "parked-gate ring: $task run $id at $gate"
   return 0
+}
+
+wait_bounded_nm_fact() {  # <task> -> what no-mistakes says of the task's branch; empty when unknown
+  local meta="$STATE/$1.meta" wt branch toon
+  [ -z "$(fm_meta_get "$meta" remote_host)" ] || return 0
+  command -v no-mistakes >/dev/null 2>&1 || return 0
+  wt=$(fm_meta_get "$meta" worktree)
+  [ -n "$wt" ] && [ -d "$wt" ] || return 0
+  branch=$(git -C "$wt" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+  [ -n "$branch" ] || return 0
+  # An uninitialized repository answers on stdout with a nonzero exit.
+  toon=$(fm_nm_run_checked "$wt" 10 axi status) || true
+  fm_nm_branch_wait_fact "$toon" "$branch"
+}
+
+# Steer a worker whose no-mistakes, pipeline or agent wait passed its bound,
+# then print the no-mistakes fact the supervisor wake carries.
+wait_bounded_alarm() {  # <task>
+  local task=$1 fact msg
+  fact=$(wait_bounded_nm_fact "$task")
+  [ "$(fm_meta_get "$STATE/$task.meta" kind)" != secondmate ] || { printf '%s' "$fact"; return 0; }
+  msg="Your paused wait is still standing $(wait_overdue_text "$(wait_agent_recheck_secs)") after firstmate first saw it, the limit for a wait that no-mistakes, the pipeline or you must clear."
+  [ -z "$fact" ] || msg="$msg Now: $fact."
+  msg="$msg Act on it and resume, or append a fresh paused line naming what you wait on."
+  FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
+    "$SCRIPT_DIR/fm-send.sh" "$task" "$msg" >/dev/null 2>&1 \
+    || triage_log "bounded wait steer to $task failed; the supervisor wake still carries it"
+  printf '%s' "$fact"
 }
 
 # Absorb a stale pane under a declared external-wait pause (paused:) or a
@@ -3991,6 +4015,10 @@ EOF
     while IFS= read -r wait_item || [ -n "$wait_item" ]; do
       [ -n "$wait_item" ] || continue
       reason="check: wait-declaration: $(wait_declaration_item_reason "$wait_item")" || continue
+      if wait_task=$(wait_declaration_item_bounded_task "$wait_item"); then
+        wait_fact=$(wait_bounded_alarm "$wait_task")
+        [ -z "$wait_fact" ] || reason="$reason; $wait_fact"
+      fi
       fm_wake_append check wait-declaration "$reason" || exit 1
       wait_declaration_record_raised "$STATE" "$wait_item" || exit 1
       wake "$reason"
