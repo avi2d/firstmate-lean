@@ -101,6 +101,7 @@ case "${1:-} ${2:-}" in
   "api repos/"*/compare/*) cat "$FM_TEST_CASE/behind" ;;
   api\ *)
     case " $* " in
+      *"/check-runs"*) printf '{"check_runs":[]}\n' ;;
       *"pulls/"*"/files"*)
         case " $* " in
           *"&page=1 "*) cat "$FM_TEST_CASE/files.json" 2>/dev/null || printf '[]\n' ;;
@@ -154,6 +155,20 @@ expect_stays_open() {  # <case> <verdict> <reason-fragment> <label>
     fail "$4: the branch was updated"
   fi
   expect_verdict "$1" "$2" "$3" "$4"
+}
+
+test_renamed_checkout_keeps_its_registered_yolo() {
+  local c
+  c=$(make_case renamed-checkout)
+  mkdir -p "$c/projects/checkout"
+  git -C "$c/projects/checkout" init -q
+  git -C "$c/projects/checkout" remote add origin https://github.com/example/widget.git
+  printf '%s\n' '- widget [direct-PR +yolo] - github.com/example/widget' > "$c/home/data/projects.md"
+  fm_write_meta "$c/state/task-x1.meta" \
+    "window=fm-task-x1" "worktree=$c/wt" "project=$c/projects/checkout" \
+    "kind=ship" "mode=direct-PR" "yolo=on" "pr=$URL"
+  expect_verdict "$c" green "every check is green" renamed-checkout
+  pass "a renamed checkout uses its registry entry and keeps +yolo"
 }
 
 test_settled_green_pull_request_merges_on_its_first_sweep() {
@@ -275,9 +290,15 @@ SH
   write_view "$c" "$HEAD_B" '[]'
   mv "$c/view.json" "$c/view-pushed.json"
   write_view "$c" "$HEAD_A" "$green_rollup"
-  sweep "$c"
+  local sweep_rc=0
+  sweep "$c" > "$c/sweep.stdout" 2> "$c/sweep.stderr" || sweep_rc=$?
   [ "$(merge_calls "$c")" -eq 0 ] || fail "pushed-after-green: a head pushed after the green reading was merged with no check of its own: $(cat "$c/gh.log")"
-  assert_grep "not the expected head $HEAD_A" "$c/state/merge-on-green.log" "pushed-after-green: the merge was not refused for the changed head"
+  if ! grep -F -- "not the expected head $HEAD_A" "$c/state/merge-on-green.log" >/dev/null; then
+    printf 'sweep exit: %s\nstdout:\n%s\nstderr:\n%s\nmerge log:\n%s\nforge calls:\n%s\n' \
+      "$sweep_rc" "$(cat "$c/sweep.stdout")" "$(cat "$c/sweep.stderr")" \
+      "$(cat "$c/state/merge-on-green.log")" "$(cat "$c/gh.log")" >&2
+    fail "pushed-after-green: the merge was not refused for the changed head"
+  fi
   pass "a head pushed between the green reading and the merge is refused instead of merged on the earlier head's checks"
 }
 
@@ -604,6 +625,7 @@ test_records_waiting_on_a_merge_word_are_not_reresolved_from_the_forge_every_swe
   pass "a record waiting on the captain costs no forge read per sweep, and a long report history costs one lookup"
 }
 
+test_renamed_checkout_keeps_its_registered_yolo
 test_settled_green_pull_request_merges_on_its_first_sweep
 test_green_without_a_settled_finish_merges_on_the_second_sighting
 test_unsettled_green_waits

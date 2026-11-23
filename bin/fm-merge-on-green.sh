@@ -372,9 +372,8 @@ assess() {  # <task-id>
   yolo=$(meta_value "$meta" yolo)
   [ "$yolo" = on ] || { verdict skip "task yolo is ${yolo:-unset}"; return; }
   project=$(meta_value "$meta" project)
-  project=${project%/}
-  project=${project##*/}
   [ -n "$project" ] || { verdict skip "no recorded project"; return; }
+  project=$(python3 "$SCRIPT_DIR/fm-project-name.py" "${FM_DATA_OVERRIDE:-$FM_HOME/data}/projects.md" "$project") || { verdict skip "the project registry lookup failed"; return; }
   posture=$(FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-project-mode.sh" "$project" 2>/dev/null) || posture=
   case "$posture" in
     *" on") ;;

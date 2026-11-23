@@ -1359,7 +1359,15 @@ if [ "$RELAUNCH" -eq 0 ]; then
   SPAWN_TASK_SET_LOCK_HELD=1
 fi
 if [ "$RELAUNCH" -eq 0 ] && [ "$LOCAL_OVERRIDE" -eq 0 ] && [ "${#POS[@]}" -ge 2 ]; then
-  remote_project=${POS[1]##*/}
+  case ${POS[1]} in
+    projects/*) remote_project_path="$PROJECTS/${POS[1]#projects/}" ;;
+    /*) remote_project_path=${POS[1]} ;;
+    *)
+      remote_project_path=${POS[1]}
+      [ ! -d "$PROJECTS/$remote_project_path" ] || remote_project_path="$PROJECTS/$remote_project_path"
+      ;;
+  esac
+  remote_project=$(python3 "$SCRIPT_DIR/fm-project-name.py" "$DATA/projects.md" "$remote_project_path") || exit 1
   remote_placement=$("$SCRIPT_DIR/fm-project-mode.sh" --placement "$remote_project") || exit 1
   if [ -n "$remote_placement" ]; then
     remote_host=$(fm_remote_registry_field "$DATA/remote-homes.md" "$remote_placement" host 2>/dev/null || true)
@@ -1834,6 +1842,7 @@ resolve_project_dir_arg() {
 
 
 PROJ_ABS="$(cd "$(resolve_project_dir_arg "$PROJ")" && pwd)"
+PROJ_NAME=$(python3 "$SCRIPT_DIR/fm-project-name.py" "$DATA/projects.md" "$PROJ_ABS") || exit 1
 WT=""
 BRIEF="$DATA/$ID/brief.md"
 if [ "$RELAUNCH" -eq 0 ] && git -C "$PROJ_ABS" rev-parse --git-dir >/dev/null 2>&1 &&
@@ -1853,7 +1862,7 @@ if [ "$RELAUNCH" -eq 0 ]; then
     echo "error: could not resolve the root Firstmate home that declares project capacity for $PROJ_ABS" >&2
     exit 1
   }
-  if ! fm_project_capacity_lookup "$SPAWN_CAPACITY_CONFIG" "$(basename "$PROJ_ABS")"; then
+  if ! fm_project_capacity_lookup "$SPAWN_CAPACITY_CONFIG" "$PROJ_NAME"; then
     echo "error: spawn refused: the project capacity declaration is unreadable ($FM_PROJECT_CAPACITY_ERROR); fix it so the captain's worker limits are known (docs/configuration.md \"Project capacity\")" >&2
     exit 1
   fi
@@ -1886,7 +1895,7 @@ if [ "$RELAUNCH" -eq 0 ]; then
     echo "error: spawn refused: the browser-suite declaration is unreadable ($FM_BROWSER_SUITE_ERROR); fix it so browser-suite starts stay staggered (docs/configuration.md \"Browser suites\")" >&2
     exit 1
   fi
-  if fm_browser_suite_task "$(basename "$PROJ_ABS")" "$BRIEF"; then
+  if fm_browser_suite_task "$PROJ_NAME" "$BRIEF"; then
     SPAWN_BROWSER_SUITE=1
     [ "$WEIGHT" != light ] || echo "note: task $ID runs a browser suite, so it starts heavy despite --weight light" >&2
     WEIGHT=heavy
@@ -2049,7 +2058,7 @@ if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
       echo "error: --base-branch requires a branch name" >&2
       exit 1
     }
-    BASE_FORGE=$("$FM_ROOT/bin/fm-project-mode.sh" --forge "$(basename "$PROJ_ABS")") || exit 1
+    BASE_FORGE=$("$FM_ROOT/bin/fm-project-mode.sh" --forge "$PROJ_NAME") || exit 1
     fm_base_branch_valid "$BASE_BRANCH" "$MODE" "${BASE_FORGE:-none}" "fm-spawn.sh --base-branch" || exit 1
     if ! fm_brief_base_branches "$BRIEF" >/dev/null || fm_brief_base_branches "$BRIEF" | grep -vxF -- "$BASE_BRANCH" >/dev/null; then
       echo "error: $BRIEF must record Base branch: $BASE_BRANCH and no other Base branch line to spawn with --base-branch $BASE_BRANCH; scaffold it with bin/fm-brief.sh --base-branch $BASE_BRANCH" >&2
@@ -2121,7 +2130,6 @@ delivery_rigor_rank() { # <mode> -> 3 (most rigor) .. 1 (least); 0 = not a task 
 # would launch a worker whose instructions and whose recorded task delivery
 # differ, which is the exact drift this contract prevents.
 if [ "$KIND" = ship ]; then
-  PROJ_NAME=$(basename "$PROJ_ABS")
   # The parser's own refusal reaches the operator here rather than being
   # discarded: an entry it refuses (an unknown forge token, or a forge on
   # local-only) resolves to no posture at all, and launching on the silent
