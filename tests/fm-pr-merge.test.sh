@@ -340,6 +340,14 @@ case "${1:-} ${2:-}" in
             ;;
         esac
         ;;
+      *" repos/"*"/git/trees/"*)
+        cat "$(dirname "$FM_TEST_GH_VIEW_JSON")/github-workflow-tree.json" 2>/dev/null || printf '{"truncated":false,"tree":[]}\n'
+        exit 0
+        ;;
+      *" repos/"*"/git/blobs/"*)
+        cat "$(dirname "$FM_TEST_GH_VIEW_JSON")/github-workflow-blob.json" 2>/dev/null || exit 1
+        exit 0
+        ;;
       *" repos/"*"/pulls/"*"/files"*)
         [ ! -e "$FM_TEST_GH_FILES_FAIL" ] || exit 1
         case "$*" in
@@ -5671,6 +5679,25 @@ PATCH
   pass "a workflow edit that adds a secrets. reference is refused, naming the line"
 }
 
+test_workflow_reusing_base_pins_is_not_held_as_new() {
+  local case_dir
+  case_dir=$(make_case workflow-base-pins)
+  add_gh_mocks "$case_dir" 1010101010101010101010101010101010101010
+  printf '%s\n' '{"truncated":false,"tree":[{"path":".github/workflows/base.yml","type":"blob","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}' > "$case_dir/github-workflow-tree.json"
+  jq -n --arg content "$(printf '%s\n' 'steps:' '  - uses: actions/checkout@fbc6f399e25b97a973c6f5b150c3c9a32f41d8fc' '  - uses: actions/upload-artifact@cf430e03e69a4ad7e2d6b6e80a3d4f3c1b2a9988' | base64 | tr -d '\n')" '{encoding:"base64",content:$content}' > "$case_dir/github-workflow-blob.json"
+  write_workflow_files_json "$case_dir/github-files.json" .github/workflows/ci.yml <<'PATCH'
+@@ -1,2 +1,4 @@
+ steps:
++  - uses: actions/checkout@fbc6f399e25b97a973c6f5b150c3c9a32f41d8fc
++  - uses: actions/upload-artifact@cf430e03e69a4ad7e2d6b6e80a3d4f3c1b2a9988
+   - run: make test
+PATCH
+  run_workflow_merge "$case_dir" 70
+  expect_code 0 "$WORKFLOW_MERGE_RC" "workflow-base-pins: exact pinned base actions must not be treated as new"
+  [ -n "$(grep '^pr merge ' "$case_dir/gh.log" || true)" ] || fail "workflow-base-pins: the merge never reached the forge"
+  pass "reusing exact base action pins does not require approval"
+}
+
 test_workflow_edit_adding_an_outside_action_still_needs_the_captain() {
   local case_dir
   case_dir=$(make_case workflow-outside-action)
@@ -5765,6 +5792,7 @@ test_gitlab_security_path_diff_is_refused
 test_forgejo_security_path_diff_is_refused
 test_plain_workflow_edit_is_not_held_for_the_captain
 test_workflow_edit_adding_secrets_still_needs_the_captain
+test_workflow_reusing_base_pins_is_not_held_as_new
 test_workflow_edit_adding_an_outside_action_still_needs_the_captain
 test_workflow_edit_adding_the_repository_owners_action_is_not_held
 test_workflow_owners_config_replaces_the_repository_owner
