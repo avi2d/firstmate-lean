@@ -1,0 +1,29 @@
+name: Action versions
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+      - 'bin/fm-action-versions-check.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: action-versions-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  action-versions:
+    name: Action versions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Fail on an action behind its latest major version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bin/fm-action-versions-check.sh
