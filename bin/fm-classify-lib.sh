@@ -119,6 +119,12 @@ FM_CLASSIFY_PAUSED_VERB_DEFAULT='paused'
 # shellcheck disable=SC2034 # Read by fm-watch.sh, not this lib.
 FM_PAUSE_RESURFACE_SECS_DEFAULT=14400
 
+# A paused wait that no-mistakes, the pipeline or the worker itself must clear is
+# raised this long after the watcher first sees it, whatever recheck the worker
+# wrote, because a worker that misreads its own run can name a recheck hours out.
+# Only a CI-owned wait naming its CI run id keeps a longer declared recheck.
+FM_PAUSE_AGENT_RECHECK_SECS_DEFAULT=1200
+
 # fm_utc_iso_to_epoch <YYYY-MM-DDTHH:MM[:SS]Z>: the one portable UTC ISO 8601
 # reader for the declared-wait vocabulary.
 # Prints epoch seconds; returns 1 on any other shape
@@ -1392,8 +1398,55 @@ wait_declaration_marker() {  # <state> <task> <wait> -> marker path for one decl
   printf '%s/.wait-flag-%s' "$1" "$(printf '%s--%s' "$2" "$3" | tr '/' '_')"
 }
 
-_fm_wait_declaration_item() {  # <marker> <task> <verb> <note> <identity> <now>
-  local marker=$1 task=$2 verb=$3 note=$4 now=$6 sig what owner recheck previous raised due='' missing=''
+wait_owner_is_agent_side() {  # <owner>
+  local word words
+  words=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' ' ')
+  for word in $words; do
+    case "$word" in
+      no-mistakes|nomistakes|nm|pipeline|agent|worker|crewmate|self|me|myself) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+wait_owner_is_ci() {  # <owner>
+  case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+    ci|*' ci'|ci' '*) return 0 ;;
+  esac
+  return 1
+}
+
+wait_recheck_is_bounded() {  # <owner> <note>
+  wait_owner_is_agent_side "$1" || return 1
+  if wait_owner_is_ci "$1" && [ -n "$(wait_ci_run_id "$2")" ]; then return 1; fi
+  return 0
+}
+
+wait_agent_recheck_secs() {
+  local secs=${FM_PAUSE_AGENT_RECHECK_SECS:-$FM_PAUSE_AGENT_RECHECK_SECS_DEFAULT}
+  case "$secs" in ''|0|*[!0-9]*) secs=$FM_PAUSE_AGENT_RECHECK_SECS_DEFAULT ;; esac
+  printf '%s' "$secs"
+}
+
+# Epoch the scan first saw this exact paused line for <task>, recorded on first sight.
+wait_first_seen() {  # <state> <task> <identity> <now>
+  local marker sig recorded tmp
+  marker=$(wait_declaration_marker "$1" "$2" seen)
+  sig=$(printf '%s' "$3" | cksum); sig=${sig%% *}
+  recorded=$(cat "$marker" 2>/dev/null) || recorded=
+  case "$recorded" in
+    "$sig:"*[0-9])
+      printf '%s' "${recorded#"$sig:"}"
+      return 0
+      ;;
+  esac
+  tmp=$(umask 077; mktemp "$1/.wait-flag-tmp.XXXXXX") || { printf '%s' "$4"; return 0; }
+  if printf '%s:%s' "$sig" "$4" >"$tmp" && mv -f "$tmp" "$marker"; then :; else rm -f "$tmp"; fi
+  printf '%s' "$4"
+}
+
+_fm_wait_declaration_item() {  # <marker> <task> <verb> <note> <identity> <now> [first-seen]
+  local marker=$1 task=$2 verb=$3 note=$4 now=$6 seen=${7:-} sig what owner recheck previous raised due='' missing='' bound=''
   sig=$(printf '%s' "$5" | cksum); sig=${sig%% *}
   _fm_wait_declaration_fields "$note" what owner recheck
   [ -n "$what" ] || what='-'
@@ -1404,9 +1457,7 @@ _fm_wait_declaration_item() {  # <marker> <task> <verb> <note> <identity> <now>
   elif [ -z "$due" ]; then missing='recheck date'
   fi
   if [ -z "$missing" ] && [ "$verb" = "${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}" ]; then
-    case "$(printf '%s' "$owner" | tr '[:upper:]' '[:lower:]')" in
-      ci|*' ci'|ci' '*) [ -n "$(wait_ci_run_id "$note")" ] || missing='CI run id' ;;
-    esac
+    if wait_owner_is_ci "$owner" && [ -z "$(wait_ci_run_id "$note")" ]; then missing='CI run id'; fi
   fi
   if [ -n "$missing" ]; then
     [ "$(cat "$marker" 2>/dev/null)" = "undated:$sig" ] && return 0
@@ -1414,6 +1465,12 @@ _fm_wait_declaration_item() {  # <marker> <task> <verb> <note> <identity> <now>
       "$task" "${marker##*/}" "undated:$sig" "$verb" "$missing" "$what"
     return 0
   fi
+  if [ -n "$seen" ] && wait_recheck_is_bounded "$owner" "$note"; then
+    bound=$(wait_agent_recheck_secs)
+    if [ "$(( seen + bound ))" -lt "$due" ]; then due=$(( seen + bound )); else bound=''; fi
+  fi
+  # An empty field would collapse into its neighbour when a reader splits on tabs.
+  [ -n "$bound" ] || bound=-
   [ "$now" -ge "$due" ] || return 0
   previous=$(cat "$marker" 2>/dev/null) || previous=
   case "$previous" in
@@ -1422,12 +1479,12 @@ _fm_wait_declaration_item() {  # <marker> <task> <verb> <note> <identity> <now>
       case "$raised" in *[!0-9]*|'') raised=0 ;; esac
       [ "$now" -ge "$((raised + 3600))" ] || return 0 ;;
   esac
-  printf 'overdue\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "$task" "${marker##*/}" "overdue:$sig" "$verb" "$owner" "$recheck" "$(( now - due ))" "$what"
+  printf 'overdue\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$task" "${marker##*/}" "overdue:$sig" "$verb" "$owner" "$recheck" "$(( now - due ))" "$bound" "$what"
 }
 
 scan_wait_declarations() {  # <state> [now] -> one TAB-separated line per wait to flag or raise
-  local state=$1 now=${2:-} f task line paused open key verb note opened marker live=$'\n'
+  local state=$1 now=${2:-} f task line paused open key verb note opened marker marker_seen seen live=$'\n'
   [ -n "$now" ] || now=$(date +%s)
   paused=${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}
   for f in "$state"/*.status; do
@@ -1436,9 +1493,11 @@ scan_wait_declarations() {  # <state> [now] -> one TAB-separated line per wait t
     line=$(status_declared_wait_line "$f")
     if status_is_paused "$line"; then
       marker=$(wait_declaration_marker "$state" "$task" "$paused")
-      live="$live${marker##*/}"$'\n'
+      seen=$(wait_first_seen "$state" "$task" "$line" "$now")
+      marker_seen=$(wait_declaration_marker "$state" "$task" seen)
+      live="$live${marker##*/}"$'\n'"${marker_seen##*/}"$'\n'
       _fm_wait_declaration_item "$marker" "$task" "$paused" \
-        "$(status_line_note "$line")" "$line" "$now"
+        "$(status_line_note "$line")" "$line" "$now" "$seen"
     fi
     open=$(status_own_open_decisions_incremental "$f") || open=
     while IFS=$'\t' read -r key verb note; do
@@ -1537,16 +1596,31 @@ scan_wait_ci_completions() {
   done
 }
 
+wait_declaration_item_bounded_task() {  # <scan item> -> task; 0 when the agent recheck bound raised it
+  local type task name sig verb f6 f7 f8 f9 rest
+  IFS=$'\t' read -r type task name sig verb f6 f7 f8 f9 rest <<EOF
+$1
+EOF
+  [ "$type" = overdue ] && [ -n "$f9" ] && [ "$f9" != - ] || return 1
+  printf '%s' "$task"
+}
+
 wait_declaration_item_reason() {  # <scan item> -> the human line both supervisors raise
-  local type task name sig verb f6 f7 f8 f9
-  IFS=$'\t' read -r type task name sig verb f6 f7 f8 f9 <<EOF
+  local type task name sig verb f6 f7 f8 f9 f10
+  IFS=$'\t' read -r type task name sig verb f6 f7 f8 f9 f10 <<EOF
 $1
 EOF
   case "$type" in
     undated) printf 'wait names no %s: %s %s: %s' "$f6" "$task" "$verb" "$f7" ;;
     overdue)
-      printf 'wait overdue: %s %s waiting on %s, recheck %s passed %s ago: %s' \
-        "$task" "$verb" "$f6" "$f7" "$(wait_overdue_text "$f8")" "$f9" ;;
+      if [ "$f9" != - ]; then
+        printf 'wait overdue: %s %s waiting on %s, still standing %s after first seen, past the %s limit for a no-mistakes, pipeline or agent wait (declared recheck %s): %s' \
+          "$task" "$verb" "$f6" "$(wait_overdue_text "$(( f9 + f8 ))")" "$(wait_overdue_text "$f9")" "$f7" "$f10"
+      else
+        printf 'wait overdue: %s %s waiting on %s, recheck %s passed %s ago: %s' \
+          "$task" "$verb" "$f6" "$f7" "$(wait_overdue_text "$f8")" "$f10"
+      fi
+      ;;
     *) return 1 ;;
   esac
 }

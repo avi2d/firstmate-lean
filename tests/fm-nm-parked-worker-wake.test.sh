@@ -134,6 +134,25 @@ t=$(toon_completed)
 ! fm_nm_run_parked_awaiting_agent "$t" || fail "completed run read as worker-owed"
 pass "a terminal run stays quiet"
 
+fact=$(fm_nm_branch_wait_fact "$(printf 'current_branch: fm/work\nruns_on_current_branch: 0\n')" fm/work)
+assert_equals "no no-mistakes run exists for branch fm/work" "$fact" "a branch with no run was not reported as runless"
+fact=$(fm_nm_branch_wait_fact "error: repo not initialized (run 'no-mistakes init' first)" fm/work)
+assert_contains "$fact" "no no-mistakes run exists for branch fm/work" "an uninitialized repository was not reported as runless"
+fact=$(fm_nm_branch_wait_fact "$(printf 'current_branch: fm/work\nruns_on_current_branch: 2\n')" fm/work)
+assert_equals "" "$fact" "a branch with runs was reported as runless"
+pass "a wait fact says when the branch has no no-mistakes run, and only then"
+
+fact=$(fm_nm_branch_wait_fact "$(toon_review_parked)" fm/review-fix)
+assert_equals "no-mistakes run 01REVIEWPARKED01 for branch fm/review-fix is parked at review waiting on the agent" "$fact" \
+  "a run parked at a worker-owed gate was not reported"
+fact=$(fm_nm_branch_wait_fact "$(toon_human_gate)" fm/human-fix)
+assert_contains "$fact" "parked at review with an ask-user finding waiting on firstmate" "a run parked on an ask-user finding was reported as worker-owed"
+fact=$(fm_nm_branch_wait_fact "$(toon_review_parked)" fm/other)
+assert_equals "" "$fact" "another branch's parked run was reported for this branch"
+fact=$(fm_nm_branch_wait_fact "$(toon_executing)" fm/work)
+assert_equals "" "$fact" "an executing run was reported as a stall"
+pass "a wait fact names a parked gate on the branch's own run and stays empty for an executing run"
+
 make_case() {
   local state=$1 task=$2 branch=$3 kind=$4
   shift 4
