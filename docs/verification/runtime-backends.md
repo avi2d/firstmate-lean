@@ -5,6 +5,7 @@ Audience: maintainer verification.
 This record contains reusable version-scoped evidence for active runtime guarantees.
 The backend guides own current setup, safety boundaries, and limitations.
 Exact task chronology, branch names, temporary homes, local paths, process ids, thread ids, and delivery transcripts remain in private reports or PR evidence.
+In the output below, `<user>` replaces a local account name.
 
 ## Pi project trust
 
@@ -315,7 +316,7 @@ HERDR_LAB_HELPER=bin/fm-herdr-lab.sh
 HERDR_ENV=1
 HERDR_PANE_ID=w1:p1
 HERDR_SESSION=fm-lab-fm-herdr-env-pro-65961-25535
-HERDR_SOCKET_PATH=/Users/kunchen/.config/herdr/sessions/fm-lab-fm-herdr-env-pro-65961-25535/herdr.sock
+HERDR_SOCKET_PATH=/Users/<user>/.config/herdr/sessions/fm-lab-fm-herdr-env-pro-65961-25535/herdr.sock
 HERDR_TAB_ID=w1:t1
 HERDR_WORKSPACE_ID=w1
 ```
@@ -678,7 +679,7 @@ herdr status --json --session fm-lab-never-started | jq -c "{running: .server.ru
 ```
 
 ```text
-{"id":"cli:pane:get","error":{"code":"server_not_running","message":"no herdr server is running at /Users/kunchen/.config/herdr/sessions/fm-lab-never-started/herdr.sock; run `herdr session attach fm-lab-never-started` to start or attach it"}}
+{"id":"cli:pane:get","error":{"code":"server_not_running","message":"no herdr server is running at /Users/<user>/.config/herdr/sessions/fm-lab-never-started/herdr.sock; run `herdr session attach fm-lab-never-started` to start or attach it"}}
 {"running":false,"status":"not_running"}
 ```
 
