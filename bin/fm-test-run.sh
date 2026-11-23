@@ -1514,6 +1514,11 @@ families_for_changed_path() {
       printf '%s\n' "__script__:fm-quota-choose.test.sh"
       printf '%s\n' "__script__:fm-dispatch-resolve.test.sh"
       ;;
+    bin/fm-subquo-lib.sh|bin/fm-subquo-decode.mjs|bin/fm-quota-read.sh)
+      printf '%s\n' "__script__:fm-dispatch-resolve.test.sh" "__script__:fm-quota-choose.test.sh" \
+        "__script__:fm-procevent-quota.test.sh" "__script__:fm-capacity.test.sh" \
+        "__script__:fm-usage-warner.test.sh" "__script__:fm-spawn-dispatch-profile.test.sh"
+      ;;
     bin/fm-procevent-quota.sh)
       printf '%s\n' "__script__:fm-procevent-quota.test.sh"
       ;;

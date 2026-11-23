@@ -1,70 +1,45 @@
 #!/usr/bin/env bash
-# Choose the first quota-eligible candidate from a ranked list.
-#
-# Usage:
-#   fm-quota-choose.sh [--snapshot <path>] [--candidate <harness:model>]...
-#
-# Reads one already-captured quota-axi default TOON or JSON snapshot from the
-# provided file, or from stdin when --snapshot is omitted.
-# bin/fm-quota-axi-lib.sh owns schema compatibility and the shared row join.
-# For each --candidate in order, it maps <harness> to its primary provider
-# family, then applies the matched row's provider-wide scopes and exact model
-# or product scopes for <model>. A candidate is eligible only when no
-# applicable runway is `exhausted_now` and its known
-# effective percent remaining is greater than zero. The first eligible
-# candidate is printed as "<harness> <model>" and the script exits 0.
-# If no candidate is quota-eligible, it prints "none" and exits 1.
-#
-# Candidates are accepted as `--candidate <harness:model>` or as positional
-# colon-separated arguments, with earlier candidates preferred.
-# This script is deterministic and safe: it performs no side effects and exits
-# nonzero when the environment would lead to an unsafe dispatch.
-#
-# The helper is the canonical worker-side selection used after the agent has
-# already run `quota-axi` for its model selection. It never replaces the agent's
-# reasoning-class or runway-feasibility gates; it only answers which ordered
-# candidate remains eligible under the captured quota evidence.
-#
-# Multi-provider limitation: this helper maps each harness to ONE primary
-# provider family (fm_quota_provider_for_harness in bin/fm-quota-axi-lib.sh)
-# and checks quota for that
-# family only. Some harnesses can run models from several providers - for
-# example, Pi may dispatch xAI, Anthropic, or other models - so a
-# candidate whose established provider differs from the harness's primary family
-# is checked against the wrong quota row. This is an accepted limitation of the
-# optional helper. Authoritative multi-provider routing - including provider
-# discovery from the harness catalog and quota matching by that explicit
-# provider - is owned by AGENTS.md section 4 and the quota-array-dispatch skill,
-# not by this helper. Use this helper only when the brief already fixed the
-# candidate order and every candidate's provider is the harness's primary family.
-#
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # shellcheck source=bin/fm-quota-axi-lib.sh
 . "$SCRIPT_DIR/fm-quota-axi-lib.sh"
+# shellcheck source=bin/fm-subquo-lib.sh
+. "$SCRIPT_DIR/fm-subquo-lib.sh"
+# shellcheck source=bin/fm-quota-assessment-lib.sh
+. "$SCRIPT_DIR/fm-quota-assessment-lib.sh"
 # shellcheck source=bin/fm-control-lib.sh
 . "$SCRIPT_DIR/fm-control-lib.sh"
 
 die() { printf 'error: %s\n' "$1" >&2; exit 2; }
 usage() {
-  awk '
-    NR == 1 { next }
-    /^#/ { sub(/^# ?/, ""); print; next }
-    { exit }
-  ' "${BASH_SOURCE[0]}"
+  cat <<'USAGE'
+Usage: fm-quota-choose.sh [--snapshot <path>] [--provider <family>] [--candidate <harness:model>]...
+
+Reads an already captured subquo.v1 JSON snapshot with an explicit common
+provider, or quota-axi TOON or JSON. Reads stdin by default.
+With legacy input and no --provider, uses the harness's primary family.
+Prints the first viable "<harness> <model>", or "none" and exits 1.
+USAGE
   exit 2
 }
 
 CANDIDATES=()
 SNAPSHOT_SOURCE=
+PROVIDER=
+SUBQUO=false
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --snapshot)
       [ -n "${2-}" ] || die "--snapshot needs a path"
       SNAPSHOT_SOURCE=$2
+      shift 2
+      ;;
+    --provider)
+      [[ "${2:-}" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || die "--provider needs a provider family"
+      PROVIDER=$2
       shift 2
       ;;
     --candidate)
@@ -109,7 +84,15 @@ if printf '%s\n' "$QUOTA_SNAPSHOT" | jq -e 'type == "object"' >/dev/null 2>&1; t
   schema=$(printf '%s\n' "$QUOTA_JSON" | jq -r '.schemaVersion // empty' 2>/dev/null) || schema=
   case "$schema" in
     5|6) ;;
-    '') die "quota-axi json missing schemaVersion" ;;
+    '')
+      if jq -e 'has("version")' <<< "$QUOTA_JSON" >/dev/null; then
+        QUOTA_JSON=$(fm_subquo_decode <<< "$QUOTA_SNAPSHOT") || die "invalid subquo.v1 snapshot"
+        SUBQUO=true
+        [ -n "$PROVIDER" ] || die "subquo input needs the candidates' common --provider"
+      else
+        die "quota-axi json missing schemaVersion"
+      fi
+      ;;
     *) die "unsupported quota-axi schema version: $schema" ;;
   esac
 else
@@ -308,7 +291,9 @@ else
   ' 2>/dev/null) || die "invalid quota-axi snapshot"
 fi
 
-printf '%s\n' "$QUOTA_JSON" | fm_quota_json_valid || die "invalid quota-axi provider data"
+if [ "$SUBQUO" = false ]; then
+  printf '%s\n' "$QUOTA_JSON" | fm_quota_json_valid || die "invalid quota-axi provider data"
+fi
 
 # provider_for_harness <harness> [<model>]
 # The harness -> primary provider family table is owned by
@@ -325,6 +310,17 @@ provider_for_harness() {
 # on a schema 6 snapshot.
 effective_for_provider_model() {
   local provider=$1 model=${2:-default} lane=${3:-}
+  if [ "$SUBQUO" = true ]; then
+    local row
+    row=$(fm_subquo_row "$QUOTA_JSON" "$provider" "$lane") || return 1
+    jq -c --arg model "$model" "$(fm_quota_assessment_jq)"'
+      quota_applicable_rows(.; $model) |
+      if any(.[]; .runway.status == "exhausted_now") then {runway: {status: "exhausted_now"}}
+      elif length == 0 or any(.[]; .status != "known") then {status: "unknown"}
+      else min_by(.effectivePercentRemaining) end
+    ' <<< "$row"
+    return
+  fi
   printf '%s\n' "$QUOTA_JSON" | jq -c --arg provider "$provider" --arg model "$model" --arg lane "$lane" "$FM_QUOTA_ROW_JQ"'
     ($model | sub("^model:"; "")) as $model_token |
     quota_row(.; $provider; $lane) as $p |
@@ -363,7 +359,7 @@ for c in "${CANDIDATES[@]}"; do
   harness=${c%%:*}
   model=${c#*:}
   [ "$model" = "$c" ] && model="default"
-  provider=$(provider_for_harness "$harness" "$model")
+  provider=${PROVIDER:-$(provider_for_harness "$harness" "$model")}
   lane=$(jq -rn --arg h "$harness" --arg m "$model" "$FM_QUOTA_ROW_JQ"'quota_lane($h; $m)')
   effective=$(effective_for_provider_model "$provider" "$model" "$lane")
   if [ -z "$effective" ] || [ "$effective" = "null" ]; then

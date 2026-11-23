@@ -348,6 +348,36 @@ test_quota_gate_refuses_exhausted_now() {
   pass "quota gate refuses exhausted windows at their own reset, choosing the latest when several limit"
 }
 
+test_subquo_gate_rejects_exhaustion_with_the_latest_blocking_reset() {
+  local id=quota-subquo-reset-z12 out status reset
+  read_case_record "$(make_spawn_case quota-subquo-reset pi "$id")"
+  printf '%s\n' '{"default":{"harness":"pi","provider":"codex","model":"openai-codex/gpt-5.6-sol"}}' > "$HOME_DIR/config/crew-dispatch.json"
+  jq -n '
+    def iso: todateiso8601 | sub("Z$"; ".000Z");
+    (now | floor) as $now |
+    {version: "subquo.v1", writtenAt: ($now | iso), accounts: [
+      {id: "openai-codex", provider: "codex", observation: {
+        status: "fresh", source: "provider", observedAt: ($now | iso), validUntil: ($now + 120 | iso),
+        windows: [{id: "five-hour", scope: "all", percentLeft: 0, resetsAt: ($now + 1800 | iso)},
+                  {id: "weekly", scope: "all", percentLeft: 0, resetsAt: ($now + 3600 | iso)}]
+      }}
+    ]}
+  ' > "$FAKEBIN_DIR/subquo.json"
+  cat > "$FAKEBIN_DIR/subquo" <<'SH'
+#!/usr/bin/env bash
+[ "$*" = 'read --json' ] || exit 2
+cat "$(dirname "$0")/subquo.json"
+SH
+  chmod +x "$FAKEBIN_DIR/subquo"
+  reset=$(jq -r '.accounts[0].observation.windows[1].resetsAt' "$FAKEBIN_DIR/subquo.json")
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --harness pi --model openai-codex/gpt-5.6-sol)
+  status=$?
+  [ "$status" -ne 0 ] || fail "no account-wide reset can lift exhaustion: $out"
+  assert_contains "$out" 'quota exhausted now' "the snapshot blocks the spawn rather than just warning"
+  assert_contains "$out" "$reset" "the second exhausted window determines the wait"
+  [ ! -s "$LAUNCH_LOG" ] || fail "quota refusal should not start a pane"
+}
+
 test_quota_gate_records_override_and_unmatched_skip() {
   local rec id out status
   id=quota-override-z4
@@ -1657,6 +1687,7 @@ test_quota_gate_uses_strictest_matching_floor
 test_quota_gate_skips_floor_instead_of_refusing_when_window_resets_within_a_day
 test_quota_gate_keeps_refusing_instead_of_skipping_far_exhausted_or_unknown_resets
 test_quota_gate_refuses_exhausted_now
+test_subquo_gate_rejects_exhaustion_with_the_latest_blocking_reset
 test_quota_gate_records_override_and_unmatched_skip
 test_relative_home_overrides_launch_with_absolute_cross_process_paths
 test_home_defaults_preserve_absolute_or_resolve_relative_paths
