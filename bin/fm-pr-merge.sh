@@ -995,6 +995,20 @@ FIELDS
   fi
   FM_PR_GITHUB_LIVE_HEAD=$live_head
   [ "$merge_state" != BEHIND ] || FM_PR_GITHUB_BEHIND=true
+  if printf '%s' "$json" | jq -e '(.statusCheckRollup | type) == "array" and (any(.statusCheckRollup[]; .__typename == "CheckRun") | not)' >/dev/null 2>&1 \
+    && ! { [ -f "$FM_HOME/config/ci-main-only" ] && grep -Fxq -- "$PROJECT_URL" "$FM_HOME/config/ci-main-only" && printf '%s' "$json" | jq -e '.statusCheckRollup | length == 0' >/dev/null 2>&1; }; then
+    if ! runs=$(gh api --paginate "repos/$PR_OWNER/$PR_REPO/commits/$live_head/check-runs" 2>/dev/null) \
+      || ! json=$(printf '%s' "$runs" | jq -sc --arg head "$live_head" --argjson pr "$json" '
+        if length == 0 then error("empty response") else . end
+        | [ .[] | if (.check_runs | type) == "array" then .check_runs[] else error("invalid check runs") end
+          | if .head_sha == $head and (.name | type) == "string" and (.status | type) == "string" and ((.conclusion | type) == "string" or .conclusion == null)
+            then {__typename: "CheckRun", name, status: (.status | ascii_upcase), conclusion: (if .conclusion == null then null else .conclusion | ascii_upcase end), startedAt: .started_at}
+            else error("invalid check run") end ] as $checks
+        | $pr | .statusCheckRollup += $checks' 2>/dev/null); then
+      echo "error: could not read check runs at head $live_head before merging" >&2
+      return 1
+    fi
+  fi
   if ! red=$(github_checks_not_green "$json"); then
     echo "error: could not read the GitHub pull request state before merging" >&2
     return 1
