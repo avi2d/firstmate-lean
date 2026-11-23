@@ -378,22 +378,53 @@ claude_account_check() {  # <harness> <model|-> <account>
   printf 'claude_account=%s\n' "$account"
 }
 
-launch() {
+remote_launch_finish() {
+  local rc=$1 temp=$2 task_data=$3 meta=$4 journal=$5 spawn_attempted=$6 data_existed=$7
+  shift 7
+  if [ "$rc" -gt 0 ] && [ "$rc" -lt 124 ] &&
+    { [ "$spawn_attempted" = 0 ] || [ "$rc" -eq 75 ] || [ -f "$temp/prelaunch-failure" ]; } &&
+    [ ! -e "$meta" ] && [ ! -L "$meta" ] && [ ! -e "$journal" ] && [ ! -L "$journal" ]; then
+    if rm -f -- "$task_data/brief.md" "$task_data/launch-brief.md" "$@"; then
+      [ "$data_existed" = 1 ] || rmdir -- "$task_data" 2>/dev/null || true
+      if [ "$rc" -ne 75 ]; then
+        printf 'launch=rolled-back\n'
+        rc=76
+      fi
+    else
+      printf 'error: could not remove files from the failed launch\n' >&2
+      rc=1
+    fi
+  elif [ "$rc" -eq 75 ]; then
+    rc=1
+  fi
+  rm -rf -- "$temp"
+  exit "$rc"
+}
+
+launch() (
   local id=$1 project=$2 kind=$3 mode=$4 yolo=$5 prefix=$6 base=$7 harness=$8 model=$9
   shift 9
   local effort=$1 backend=$2 account=${3:-} temp session out rc contract token forge=none shape='' pr=auto data_existed=0
-  local worker_name
+  local worker_name task_data meta journal path spawn_attempted=0 dispatch_file=''
   local -a brief_args spawn_args contract_fields
   validate_home
   case "$id" in ''|.|-*|*[!A-Za-z0-9._-]*|*..*) die "invalid task or project id" ;; esac
   case "$project" in ''|.|-*|*[!A-Za-z0-9._-]*|*..*) die "invalid task or project id" ;; esac
-  [ -d "$TARGET_HOME/projects/$project" ] && [ ! -L "$TARGET_HOME/projects/$project" ] || die "project is unavailable in execution home"
-  [ ! -e "$TARGET_HOME/data/$id/brief.md" ] && [ ! -L "$TARGET_HOME/data/$id/brief.md" ] || die "task brief already exists"
+  task_data="$TARGET_HOME/data/$id"
+  meta="$TARGET_HOME/state/$id.meta"
+  journal="$TARGET_HOME/state/$id.herdr-presentation"
+  [ ! -L "$TARGET_HOME/data" ] && [ ! -L "$task_data" ] || die "unsafe task data directory"
+  [ ! -e "$task_data/brief.md" ] && [ ! -L "$task_data/brief.md" ] || die "task brief already exists"
+  if [ -f "$TARGET_HOME/config/crew-dispatch.json" ]; then dispatch_file="$task_data/dispatch-resolution.json"; fi
+  for path in "$meta" "$journal" "$task_data/launch-brief.md" ${dispatch_file:+"$dispatch_file"}; do
+    [ ! -e "$path" ] && [ ! -L "$path" ] || die "task already has launch state: $path"
+  done
+  [ ! -e "$task_data" ] || data_existed=1
   case "$backend" in herdr|rex) ;; *) die "unsupported remote backend" ;; esac
   case "$kind:$mode:$yolo" in scout:-:-|ship:no-mistakes:on|ship:no-mistakes:off|ship:direct-PR:on|ship:direct-PR:off|ship:local-only:on|ship:local-only:off) ;; *) die "invalid task delivery contract" ;; esac
   temp=$(mktemp -d "${TMPDIR:-/tmp}/fm-remote-worker.XXXXXX") || die "cannot create launch scratch"
-  REMOTE_WORKER_TEMP=$temp
-  trap 'rm -rf -- "$REMOTE_WORKER_TEMP"' EXIT
+  trap 'remote_launch_finish "$?" "$temp" "$task_data" "$meta" "$journal" "$spawn_attempted" "$data_existed" ${dispatch_file:+"$dispatch_file"}' EXIT
+  [ -d "$TARGET_HOME/projects/$project" ] && [ ! -L "$TARGET_HOME/projects/$project" ] || die "project is unavailable in execution home"
   head -c 1048577 > "$temp/input"
   [ "$(wc -c < "$temp/input")" -le 1048576 ] || die "brief exceeds size limit"
   worker_name=$(fm_worker_name_from_brief "$id" "$temp/input") || die "brief worker name is invalid"
@@ -425,34 +456,28 @@ launch() {
   [ "$model" = - ] || spawn_args+=(--model "$model")
   [ "$effort" = - ] || spawn_args+=(--effort "$effort")
   [ -z "$account" ] || spawn_args+=(--claude-account "$account")
-  [ ! -e "$TARGET_HOME/data/$id" ] && [ ! -L "$TARGET_HOME/data/$id" ] || data_existed=1
   FM_HOME="$TARGET_HOME" FM_BRIEF_HERDR_ROOT="${SCRIPT_DIR%/bin}" FM_BRIEF_WORKER_NAME="$worker_name" "$SCRIPT_DIR/fm-brief.sh" "${brief_args[@]}" >&2 || die "host-local scaffold failed"
   awk -v intent="$temp/intent" -v spec="$temp/spec" '
     $0 == "{TASK}" { while ((getline line < intent) > 0) print line; close(intent); next }
     $0 == "{FIRSTMATE_SPEC}" { while ((getline line < spec) > 0) print line; close(spec); next }
     { print }
-  ' "$TARGET_HOME/data/$id/brief.md" > "$temp/brief"
-  mv "$temp/brief" "$TARGET_HOME/data/$id/brief.md"
-  if [ -f "$TARGET_HOME/config/crew-dispatch.json" ]; then
-    FM_HOME="$TARGET_HOME" "$SCRIPT_DIR/fm-dispatch-resolve.sh" "$TARGET_HOME/data/$id/brief.md" --project "$project" >/dev/null || die "host-local dispatch resolution failed"
+  ' "$task_data/brief.md" > "$temp/brief"
+  mv "$temp/brief" "$task_data/brief.md"
+  if [ -n "$dispatch_file" ]; then
+    FM_HOME="$TARGET_HOME" "$SCRIPT_DIR/fm-dispatch-resolve.sh" "$task_data/brief.md" --project "$project" >/dev/null || die "host-local dispatch resolution failed"
   fi
   session=$(execution_session)
   rc=0
-  out=$(FM_HOME="$TARGET_HOME" HERDR_SESSION="$session" "$SCRIPT_DIR/fm-spawn.sh" "${spawn_args[@]}" 2>&1) || rc=$?
+  spawn_attempted=1
+  out=$(FM_HOME="$TARGET_HOME" HERDR_SESSION="$session" FM_REMOTE_SPAWN_PRELAUNCH_RECEIPT="$temp/prelaunch-failure" \
+    "$SCRIPT_DIR/fm-spawn.sh" "${spawn_args[@]}" 2>&1) || rc=$?
   if [ "$rc" -ne 0 ]; then
     printf '%s\n' "$out" >&2
-    if [ "$rc" -eq 75 ]; then
-      if [ "$data_existed" -eq 1 ]; then
-        rm -f -- "$TARGET_HOME/data/$id/brief.md" "$TARGET_HOME/data/$id/dispatch-resolution.json"
-      else
-        rm -rf -- "${TARGET_HOME:?}/data/$id"
-      fi
-      exit 75
-    fi
-    die "host-local worker launch failed"
+    [ "$rc" -eq 75 ] || printf 'error: host-local worker launch failed\n' >&2
+    exit "$rc"
   fi
   route "$id"
-}
+)
 
 case "${1:-}" in
   capabilities)

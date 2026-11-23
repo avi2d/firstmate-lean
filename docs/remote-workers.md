@@ -61,8 +61,10 @@ The item then stays queued and is dispatched again at the next queue review.
 
 `fm-teardown.sh <task>` on a remote worker first asks the execution home to clean up its side.
 That host-side teardown applies the ordinary landed-work test, so unlanded work is refused there exactly as it is for a local worker.
-Only after the host confirms does this home archive the status stream, clear its task records, retire the task's feed cursor, and move the backlog item to Done with its PR link or scout report.
-A scout's report must already have reached this home through the status feed, and this home's waiting-on-you gate, `fm-captain-hold.sh verify`, must pass before the host is asked to do anything.
+Only after the host confirms does this home archive the status stream, clear its task records, and retire the task's feed cursor.
+Teardown moves a task with a confirmed launch to Done with its PR link or scout report, unless it is still held for a decision.
+If the launch was never confirmed and its target is still `pending`, teardown returns the item to Queued instead.
+A scout with a confirmed launch must have sent its report through the status feed and passed this home's waiting-on-you gate, `fm-captain-hold.sh verify`, before the host is asked to clean up.
 The execution home holds no backlog or decision inventory, so it skips that gate and relies on this home's verdict.
 
 An SSH exit 255 or a budget timeout means the host's completion is unknown.
@@ -76,6 +78,7 @@ A host refusal is relayed with its reason, and nothing local changes.
 | --- | --- | --- |
 | 0 | The host finished the command | Nothing |
 | 75 | The host deferred the launch because it is at capacity, and nothing was published on either side | Leave the item queued |
+| 76 with `launch=rolled-back` | The host confirmed that the worker did not start and removed the failed attempt's files | Retry with the original brief, which this home keeps with the queued item |
 | 124 | The local budget expired, so the host's completion is unknown | Rerun the same command to reconcile |
 | 255 | The transport was unavailable, so the host's completion is unknown | Rerun the same command to reconcile, never a different one |
 

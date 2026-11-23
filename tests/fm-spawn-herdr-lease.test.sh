@@ -147,6 +147,7 @@ case "${1:-} ${2:-}" in
     fi
     exit 0 ;;
   'tab create')
+    if [ -n "${FM_FAKE_JOURNAL:-}" ] && [ -f "$FM_FAKE_JOURNAL" ]; then : > "$D/journal-seen"; fi
     [ ! -f "$D/fail-task-tab-create" ] || exit 1
     printf '{"result":{"tab":{"tab_id":"tabnew"},"root_pane":{"pane_id":"%%9"}}}\n'
     exit 0 ;;
@@ -228,6 +229,30 @@ test_failed_remote_flat_spawn_does_not_leave_a_home_workspace() {
 test_failed_remote_projection_does_not_leave_its_seeded_workspace() {
   assert_failed_execution_spawn_leaves_no_workspace remote-projection-abort on
   pass "failed projected launch on an execution machine removes the seeded workspace"
+}
+
+test_failed_remote_projection_does_not_leave_its_journal() {
+  local id=remote-journal-abort dir home journal out
+  dir=$(make_lease_case "$id")
+  home="$dir/home"
+  journal="$home/state/$id.herdr-presentation"
+  mkdir -p "$home/projects"
+  mv "$dir/project" "$home/projects/project"
+  mv "$home/data/$id/brief.md" "$dir/input-brief"
+  printf 'execution\n' > "$home/.fm-exec-home"
+  printf 'on\n' > "$home/config/herdr-presentation-spaces"
+  printf 'fixture-lease\n' > "$home/config/herdr-session"
+  printf 'manual\n' > "$home/config/backlog-backend"
+  : > "$dir/fake/fail-task-tab-create"
+  out=$(PATH="$dir/fakebin:$PATH" FM_HOME="$home" FM_FAKE_DIR="$dir/fake" \
+    FM_FAKE_JOURNAL="$journal" FM_FAKE_SLOT="$dir/slot" HOME="$dir/user-home" \
+    FM_SPAWN_NO_GUARD=1 "$ROOT/bin/fm-remote-worker-control.sh" \
+    launch "$id" project scout - - fm/ - pi - - herdr < "$dir/input-brief" 2>&1) \
+    && fail "remote launch accepted the failed projected tab: $out"
+  assert_contains "$out" "herdr presentation task-tab create failed" "remote launch did not reach the injected failure"
+  [ -f "$dir/fake/journal-seen" ] || fail "the projected launch did not create a journal before failing"
+  [ ! -e "$journal" ] || fail "failed remote launch left a journal for a workspace that is gone"
+  pass "failed remote projection removes the journal after the token-bearing workspace is confirmed gone"
 }
 
 test_aborted_spawn_names_the_lease_it_keeps() {
@@ -325,6 +350,7 @@ test_fresh_spawn_leases_and_moves_the_top_level_shell
 test_failed_lease_refuses_without_a_record
 test_failed_remote_flat_spawn_does_not_leave_a_home_workspace
 test_failed_remote_projection_does_not_leave_its_seeded_workspace
+test_failed_remote_projection_does_not_leave_its_journal
 test_aborted_spawn_names_the_lease_it_keeps
 test_rolled_back_spawn_after_launch_names_the_lease_it_keeps
 test_abort_keeps_the_lease_while_the_pane_is_present

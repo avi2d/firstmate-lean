@@ -99,6 +99,20 @@ assert_contains "$out" "$(printf 'w1\tship\tmissing\tdirect-PR\tmissing\taccepte
   "a retry must retain the confirmed remote outcome for the recorded endpoint only"
 pass "a remote retry records the result for the recorded endpoint"
 
+seed
+awk '!/^remote_target=|^pr=/' "$HOME_DIR/state/w1.meta" > "$TMP_ROOT/pending-meta"
+printf 'remote_target=pending\n' >> "$TMP_ROOT/pending-meta"
+mv "$TMP_ROOT/pending-meta" "$HOME_DIR/state/w1.meta"
+mkdir -p "$HOME_DIR/data/w1"
+printf 'Original brief.\n' > "$HOME_DIR/data/w1/brief.md"
+out=$(FM_TEST_HOP_MODE=retried FM_HOME="$HOME_DIR" bash "$ROOT/bin/fm-teardown.sh" w1 2>&1) \
+  || fail "teardown of a pending launch refused: $out"
+[ ! -e "$HOME_DIR/state/w1.meta" ] || fail "teardown left pending metadata after the remote host confirmed absence"
+awk '/^## Queued/{q=1; next} /^## /{q=0} q && /w1 - Remote widget/ {found=1} END {exit !found}' "$HOME_DIR/data/backlog.md" \
+  || fail "teardown of a pending launch did not return the backlog item to Queued"
+assert_grep 'Original brief.' "$HOME_DIR/data/w1/brief.md" "teardown removed the brief needed to retry"
+pass "teardown of a pending launch queues the item instead of marking it done"
+
 EXEC_HOME="$TMP_ROOT/exec-home"
 mkdir -p "$EXEC_HOME/state"
 : > "$EXEC_HOME/.fm-exec-home"

@@ -72,7 +72,9 @@ printf '%s' "$REMOTE_HOME/projects/alpha" > "$FAKE/fg"
 cat > "$REMOTE_ROOT/bin/treehouse" <<SH
 #!/usr/bin/env bash
 case "\$*" in
-  'get --lease '*) cat '$FAKE/slot'; printf '\\n' ;;
+  'get --lease '*)
+    if [ -f '$FAKE/lease-fails' ]; then printf 'injected lease refusal\\n' >&2; exit 1; fi
+    cat '$FAKE/slot'; printf '\\n' ;;
 esac
 SH
 cat > "$REMOTE_ROOT/bin/herdr" <<SH
@@ -239,6 +241,55 @@ assert_deferred_untouched() {  # <task-id> <rc> <output> <deferring-step-line-pr
   [ ! -e "$REMOTE_HOME/state/$1.meta" ] || fail "a deferral left a host task record"
   [ ! -e "$FAKE/launch" ] || fail "a deferral launched a worker"
 }
+
+refuse_remote_lease() {
+  : > "$FAKE/lease-fails"
+  local out
+  out=$(remote_scout_spawn "$1") && fail "spawn launched despite the refused lease: $out"
+  assert_contains "$out" 'injected lease refusal' "spawn did not reach the lease failure"
+  [ ! -e "$FAKE/launch" ] || fail "the lease failure sent a worker launch"
+  [ ! -e "$REMOTE_HOME/state/$1.meta" ] || fail "the lease failure reached host metadata publication"
+  rm "$FAKE/lease-fails"
+}
+
+test_failed_remote_spawn_does_not_keep_host_briefs() {
+  local id=e2e-leased-host
+  mkdir -p "$REMOTE_HOME/data/$id"
+  printf 'Keep this note.\n' > "$REMOTE_HOME/data/$id/note.md"
+  refuse_remote_lease "$id"
+  [ ! -e "$REMOTE_HOME/data/$id/brief.md" ] || fail "failed launch left the brief on the remote host"
+  [ ! -e "$REMOTE_HOME/data/$id/launch-brief.md" ] || fail "failed launch left the launch brief on the remote host"
+  assert_grep 'Keep this note.' "$REMOTE_HOME/data/$id/note.md" "rollback removed unrelated task data"
+  pass "failed remote spawn removes its host briefs without removing existing task data"
+}
+
+test_failed_remote_spawn_does_not_leave_pending_meta_or_in_flight_row() {
+  local id=e2e-leased-parent
+  refuse_remote_lease "$id"
+  [ ! -e "$PARENT/state/$id.meta" ] || fail "failed launch left pending metadata in the supervising home"
+  FM_HOME="$PARENT" "$ROOT/bin/fm-tasks-axi.sh" list --state queued | grep -F "$id" >/dev/null \
+    || fail "failed launch did not keep the backlog item queued"
+  assert_grep 'Research the project.' "$PARENT/data/$id/brief.md" "rollback removed the original brief"
+  pass "failed remote spawn removes pending metadata, keeps the original brief, and queues the item"
+}
+
+test_retry_does_not_refuse_an_existing_brief_or_pending_meta() {
+  local id=e2e-leased-retry out
+  refuse_remote_lease "$id"
+  out=$(remote_scout_spawn "$id") || fail "retry with the original brief refused: $out"
+  assert_grep 'remote_target=fm-lab-test:' "$PARENT/state/$id.meta" "retry did not record the remote endpoint"
+  [ -f "$FAKE/launch" ] || fail "retry did not deliver a worker launch"
+  FM_HOME="$PARENT" "$ROOT/bin/fm-tasks-axi.sh" list --state in_flight | grep -F "$id" >/dev/null \
+    || fail "retry did not move the backlog item to In flight"
+  out=$(remote_parent fm-teardown.sh "$id" --force 2>&1) || fail "fixture teardown after retry refused: $out"
+  pass "retry after a failed lease launches on the remote host without manual cleanup"
+}
+
+lease_regressions_failed=0
+(test_failed_remote_spawn_does_not_keep_host_briefs) || lease_regressions_failed=1
+(test_failed_remote_spawn_does_not_leave_pending_meta_or_in_flight_row) || lease_regressions_failed=1
+(test_retry_does_not_refuse_an_existing_brief_or_pending_meta) || lease_regressions_failed=1
+[ "$lease_regressions_failed" -eq 0 ] || exit 1
 
 : > "$FAKE/fail-launch"
 rc=0
