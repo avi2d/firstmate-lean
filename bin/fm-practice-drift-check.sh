@@ -242,7 +242,7 @@ gh_read() {
     esac
     return 0
   fi
-  body=$(printf '%s\n' "$raw" | awk '$1 == "body:" { print $2; exit }' | tr -d '"')
+  body=$(printf '%s\n' "$raw" | awk '$1 == "body:" && !found { print $2; found = 1 }' | tr -d '"')
   if [ -n "$body" ] && printf '%s' "$body" | base64 -d > "$out.json" 2>/dev/null \
     && jq -e . "$out.json" >/dev/null 2>&1; then
     return 0
