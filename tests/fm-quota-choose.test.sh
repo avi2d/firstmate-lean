@@ -130,13 +130,14 @@ ok() {
 if help=$("$BIN/fm-quota-choose.sh" --help 2>&1); then
   fail "help unexpectedly exited zero"
 fi
-printf '%s\n' "$help" | grep -Fq \
-  "candidate order and every candidate's provider is the harness's primary family." \
-  || fail "help omitted the multi-provider usage restriction"
+printf '%s\n' "$help" | grep -Fq 'every candidate must use that provider' \
+  || fail "help omitted the restriction on --provider"
+printf '%s\n' "$help" | grep -Fq "each candidate must use its harness's primary family" \
+  || fail "help omitted the restriction without --provider"
 if printf '%s\n' "$help" | grep -Fq 'set -u'; then
   fail "help leaked executable source"
 fi
-ok "help renders the complete header only"
+ok "help does not imply that --provider maps mixed-provider candidates"
 
 out=$(call_choose --snapshot "$LAB/captured.json" --candidate pi:fable --candidate pi:model:codex_bengalfox --candidate pi:claude-3-5-sonnet)
 [ "$out" = "pi claude-3-5-sonnet" ] || fail "first positive: expected 'pi claude-3-5-sonnet', got '$out'"
