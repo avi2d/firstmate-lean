@@ -628,10 +628,17 @@ With it present, ship and scout briefs gain the `# Waiting` section and the fore
 With the file absent, generated briefs omit the waiting section and the no-poll inbox line, the drive text backgrounds the call, recovery sends during an open decision, and a fire-and-forget steer is not owed a retry ring.
 The flag is a home-local preference.
 
+## Main-only CI (config/ci-main-only)
+
+The optional gitignored `config/ci-main-only` lists GitHub repository URLs, one exact `https://host/owner/repo` URL per line.
+For a listed repository, `bin/fm-pr-merge.sh` permits an empty check rollup when no required checks are missing.
+A reported failing or pending check still prevents merging, and an unlisted repository still needs a passing check.
+For Firstmate, add `https://github.com/avi2d/firstmate-lean` to this file when that is the target repository.
+
 ## No local tests
 
 The optional local, gitignored `config/no-local-tests` presence flag makes CI the only test run for this home's workers.
-Firstmate's own CI runs the tests on `main` only, and a pull request runs lint and the static checks.
+Firstmate's own CI runs on `main` only, and pull requests do not run CI checks.
 [`CONTRIBUTING.md`](../CONTRIBUTING.md#maintaining-required-checks) owns that schedule.
 With it present, every ship and scout brief gains a `# Local tests` section saying that the repository's own tests never run on the worker machine, in any repository, including any `package.json` test script and any test runner.
 The section allows a throwaway check: a small script written in the worker's temporary folder outside the repository, run once to see one behavior, never committed, and finishing in about a minute without a browser, simulator, or App.

@@ -185,7 +185,6 @@ print step.fetch("run")
   cat "$root/output" "$root/log"
 }
 
-PULL_REQUEST_JOBS='lint main-only static test-coverage typecheck'
 
 job_timeout() {
   ruby -ryaml -e '
@@ -228,7 +227,7 @@ test_triggers_omit_pushes_to_branches_other_than_main() {
   ruby -ryaml - "$CI_WORKFLOW" <<'RUBY' || fail "trigger contract"
 doc = YAML.load_file(ARGV[0])
 triggers = doc.key?(true) ? doc[true] : doc.fetch("on")
-raise "triggers must be exactly pull_request, push, schedule, and workflow_dispatch, got #{triggers.keys}" unless triggers.keys.sort == ["pull_request", "push", "schedule", "workflow_dispatch"]
+raise "triggers must be exactly push, schedule, and workflow_dispatch, got #{triggers.keys}" unless triggers.keys.sort == ["push", "schedule", "workflow_dispatch"]
 push = triggers.fetch("push")
 raise "push must name only the main branch, got #{push.inspect}" unless push == {"branches" => ["main"]}
 crons = triggers.fetch("schedule").map { |entry| entry.fetch("cron") }
@@ -236,7 +235,7 @@ raise "schedule must have one cron entry, got #{crons}" unless crons.length == 1
 minute, hour, day, month, weekday = crons.first.split
 raise "schedule must run once a day: #{crons.first}" unless minute.match?(/\A\d+\z/) && hour.match?(/\A\d+\z/) && [day, month, weekday] == ["*", "*", "*"]
 RUBY
-  pass "ci.yml runs on pull requests, pushes to main, one daily schedule, and manual dispatch"
+  pass "ci.yml runs on pushes to main, one daily schedule, and manual dispatch"
 }
 
 test_main_runs_every_job_rather_than_skipping_a_test_lane() {
@@ -249,16 +248,6 @@ test_main_runs_every_job_rather_than_skipping_a_test_lane() {
       || fail "$event on main must run every job"$'\n'"ran: $(printf '%s' "$actual" | tr '\n' ' ')"$'\n'"wanted: $(printf '%s' "$all" | tr '\n' ' ')"
   done
   pass "a push, scheduled, or manual run on main runs every job"
-}
-
-test_a_pull_request_runs_no_test_job() {
-  local expected actual
-  expected=$(printf '%s\n' "$PULL_REQUEST_JOBS" | tr ' ' '\n' | LC_ALL=C sort)
-  actual=$(jobs_running_under pull_request '' false | LC_ALL=C sort) \
-    || fail "could not resolve the job conditions for pull_request"
-  [ "$actual" = "$expected" ] \
-    || fail "a pull request must run only lint, typecheck, the static gate, and the coverage guard"$'\n'"ran: $(printf '%s' "$actual" | tr '\n' ' ')"$'\n'"wanted: $(printf '%s' "$expected" | tr '\n' ' ')"
-  pass "a pull request runs lint, typecheck, the static gate, and the coverage guard, and no test job"
 }
 
 test_no_job_starts_before_main_only_has_passed() {
@@ -281,14 +270,6 @@ test_main_only_step_lets_main_run_tests() {
     assert_equals run-tests=true "$(printf '%s\n' "$out" | sed -n 2p)" "the main-only step on a $event run on main must let the tests run"
   done
   pass "the main-only step lets a push, scheduled, or manual run on main run the tests"
-}
-
-test_main_only_step_passes_a_pull_request_without_its_tests() {
-  local out
-  out=$(main_only_step_under pull_request refs/pull/7/merge)
-  assert_equals 0 "$(printf '%s\n' "$out" | sed -n 1p)" "the main-only step must not fail a pull request"
-  assert_equals run-tests=false "$(printf '%s\n' "$out" | sed -n 2p)" "the main-only step must skip a pull request's tests"
-  pass "the main-only step passes a pull request and skips its tests"
 }
 
 test_main_only_step_fails_a_dispatch_on_a_branch_instead_of_testing_it() {
@@ -609,10 +590,8 @@ test_scan_version_pin_matches_the_documented_local_command() {
 test_ci_matrices_match_executable_partitions
 test_triggers_omit_pushes_to_branches_other_than_main
 test_main_runs_every_job_rather_than_skipping_a_test_lane
-test_a_pull_request_runs_no_test_job
 test_no_job_starts_before_main_only_has_passed
 test_main_only_step_lets_main_run_tests
-test_main_only_step_passes_a_pull_request_without_its_tests
 test_main_only_step_fails_a_dispatch_on_a_branch_instead_of_testing_it
 test_fork_skip_variable_removes_only_the_macos_job
 test_no_job_condition_keys_on_a_pull_request_or_push

@@ -5068,6 +5068,33 @@ test_empty_rollup_on_unprotected_base_does_not_merge() {
   pass "fm-pr-merge refuses an empty rollup on an unprotected base"
 }
 
+test_main_only_config_refuses_red_or_missing_required_checks() {
+  local case_dir head scenario
+  head=b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2
+  for scenario in empty red pending required other; do
+    case_dir=$(make_case "github-main-only-$scenario")
+    add_gh_mocks "$case_dir" "$head"
+    printf '%s\n' 'https://github.com/example/repo' > "$case_dir/home/config/ci-main-only"
+    case "$scenario" in
+      red) write_github_rollup_json "$case_dir" "$head" "$(check_run lint COMPLETED FAILURE)" ;;
+      pending) write_github_rollup_json "$case_dir" "$head" "$(check_run lint IN_PROGRESS '')" ;;
+      *) write_github_rollup_json "$case_dir" "$head" ;;
+    esac
+    write_github_required "$case_dir"
+    [ "$scenario" != required ] || write_github_required "$case_dir" classic:lint
+    [ "$scenario" != other ] || printf '%s\n' 'https://github.com/example/other' > "$case_dir/home/config/ci-main-only"
+    run_required_case "$case_dir" 2002
+    if [ "$scenario" = empty ]; then
+      expect_code 0 "$RC" "main-only: an empty rollup must merge"
+      assert_logged_gh_merge "$case_dir" 2002 example/repo --squash
+    else
+      expect_code 1 "$RC" "main-only: $scenario must refuse"
+      assert_no_grep 'pr merge' "$case_dir/gh.log" "main-only: $scenario reached merge"
+    fi
+  done
+  pass "main-only configuration permits only an empty rollup without missing required checks"
+}
+
 test_red_and_unreported_checks_are_reported_together() {
   local case_dir head
   head=a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3
@@ -5360,6 +5387,7 @@ test_allow_red_refused_on_gitlab
 test_required_check_that_never_reported_refuses
 test_required_checks_reported_and_green_merge
 test_empty_rollup_on_unprotected_base_does_not_merge
+test_main_only_config_refuses_red_or_missing_required_checks
 test_red_and_unreported_checks_are_reported_together
 test_unreadable_required_set_refuses
 test_allow_missing_waives_only_the_named_unreported_check

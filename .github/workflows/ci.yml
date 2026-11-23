@@ -3,7 +3,6 @@ name: CI
 on:
   push:
     branches: [main]
-  pull_request:
   schedule:
     - cron: '17 6 * * *'
   workflow_dispatch:
@@ -13,7 +12,6 @@ permissions:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Single owner of the CI npm-tool pins. Every cache key below embeds its pin
 # with no restore-keys fallback, so a bump installs fresh instead of reusing a stale tree.
@@ -52,11 +50,8 @@ jobs:
           set -eu
           if [ "$REF" = refs/heads/main ]; then
             echo 'run-tests=true' >> "$GITHUB_OUTPUT"
-          elif [ "$EVENT" = pull_request ]; then
-            echo "::notice::Tests run on main only. This pull request runs lint, typecheck, the static gate, and the coverage guard."
-            echo 'run-tests=false' >> "$GITHUB_OUTPUT"
           else
-            echo "::error::Tests run on main only, and this $EVENT run is on $REF. Open a pull request for lint and the static checks, or dispatch CI on main."
+            echo "::error::Tests run on main only, and this $EVENT run is on $REF. Dispatch CI on main."
             exit 1
           fi
 
