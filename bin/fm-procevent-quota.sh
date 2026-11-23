@@ -1,40 +1,4 @@
 #!/usr/bin/env bash
-# Quota-exhaustion process-event adapter.
-#
-# Usage:
-#   fm-procevent-quota.sh arm [--interval <secs>] [--threshold <percent>] [--provider <provider>]
-#   fm-procevent-quota.sh poll [--interval <secs>] [--threshold <percent>] [--provider <provider>] [--timeout <secs>]
-#   fm-procevent-quota.sh classify <result-file>
-#   fm-procevent-quota.sh terminal <result-file>
-#   fm-procevent-quota.sh source-id
-#   fm-procevent-quota.sh retire [--provider <provider>]
-#
-# arm        Register a recurring quota-axi --json poll that wakes firstmate
-#            when the tracked provider's effectivePercentRemaining drops below
-#            <threshold> (default 10%) or when its runway.status becomes
-#            exhausted_now. The condition is deterministic, the action is only
-#            the durable `check: procevent:quota:<seq>` wake, and the watch is
-#            registered through `bin/fm-procevent.sh register`.
-# poll       The blocking child the generic runner executes; never run this
-#            directly in a conversational turn. It polls `quota-axi --json`
-#            until quota drops below the threshold, invalid quota data stops
-#            the watch, or three consecutive transient command failures stop
-#            it. Missing or incompatible tools stop it immediately, and a
-#            successful read resets the command-failure streak.
-# classify   Print the captured outcome class: low, exhausted, error, or unknown.
-# terminal   Every quota poll is terminal because the source fires at most once.
-# source-id  Print the canonical source id.
-# retire     Stop the aggregate watch, or the matching provider watch when
-#            --provider is supplied, and retire the registration.
-#
-# The canonical source id is `quota` for the aggregate tracked provider.
-# A provider named with --provider sets the tracked provider and the source id
-# becomes `quota-<provider>`.
-#
-# Snapshots may be quota-axi schema 5 or 6 (bin/fm-quota-axi-lib.sh owns the
-# validator). Both watches read every matching account row independently,
-# without combining quotas. A --provider watch restricts those rows to the
-# requested provider; details preserve each row's accountKey when present.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -50,6 +14,8 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 . "$SCRIPT_DIR/fm-procevent-lib.sh"
 # shellcheck source=bin/fm-quota-axi-lib.sh
 . "$SCRIPT_DIR/fm-quota-axi-lib.sh"
+# shellcheck source=bin/fm-subquo-lib.sh
+. "$SCRIPT_DIR/fm-subquo-lib.sh"
 # shellcheck source=bin/fm-timeout-lib.sh
 . "$SCRIPT_DIR/fm-timeout-lib.sh"
 
@@ -65,11 +31,21 @@ CANONICAL_SOURCE_ID=
 PROVIDER=
 
 usage() {
-  awk '
-    NR == 1 { next }
-    /^#/ { sub(/^# ?/, ""); print; next }
-    { exit }
-  ' "${BASH_SOURCE[0]}"
+  cat <<'USAGE'
+Usage:
+  fm-procevent-quota.sh arm [--interval <secs>] [--threshold <percent>] [--provider <provider>]
+  fm-procevent-quota.sh poll [--interval <secs>] [--threshold <percent>] [--provider <provider>] [--timeout <secs>]
+  fm-procevent-quota.sh classify <result-file>
+  fm-procevent-quota.sh terminal <result-file>
+  fm-procevent-quota.sh source-id
+  fm-procevent-quota.sh retire [--provider <provider>]
+
+arm registers a watch for exhaustion or remaining quota below <percent>
+(default 10%). It checks each account separately and sends one wake.
+poll runs the watch for the registered source, not for interactive use.
+classify prints low, exhausted, error, or unknown.
+retire stops the watch and removes its registration.
+USAGE
   exit 2
 }
 die() { printf 'error: %s\n' "$1" >&2; exit 1; }
@@ -112,7 +88,7 @@ valid_percent() {
 # fm_quota_axi_version_compatible, then probes --json once.
 # A slow or failing probe stays 1/4; "incompatible" is reserved for an actual
 # unsupported or unparseable version string.
-quota_json() {
+legacy_quota_json() {
   local timeout=${1:-} output rc=0
   if ! command -v quota-axi >/dev/null 2>&1; then
     return 2
@@ -143,6 +119,42 @@ quota_json() {
     output=$(quota-axi --json 2>/dev/null </dev/null) || return 4
   fi
   printf '%s\n' "$output"
+}
+
+subquo_poll_rows() {
+  jq -c --arg provider "$1" '
+    .providers // [] | map(select($provider == "" or .provider == $provider)) as $rows |
+    {schemaVersion: 6, providers: ($rows | map(select(.unavailable == null))),
+     complete: ($provider != "" and ($rows | length) > 0 and all($rows[]; .unavailable == null))}
+  '
+}
+
+quota_json() {
+  local timeout=$1 threshold=$2 saved legacy rc=0
+  saved=$(fm_subquo_snapshot "${timeout:-2}" | subquo_poll_rows "$PROVIDER") || return 4
+  if jq -e '.complete' <<< "$saved" >/dev/null; then
+    printf '%s\n' "$saved"
+    return
+  fi
+  legacy=$(legacy_quota_json "$timeout") || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    case "$(condition_status "$saved" "$PROVIDER" "$threshold")" in
+      low|exhausted) printf '%s\n' "$saved"; return ;;
+      *) return "$rc" ;;
+    esac
+  fi
+  if jq -e '.providers | length == 0' <<< "$saved" >/dev/null; then
+    printf '%s\n' "$legacy"
+    return
+  fi
+  printf '%s\n' "$legacy" | fm_quota_json_valid || { printf '%s\n' "$legacy"; return; }
+  jq -c --argjson saved "$saved" '
+    .providers |= map(.accountKey //= "default") |
+    .schemaVersion = 6 |
+    .providers |= (
+      [.[] | . as $old | select(all($saved.providers[]; [.provider, .accountKey] != [$old.provider, $old.accountKey]))]
+      + $saved.providers)
+  ' <<< "$legacy"
 }
 
 # condition_status <json> [provider] [threshold]
@@ -212,7 +224,9 @@ cmd_arm() {
     esac
   done
   resolve_provider "$PROVIDER"
-  fm_quota_axi_compatible 5 >/dev/null 2>&1 || die "quota-axi is missing or below the compatibility floor"
+  if ! fm_subquo_snapshot | subquo_poll_rows "$PROVIDER" | jq -e '.complete' >/dev/null; then
+    fm_quota_axi_compatible 5 >/dev/null 2>&1 || die "quota-axi is missing or below the compatibility floor"
+  fi
   local timeout
   timeout=$(perl -e 'print int($ARGV[0] * 0.8 + 0.5)' "$interval") || timeout=30
   [ "$timeout" -ge 5 ] || timeout=5
@@ -245,7 +259,7 @@ cmd_poll() {
   local json detail status polls=0 consecutive_failures=0 read_rc detail_msg
   while :; do
     polls=$((polls + 1))
-    json=$(quota_json "${timeout:-}") && read_rc=0 || read_rc=$?
+    json=$(quota_json "$timeout" "$threshold") && read_rc=0 || read_rc=$?
     if [ "$read_rc" -ne 0 ]; then
       consecutive_failures=$((consecutive_failures + 1))
       if [ "$read_rc" -ne 2 ] && [ "$read_rc" -ne 3 ] && \

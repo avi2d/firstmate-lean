@@ -267,6 +267,14 @@ printf '%s\n' "${FAKE_UNAME:-Darwin}"
 SH
 chmod +x "$FAKEBIN/uname"
 
+cat > "$FAKEBIN/subquo" <<'SH'
+#!/usr/bin/env bash
+[ "$*" = 'read --json' ] && [ -n "${SUBQUO_FIXTURE:-}" ] || exit 1
+printf '%s\n' "$*" >> "${FAKE_CURL_LOG:?}/subquo.calls"
+cat "$SUBQUO_FIXTURE"
+SH
+chmod +x "$FAKEBIN/subquo"
+
 RESPONSE="$TMP_ROOT/response.json"
 export FAKE_CURL_LOG="$LOG" FAKE_CURL_RESPONSE="$RESPONSE" QUOTA_AXI_CALLS="$LOG/quota-axi.calls" QUOTA_AXI_FIXTURE="$QUOTA" CHILD_ENV_LOG="$LOG/child-env" FAKE_SECURITY_LOG="$LOG/security.argv"
 
@@ -2141,6 +2149,7 @@ assert_contains "$out" 'candidate: pi:openai-codex/gpt-5.6-sol  provider=codex  
 assert_contains "$out" 'candidate: pi:codex-native/gpt-5.6-sol  provider=codex  -> eligible, unranked: provider codex has no quota row for account codex-home: disclosed uncertainty' "native Codex never infers an account from a Pi lane"
 assert_contains "$out" "  profile: --harness 'pi' --model 'openai-codex-work/gpt-5.6-terra'" "the lane with headroom is chosen"
 assert_equals '--json' "$(cat "$LOG/quota-axi.calls")" "schema 6 needs one quota-axi --json read"
+assert_contains "$out" 'source=quota-axi (fallback: subquo snapshot missing or unreadable)' "an absent subquo snapshot does not silently switch sources"
 
 SCHEMA6_NATIVE="$TMP_ROOT/schema6-native.json"
 jq '
@@ -2683,6 +2692,49 @@ assert_not_contains "$out" 'quota ranking off' "shared_quota false prints no opt
 [ -f "$LOG/quota-axi.calls" ] || fail "shared_quota false still reads quota-axi"
 assert_contains "$out" 'spendPriority=' "shared_quota false prints quota evidence"
 pass "shared_quota false keeps the unchanged quota-ranked behavior"
+
+test_subquo_floor_respects_reset_and_rejects_cross_account_or_stale_evidence() (
+  write_clauth "$CLAUTH" 24 0
+  printf '%s\n' "main $TMP_ROOT/main" "second $TMP_ROOT/second" > "$HOME_DIR/config/claude-accounts"
+  jq '.rules[0].use |= .[:2] | .default = .rules[0].use' "$ACCOUNT_RULES" > "$RULES"
+  local snapshot="$TMP_ROOT/subquo.json" reset
+  reset=$(jq -nr 'now + 3600 | floor | todateiso8601 | sub("Z$"; ".000Z")')
+  jq -n --arg reset "$reset" '
+    def iso: todateiso8601 | sub("Z$"; ".000Z");
+    (now | floor) as $now |
+    {version: "subquo.v1", writtenAt: ($now | iso), accounts:
+      [{id: "second", left: 0}, {id: "main", left: 10}]
+      | map({id, provider: "claude", observation: {
+        status: "fresh", source: "provider", observedAt: ($now | iso), validUntil: ($now + 120 | iso),
+        windows: [{id: "five-hour", scope: "all", percentLeft: .left, resetsAt: $reset},
+                  {id: "weekly", scope: "all", percentLeft: 90, resetsAt: ($now + 172800 | iso)}]}})}
+  ' > "$snapshot"
+  reset_log
+  SUBQUO_FIXTURE="$snapshot" FAKE_CURL_RESPONSE="$ACCOUNT_RESPONSE" run code out err "$BRIEF"
+  assert_contains "$out" '  status: clear' "a nearby reset lifts the nonempty floor"
+  assert_contains "$out" "--claude-account 'main'" "a different account at zero cannot veto main"
+  assert_contains "$out" "five-hour:10%@$reset" "the candidate cites the real reset, not the freshness deadline"
+  assert_contains "$out" 'floor=skipped (profile floor all_models below 30%' "the same floor uses the upcoming reset"
+  assert_contains "$out" 'not eligible: runway exhausted_now at all_models  source=subquo' "a coming reset does not lift exhaustion"
+  assert_equals 'read --json' "$(cat "$LOG/subquo.calls")" "one local snapshot serves both candidates"
+  assert_absent "$LOG/clauth.calls" "matching named accounts do not read clauth quota"
+  assert_absent "$LOG/quota-axi.calls" "preference order does not need the legacy scalar"
+
+  jq '.accounts[1].observation |=
+    (.status = "stale" | .code = null | del(.validUntil))' "$snapshot" > "$snapshot.stale"
+  reset_log
+  SUBQUO_FIXTURE="$snapshot.stale" FAKE_CURL_RESPONSE="$ACCOUNT_RESPONSE" run code out err "$BRIEF"
+  assert_contains "$out" 'source=clauth (fallback: subquo reading stale)' "a stale reading discloses the clauth fallback"
+  assert_contains "$out" 'remaining=76%' "the stale account uses its clauth windows rather than its saved headroom"
+  assert_equals 'status --json' "$(cat "$LOG/clauth.calls")" "only one clauth read is needed"
+  assert_absent "$LOG/quota-axi.calls" "a stale named account does not need a provider fallback"
+
+  jq '.accounts[1].observation.validUntil = "2099-01-01T00:00:00.000Z"' "$snapshot" > "$snapshot.invalid"
+  reset_log
+  SUBQUO_FIXTURE="$snapshot.invalid" FAKE_CURL_RESPONSE="$ACCOUNT_RESPONSE" run code out err "$BRIEF"
+  assert_contains "$out" 'source=clauth (fallback: subquo snapshot could not be decoded as subquo.v1)' "a forged freshness deadline cannot bypass the fallback"
+)
+test_subquo_floor_respects_reset_and_rejects_cross_account_or_stale_evidence
 cp "$BASE_RULES" "$RULES"
 
 printf '# all fm-dispatch-resolve tests passed\n'

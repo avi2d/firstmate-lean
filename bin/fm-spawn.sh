@@ -182,6 +182,8 @@ fm_backlog_directory_present "$STATE" "state directory" || {
 . "$SCRIPT_DIR/fm-worker-account-lib.sh"
 # shellcheck source=bin/fm-quota-axi-lib.sh
 . "$SCRIPT_DIR/fm-quota-axi-lib.sh"
+# shellcheck source=bin/fm-subquo-lib.sh
+. "$SCRIPT_DIR/fm-subquo-lib.sh"
 # shellcheck source=bin/fm-quota-assessment-lib.sh
 . "$SCRIPT_DIR/fm-quota-assessment-lib.sh"
 # shellcheck source=bin/fm-clauth-lib.sh
@@ -3103,16 +3105,9 @@ const busyEvent = (state: string, event: string, resetEpoch = 0) =>
 const quotaResetEpoch = (provider: string): Promise<number> =>
   new Promise((resolve) => {
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(provider)) return resolve(0);
-    execFile("quota-axi", ["--provider", provider, "--json", "--no-credential-refresh"], { timeout: 5000 }, (error, stdout) => {
-      if (error) return resolve(0);
-      try {
-        const rows = JSON.parse(stdout).providers ?? [];
-        const resetsAt = rows.find((row: any) => row.provider === provider)?.resetsAt;
-        const epoch = typeof resetsAt === "number" ? resetsAt : Date.parse(resetsAt);
-        resolve(Number.isFinite(epoch) ? Math.floor(epoch > 1e12 ? epoch / 1000 : epoch) : 0);
-      } catch {
-        resolve(0);
-      }
+    execFile("$FM_ROOT/bin/fm-quota-read.sh", ["--reset-epoch", provider], { timeout: 10000 }, (error, stdout) => {
+      const epoch = Number(stdout.trim());
+      resolve(!error && Number.isSafeInteger(epoch) ? epoch : 0);
     });
   });
 const providerLimitReset = async (entries: any[], provider: string): Promise<number | null> => {

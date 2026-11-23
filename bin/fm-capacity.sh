@@ -651,14 +651,19 @@ fi
 quota_json=null
 if [ -n "$quota_provider" ]; then
   runway=unknown
-  if command -v quota-axi >/dev/null 2>&1; then
-    # shellcheck source=bin/fm-timeout-lib.sh
-    . "$SCRIPT_DIR/fm-timeout-lib.sh"
+  # shellcheck source=bin/fm-subquo-lib.sh
+  . "$SCRIPT_DIR/fm-subquo-lib.sh"
+  saved=$(fm_subquo_row "$(fm_subquo_snapshot)" "$quota_provider" "")
+  runway=$(jq -r '[.quotaSemantics.effectiveAvailability[]? | select(.scope == "all_models") | .runway.status] | first // "unknown"' <<< "$saved") || runway=unknown
+  if [ "$runway" = unknown ] && command -v quota-axi >/dev/null 2>&1; then
     qout=$(fm_run_timed "$QUOTA_TIMEOUT" quota-axi --json --provider "$quota_provider" --max-age 15m 2>/dev/null) || qout=
     v=$(printf '%s' "$qout" | jq -r --arg p "$quota_provider" '
       [.providers[]? | select(.provider == $p) | .quotaSemantics.effectiveAvailability[]?
        | select(.scope == "all_models") | .runway.status | strings] | first // empty' 2>/dev/null) || v=
-    case "$v" in ''|*[!a-z_]*) ;; *) runway=$v ;; esac
+    case "$v" in
+      exhausted_now) [ "$saved" != null ] || runway=$v ;;
+      through_reset|projected_exhaustion) runway=$v ;;
+    esac
   fi
   quota_json=$(jq -cn --arg p "$quota_provider" --arg r "$runway" '{provider: $p, runway: $r}')
 fi
