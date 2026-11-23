@@ -8,6 +8,8 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
+# shellcheck source=bin/fm-github-required-checks-lib.sh
+. "$SCRIPT_DIR/fm-github-required-checks-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-classify-lib.sh
@@ -49,8 +51,8 @@ pending Exit 0 while some yolo task's GitHub pull request is not yet merged,
         1 when there is nothing left to merge.
 
 Verdicts: green (merge once settled), update (behind its base), wait (checks
-running, a check the base's merged pull requests carried not yet reported, or
-a forge read failed), skip (stays on the supervised path).
+running, an expected or required check has not reported, or a forge read
+failed), skip (stays on the supervised path).
 docs/configuration.md "Merge on green" owns the eligibility contract.
 EOF
   exit 2
@@ -255,11 +257,7 @@ checks_state() {  # <pull-request-json>
   ' 2>/dev/null
 }
 
-# GitHub lists nothing for a workflow run it has not created yet, and a private
-# repository on a free plan cannot declare a required check, so the base's own
-# merged pull requests are the only reading of what a head still owes.
-# Prints covered, none, unproven, or missing:<names>; fails on an unreadable
-# payload.
+# GitHub lists nothing for a workflow run it has not created yet.
 expected_checks_state() {  # <pull-request-json> <merged-pull-requests-json>
   printf '%s\n%s\n' "$1" "$2" | jq -rs '
     def names: [ .statusCheckRollup[]
@@ -267,14 +265,9 @@ expected_checks_state() {  # <pull-request-json> <merged-pull-requests-json>
                  | select(type == "string" and length > 0) ] | unique;
     if length != 2 or (.[1] | type) != "array" then error("no merged pull requests") else . end
     | (.[0] | names) as $reported
-    | (.[1] | length) as $merged
     | [ .[1][] | names | select(length > 0) ] as $carrying
-    | if ($reported | length) == 0 and ($carrying | length) > 0 then "none"
-      elif ($reported | length) == 0 and $merged == 0 then "unproven"
-      else
-        (reduce $carrying[1:][] as $carried ($carrying[0] // []; . - (. - $carried))) - $reported
-        | if length > 0 then "missing:" + join(", ") else "covered" end
-      end
+    | (reduce $carrying[1:][] as $carried ($carrying[0] // []; . - (. - $carried))) - $reported
+    | if length > 0 then "missing:" + join(", ") else "covered" end
   ' 2>/dev/null
 }
 
@@ -359,7 +352,8 @@ log_line() {  # <task-id> <event> <detail>
 assess() {  # <task-id>
   local id=$1 meta kind yolo project posture hold_rc open json fields
   local state draft mergeable merge_state base checks diff behind base_enc
-  local adopted candidate supersede head_branch expected_branch merged expected
+  local adopted candidate supersede head_branch expected_branch merged expected required
+  local green_reason="every check is green"
   VERDICT='' REASON='' URL='' HEAD='' DIFF_HEAD='' DIFF_RESULT='' CHECKS_DONE_AT=0
   meta="$STATE/$id.meta"
   [ -f "$meta" ] && [ ! -L "$meta" ] || { verdict skip "no task record"; return; }
@@ -467,12 +461,17 @@ EOF
   case "$CHECKS_DONE_AT" in ''|*[!0-9]*) CHECKS_DONE_AT=0 ;; esac
   case "$checks" in
     green) ;;
-    none) verdict wait "no check has reported at head $HEAD; start this branch's pull-request checks, or dispatch CI for it only when the project's CI does not run on pull requests and accepts a branch run"; return ;;
+    none)
+      if ! github_main_only_empty_rollup "$FM_HOME" "https://$FM_PR_HOST/$FM_PR_PATH" "$json"; then
+        verdict wait "no check has reported at head $HEAD; start this branch's pull-request checks, or dispatch CI for it only when the project's CI does not run on pull requests and accepts a branch run"
+        return
+      fi
+      ;;
     pending) verdict wait "checks are still running"; return ;;
     red:*) verdict skip "checks are not green: ${checks#red:}"; return ;;
     *) verdict wait "the checks could not be read"; return ;;
   esac
-  if ! printf '%s' "$json" | jq -e 'any(.statusCheckRollup[]; .__typename == "CheckRun" and .status == "COMPLETED" and .conclusion == "SUCCESS")' >/dev/null 2>&1; then
+  if [ "$checks" != none ] && ! printf '%s' "$json" | jq -e 'any(.statusCheckRollup[]; .__typename == "CheckRun" and .status == "COMPLETED" and .conclusion == "SUCCESS")' >/dev/null 2>&1; then
     verdict wait "no passing check run has reported at head $HEAD; start this branch's pull-request checks, or dispatch CI for it only when the project's CI does not run on pull requests and accepts a branch run"
     return
   fi
@@ -495,23 +494,37 @@ EOF
   DIFF_HEAD=$HEAD
   [ "$DIFF_RESULT" = clear ] || { verdict skip "the diff $DIFF_RESULT"; return; }
 
-  merged=$(forge gh pr list --repo "$FM_PR_HOST/$FM_PR_OWNER/$FM_PR_REPO" --state merged --base "$base" \
-    --limit "$BASE_HISTORY_PRS" --json statusCheckRollup) || merged=
-  expected=$(expected_checks_state "$json" "$merged") || expected=
-  case "$expected" in
-    covered) ;;
-    none) verdict wait "no check has reported yet"; return ;;
-    unproven) verdict wait "no check has reported, and $base has no merged pull request to show it expects none"; return ;;
-    missing:*) verdict wait "checks the pull requests merged into $base carried have not reported: ${expected#missing:}"; return ;;
-    *) verdict wait "the pull requests merged into $base could not be read"; return ;;
-  esac
-
   base_enc=$(printf '%s' "$base" | jq -sRr @uri 2>/dev/null) || base_enc=
   [ -n "$base_enc" ] || { verdict wait "the base branch could not be read"; return; }
+  if [ "$checks" = none ]; then
+    if ! GH_HOST="$FM_PR_HOST" github_read_required_contexts "$FM_PR_PATH" "$base" fm_run_timed "$FORGE_TIMEOUT" gh \
+      || ! required=$(printf '%s' "$FM_PR_GITHUB_REQUIRED" | jq -er 'map(.context) | unique | join(", ")' 2>/dev/null); then
+      verdict wait "required checks for $base could not be read"
+      return
+    fi
+    if [ -n "$required" ]; then
+      verdict wait "required checks for $base have not reported: $required"
+      return
+    fi
+    case "$mergeable:$merge_state" in
+      MERGEABLE:CLEAN|MERGEABLE:BEHIND) ;;
+      *) verdict wait "mergeability could not be confirmed"; return ;;
+    esac
+    green_reason="main-only CI is configured and the base requires no pull-request checks"
+  else
+    merged=$(forge gh pr list --repo "$FM_PR_HOST/$FM_PR_OWNER/$FM_PR_REPO" --state merged --base "$base" \
+      --limit "$BASE_HISTORY_PRS" --json statusCheckRollup) || merged=
+    expected=$(expected_checks_state "$json" "$merged") || expected=
+    case "$expected" in
+      covered) ;;
+      missing:*) verdict wait "checks the pull requests merged into $base carried have not reported: ${expected#missing:}"; return ;;
+      *) verdict wait "the pull requests merged into $base could not be read"; return ;;
+    esac
+  fi
   behind=$(forge gh api "repos/$FM_PR_OWNER/$FM_PR_REPO/compare/$base_enc...$HEAD" --jq .behind_by) || behind=
   case "$behind" in
     ''|*[!0-9]*) verdict wait "could not compare the head with $base" ;;
-    0) verdict green "every check is green" ;;
+    0) verdict green "$green_reason" ;;
     *) verdict update "the head is $behind commits behind $base" ;;
   esac
 }

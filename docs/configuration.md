@@ -554,9 +554,9 @@ A pull request merges only when every one of these holds, each read by the progr
 - The task is a ship task recording `yolo=on`, and the project's registry entry still carries `+yolo`.
 - The pull request is on GitHub, open, and not a draft.
 - At least one check run passed on the head, no check is still running, and every one that reported passed.
-- Every check the base expects has reported on this head.
+  A head with no reported checks waits unless the [main-only CI policy](#main-only-ci-configci-main-only) applies.
+- For a head reporting checks, every check the base expects has reported on this head.
   The expected checks are the names carried by each of the base's last five merged pull requests that carried any check, so a head whose workflow runs GitHub has not created yet waits instead of reading as green.
-  A head with no reported checks waits, including when the base has no check history.
 - The task is not held for the user and has no open `needs-decision` or `blocked` key.
 - The pull request carries no merge hold for the user, recorded with `bin/fm-merge-hold.sh` against the pull request itself so it survives a task hold answer or release.
 - The pull request is the newest one the task's `done:` or `ready:` reports name.
@@ -631,7 +631,9 @@ The flag is a home-local preference.
 ## Main-only CI (config/ci-main-only)
 
 The optional gitignored `config/ci-main-only` lists GitHub repository URLs, one exact `https://host/owner/repo` URL per line.
-For a listed repository, `bin/fm-pr-merge.sh` permits an empty check rollup when no required checks are missing.
+For a listed repository, merge-on-green monitoring and `bin/fm-pr-merge.sh` accept an empty check rollup only when GitHub confirms the base has no required status checks.
+The monitor does not use past pull requests to infer expected checks for that empty rollup.
+An unreadable check rollup, unreadable requirements, or a missing required check keeps the pull request waiting.
 A reported failing or pending check still prevents merging, and an unlisted repository still needs a passing check.
 Firstmate's pull requests report CI checks, so it needs no entry here.
 
