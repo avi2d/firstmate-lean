@@ -16,17 +16,17 @@ trap 'rm -rf -- "$TMP_ROOT"' EXIT
 DATA="$TMP_ROOT/data"
 mkdir -p "$DATA"
 
-legacy="- winbox - Owns winbox delivery (skills, checks) (host: winwsl; root: /home/avi2d/firstmate; home: /home/avi2d/fm-winbox; scope: Owns winbox delivery; judges scope questions; projects: secondmate-ops; added 2026-09-30)"
+legacy="- winbox - Owns winbox delivery (skills, checks) (host: winwsl; root: ${TMP_ROOT}/firstmate; home: ${TMP_ROOT}/fm-winbox; scope: Owns winbox delivery; judges scope questions; projects: secondmate-ops; added 2026-09-30)"
 fm_remote_registry_parse_line "$legacy" || fail "a legacy remote record without a session stopped parsing"
 [ "$FM_REMOTE_REGISTRY_SESSION" = fm-remote ] || fail "a legacy remote record defaulted to '$FM_REMOTE_REGISTRY_SESSION' instead of fm-remote"
 [ "$FM_REMOTE_REGISTRY_HOST" = winwsl ] || fail "legacy host misparsed: $FM_REMOTE_REGISTRY_HOST"
 [ "$FM_REMOTE_REGISTRY_SCOPE" = "Owns winbox delivery; judges scope questions" ] || fail "legacy scope misparsed: $FM_REMOTE_REGISTRY_SCOPE"
 pass "fm-exec-home-route: a remote record without a session still parses and defaults the session to fm-remote"
 
-with_session="- execone - Headless execution (host: exec-alias; root: /home/avi2d/exec-root; home: /home/avi2d/exec-one; session: lab-one; scope: Headless work; projects: scratch; added 2026-11-08)"
+with_session="- execone - Headless execution (host: exec-alias; root: ${TMP_ROOT}/exec-root; home: ${TMP_ROOT}/exec-one; session: lab-one; scope: Headless work; projects: scratch; added 2026-11-08)"
 fm_remote_registry_parse_line "$with_session" || fail "a remote record with a session stopped parsing"
 [ "$FM_REMOTE_REGISTRY_SESSION" = lab-one ] || fail "the session field misparsed: $FM_REMOTE_REGISTRY_SESSION"
-[ "$FM_REMOTE_REGISTRY_HOME" = /home/avi2d/exec-one ] || fail "the home beside a session misparsed: $FM_REMOTE_REGISTRY_HOME"
+[ "$FM_REMOTE_REGISTRY_HOME" = "${TMP_ROOT}/exec-one" ] || fail "the home beside a session misparsed: $FM_REMOTE_REGISTRY_HOME"
 [ "$FM_REMOTE_REGISTRY_SCOPE" = "Headless work" ] || fail "the scope after a session misparsed: $FM_REMOTE_REGISTRY_SCOPE"
 pass "fm-exec-home-route: a remote record names its Herdr session between the home and the scope"
 
@@ -34,8 +34,8 @@ bad_session="- bad - Bad session (host: h; root: /r; home: /e; session: has spac
 fm_remote_registry_parse_line "$bad_session" && fail "a session with interior whitespace parsed instead of being refused"
 pass "fm-exec-home-route: a session value no Herdr session could carry is refused rather than mangled"
 
-cat > "$DATA/remote-homes.md" <<'EOF'
-- execone - Headless execution (host: exec-alias; root: /home/avi2d/exec-root; home: /home/avi2d/exec-one; session: lab-one; scope: Headless work; projects: scratch; added 2026-11-08)
+cat > "$DATA/remote-homes.md" <<EOF
+- execone - Headless execution (host: exec-alias; root: ${TMP_ROOT}/exec-root; home: ${TMP_ROOT}/exec-one; session: lab-one; scope: Headless work; projects: scratch; added 2026-11-08)
 EOF
 [ "$(fm_remote_registry_field "$DATA/remote-homes.md" execone session)" = lab-one ] \
   || fail "the session field did not read back lab-one"
@@ -68,7 +68,7 @@ mkdir -p "$TMP_ROOT/local-home"
 fm_on execone fm-remote-file.sh get x >/dev/null 2>&1 \
   || fail "the execution-home route did not resolve"
 assert_contains "$(cat "$SSH_LOG")" "host=exec-alias" "the execution-home route did not reach its SSH alias"
-assert_contains "$(cat "$SSH_LOG")" "home=/home/avi2d/exec-one" "the execution-home route did not reach its home"
+assert_contains "$(cat "$SSH_LOG")" "home=${TMP_ROOT}/exec-one" "the execution-home route did not reach its home"
 pass "fm-exec-home-route: an execution-home id resolves to its own host, root, and home"
 printf -- '- exectwo - Another execution home (host: exec-alias; root: /scratch/root; home: /scratch/two; scope: Test; projects: scratch; added 2026-11-08)\n' >> "$DATA/remote-homes.md"
 : > "$SSH_LOG"
