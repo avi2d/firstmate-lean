@@ -647,7 +647,10 @@ The receipt prevents accidental publication through supported paths; it proves c
 ## Waiting worker spends no turns (config/wait-no-turns)
 
 The optional local, gitignored `config/wait-no-turns` presence flag opts this home into keeping a waiting worker from spending turns until it is answered.
-With it present, ship and scout briefs gain the `# Waiting` section and the foreground no-mistakes drive text, every brief's inbox section keeps the natural-checkpoint check and adds that a waiting worker does not poll or list its inbox because a waiting instruction rings, a pending-reply recovery waits while that mate has its own open decision or blocker, and a fire-and-forget steer whose doorbell did not land gets one later ring.
+With it present, ship and scout briefs gain the `# Waiting` section and the short no-mistakes drive text, every brief's inbox section keeps the natural-checkpoint check and adds that a waiting worker does not poll or list its inbox because a waiting instruction rings, a pending-reply recovery waits while that mate has its own open decision or blocker, and a fire-and-forget steer whose doorbell did not land gets one later ring.
+The `# Waiting` section has a worker hold no wait on CI or the pipeline in a long command: it names the CI run id or its own no-mistakes run id in a `paused:` line and ends its turn.
+The watcher sends that worker a terminal message when the named CI run completes, and rings it when its named no-mistakes run parks at a gate owed to the worker or finishes.
+The no-mistakes wake reads the run from the worker's local worktree, so a worker on a remote host is woken by its named CI run only.
 With the file absent, generated briefs omit the waiting section and the no-poll inbox line, the drive text backgrounds the call, recovery sends during an open decision, and a fire-and-forget steer is not owed a retry ring.
 The flag is a home-local preference.
 

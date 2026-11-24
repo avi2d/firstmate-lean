@@ -504,21 +504,27 @@ fi
 INBOX_SECTION=${INBOX_SECTION%$'\n'}
 
 # How a crewmate or scout waits. Every model turn resends the whole context, so
-# a wait must cost no turns: a decision wait ends the turn, and an external
-# wait sleeps in one bounded blocking shell command sized to the harness.
+# a wait must cost no turns: a wait on a decision, CI, or the pipeline ends the
+# turn, and bin/fm-watch.sh starts the next one when the named run changes.
 # Emitted only when config/wait-no-turns is present.
 IFS= read -r -d '' WAIT_SECTION <<'EOF' || true
 # Waiting
 Every turn you take resends your whole context, so a wait must cost no turns.
 After you append `needs-decision:` or `blocked:`, end your turn at once: do not check the inbox, the status file, or anything else, because the answer arrives as a terminal message that starts your next turn.
-Wait on anything external - a pipeline gate, PR checks - with ONE blocking shell command that returns when the state changes: `no-mistakes axi run` or `respond` with `--wait`, `gh pr checks <pr> --watch`, or `until <condition>; do sleep 30; done` for anything else.
-Never spend turns on `sleep` followed by a status check, and never background a command in order to poll it.
-In Claude Code that `until` loop in a single Bash call is the sanctioned foreground wait: when the harness refuses a sleep-then-check command and points you at backgrounding instead, reissue the wait as the loop rather than accepting the background.
+Never hold a wait on CI or the pipeline in a long command, and never poll it: no `gh pr checks --watch`, no `until` or `sleep` loop, no backgrounded command, and no `sleep` followed by a status check.
+Instead, name what you wait on in a `paused:` line and end your turn; the watcher starts your next turn with a terminal message when it changes.
+To wait on CI, find the run still in progress, for example with `gh run list --branch <branch> --limit 5`, and append `paused:` naming it as `CI run <id>` with `owner=CI`.
+When that run finishes, the watcher sends `CI run <id> in <owner>/<repo> completed with conclusion <conclusion>`; if `gh pr checks <pr>` then shows another run still in progress, declare that one the same way.
+To wait on your own no-mistakes run, drive it with `no-mistakes axi run` or `respond` and `--wait 90s`.
+When that call returns with the run still executing, append `paused:` naming the run id with `owner=no-mistakes`, and end your turn.
+While the run's `ci` step watches the pull request, also name that CI run in the same line as `CI run <id>`, so its finish wakes you too.
+The watcher rings you when the run parks at a gate waiting on you or finishes; reattach then with `no-mistakes axi run --wait 90s`.
+Never send the same `respond` again after it returned, because it would answer whichever gate parks next without you reading it.
+For any other external wait, check it once, and if it has not changed, append `paused:` naming it with its owner and recheck, and end your turn; firstmate raises it at its recheck.
+Append `paused:` once per wait, and never again for the same run.
+Your own validation round, which you declare once just before its blocking hold, is the one wait you hold in a command: append `paused:` once just before its first blocking command, then stay in the command, and never append it again as you reissue that command.
 Bound that command by what your harness lets one command run: in Pi pass the bash tool a `timeout` of at most 2700 seconds, because Pi sets none by default; in Claude Code pass the Bash tool its maximum `timeout` of 600000 ms, because its default is 2 minutes; in Codex keep waiting on a still-running command with empty `write_stdin` polls of up to 300000 ms; elsewhere pass your shell tool its largest timeout and assume at most 10 minutes.
-Give any `--wait` a duration a little under that bound.
-When the bound passes with nothing changed, run the same blocking command again, with no status check in between.
-The one exception is `respond`: it sent its answer before it began waiting, so reattach with `no-mistakes axi run --wait` instead, and never send the same `respond` again, because it would answer whichever gate parks next without you reading it.
-A wait your shell can watch this way needs no `paused:` line, except your own pipeline run, a long foreground command, or your own validation round, which you declare once just before its blocking hold: append `paused:` once just before its first blocking command, then stay in the command, and never append it again as you reissue that command.
+Where another part of this brief says to hold a wait on CI or the pipeline in a command, this section wins.
 EOF
 WAIT_SECTION=${WAIT_SECTION%$'\n'}
 WAIT_BLOCK=

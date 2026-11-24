@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for the parked-run worker wake: a paused worker naming its run gets one steer at a worker-owed gate, and stays quiet otherwise.
+# Tests for the named-run worker wake: a paused worker naming its run gets one steer at a worker-owed gate or when the run finishes, and stays quiet otherwise.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -101,6 +101,17 @@ outcome: passed
 EOF
 }
 
+toon_failed() { cat <<'EOF'
+run:
+  id: "01FAILED01"
+  branch: fm/work
+  status: failed
+  head: "abc1234"
+  pr: ""
+  findings: "2 awaiting, 1 auto-fix"
+EOF
+}
+
 t=$(toon_lint_parked)
 fm_nm_run_is_parked "$t" || fail "lint awaiting_approval fixture did not read parked"
 ! fm_nm_toon_has_ask_user "$t" || fail "lint fixture with only auto-fix findings read as human-owed"
@@ -132,7 +143,7 @@ pass "finding prose quoting ask-user never mints a human answer"
 t=$(toon_completed)
 ! fm_nm_run_is_parked "$t" || fail "completed run read as parked"
 ! fm_nm_run_parked_awaiting_agent "$t" || fail "completed run read as worker-owed"
-pass "a terminal run stays quiet"
+pass "a terminal run is not read as parked"
 
 fact=$(fm_nm_branch_wait_fact "$(printf 'current_branch: fm/work\nruns_on_current_branch: 0\n')" fm/work)
 assert_equals "no no-mistakes run exists for branch fm/work" "$fact" "a branch with no run was not reported as runless"
@@ -167,7 +178,7 @@ make_case() {
 ring_probe() {
   PATH="$FAKEBIN:$PATH" FM_STATE_OVERRIDE="$1" bash -c '
     . "$1"
-    nm_parked_agent_ring "$2" "$3"
+    nm_named_run_ring "$2" "$3"
   ' _ "$WATCH" "$2" "$3"
 }
 
@@ -205,6 +216,28 @@ make_case "$state" t1 fm/work ship "paused: waiting on no-mistakes run 01EXECUTI
 if ring_probe "$state" test:0 t1; then fail "paused worker on an executing run rang"; fi
 [ "$(inbox_count "$state" t1)" = 0 ] || fail "executing run wrote a steer"
 pass "paused worker on an executing run stays quiet"
+
+state=$(fm_test_tmproot nm-parked-case-finished)
+FM_FAKE_AXI_STATUS=$(toon_completed)
+make_case "$state" t1 fm/work ship "paused: waiting on no-mistakes run 01COMPLETED01 to finish"
+ring_probe "$state" test:0 t1 || fail "paused worker on a finished run got no ring"
+[ "$(inbox_count "$state" t1)" = 1 ] || fail "finished-run ring did not write exactly one steer"
+grep -q "01COMPLETED01 finished with outcome passed" "$state"/t1.inbox/*.msg || fail "finished-run steer did not name the run and its outcome"
+pass "paused worker on a finished run rings with its outcome"
+
+state=$(fm_test_tmproot nm-parked-case-failed)
+FM_FAKE_AXI_STATUS=$(toon_failed)
+make_case "$state" t1 fm/work ship "paused: waiting on no-mistakes run 01FAILED01 to finish"
+ring_probe "$state" test:0 t1 || fail "paused worker on a failed run with no outcome line got no ring"
+grep -q "01FAILED01 finished with outcome failed" "$state"/t1.inbox/*.msg || fail "failed-run steer did not fall back to the run status"
+pass "a finished run with no outcome line rings with its status"
+
+state=$(fm_test_tmproot nm-parked-case-finished-other)
+FM_FAKE_AXI_STATUS=$(toon_completed)
+make_case "$state" t1 fm/work ship "paused: waiting on no-mistakes run 01SOMEOTHER01 to finish"
+if ring_probe "$state" test:0 t1; then fail "a finished run the pause does not name rang"; fi
+[ "$(inbox_count "$state" t1)" = 0 ] || fail "a finished run the pause does not name wrote a steer"
+pass "a finished run the pause does not name stays quiet"
 
 state=$(fm_test_tmproot nm-parked-case-unrelated)
 FM_FAKE_AXI_STATUS=$(toon_lint_parked)

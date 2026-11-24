@@ -1114,9 +1114,9 @@ test_inbox_listing_command_is_safe_on_empty_inbox() {
   pass "fm-brief: inbox listing is silent on empty/absent inbox and numerically ordered"
 }
 
-# Contract: a waiting worker spends no turns. A decision wait ends the turn, an
-# external wait sleeps in one bounded blocking shell command sized per harness,
-# and a waiting worker neither polls its inbox nor polls a pipeline between holds.
+# Contract: a waiting worker spends no turns. A decision, CI, or pipeline wait
+# names what it waits on and ends the turn, no wait on CI or the pipeline is
+# held in a long command, and a waiting worker never polls its inbox.
 test_workers_wait_without_spending_turns() {
   local home id brief
   home="$TMP_ROOT/wait-home"
@@ -1129,25 +1129,34 @@ test_workers_wait_without_spending_turns() {
   for id in brief-wait-ship brief-wait-scout; do
     brief="$home/data/$id/brief.md"
     assert_grep "end your turn at once" "$brief" "$id: a decision wait must end the turn"
-    assert_grep "with ONE blocking shell command that returns when the state changes" "$brief" \
-      "$id: an external wait must sleep in one blocking shell command"
-    assert_grep "gh pr checks <pr> --watch" "$brief" "$id: the CI wait primitive is missing"
-    assert_grep "a \`timeout\` of at most 2700 seconds" "$brief" "$id: the Pi ceiling is missing"
-    assert_grep "its maximum \`timeout\` of 600000 ms" "$brief" "$id: the Claude Code ceiling is missing"
-    assert_grep "empty \`write_stdin\` polls of up to 300000 ms" "$brief" "$id: the Codex ceiling is missing"
-    assert_grep "is the sanctioned foreground wait" "$brief" \
-      "$id: the wait a Claude Code worker may use is not named"
-    assert_grep "reattach with \`no-mistakes axi run --wait\` instead, and never send the same \`respond\` again" "$brief" \
-      "$id: a timed-out respond must reattach with axi run, never resend its answer"
+    assert_grep "Never hold a wait on CI or the pipeline in a long command" "$brief" \
+      "$id: a CI or pipeline wait may still be held in a long command"
+    assert_no_grep "gh pr checks <pr> --watch" "$brief" "$id: the brief still offers a watched CI wait"
+    assert_no_grep "is the sanctioned foreground wait" "$brief" "$id: the brief still offers an until-loop wait"
+    assert_grep "append \`paused:\` naming it as \`CI run <id>\` with \`owner=CI\`" "$brief" \
+      "$id: a CI wait does not name its run id"
+    assert_grep "append \`paused:\` naming the run id with \`owner=no-mistakes\`, and end your turn" "$brief" \
+      "$id: a pipeline wait does not name its run and end the turn"
+    assert_grep "reattach then with \`no-mistakes axi run --wait 90s\`" "$brief" \
+      "$id: a woken pipeline wait does not reattach with a short drive"
+    assert_grep "Never send the same \`respond\` again" "$brief" \
+      "$id: a returned respond may be resent"
+    assert_grep "a \`timeout\` of at most 2700 seconds" "$brief" "$id: the Pi ceiling for a validation round is missing"
+    assert_grep "its maximum \`timeout\` of 600000 ms" "$brief" "$id: the Claude Code ceiling for a validation round is missing"
+    assert_grep "empty \`write_stdin\` polls of up to 300000 ms" "$brief" "$id: the Codex ceiling for a validation round is missing"
     assert_grep "Do not poll or list the inbox while waiting; a waiting instruction rings." "$brief" \
       "$id: polling the inbox while waiting is not forbidden"
     assert_grep "natural checkpoint" "$brief" "$id: the flag dropped the natural-checkpoint inbox check"
   done
   brief="$home/data/brief-wait-ship/brief.md"
-  assert_grep "issue the same foreground call again" "$brief" \
-    "the no-mistakes DOD must reattach with the same foreground call"
+  assert_grep "Pass \`--wait 90s\` on every \`no-mistakes axi run\` and \`respond\` call" "$brief" \
+    "the no-mistakes DOD does not bound each drive call"
+  assert_grep "naming the run id, and end your turn" "$brief" \
+    "the no-mistakes DOD does not end the turn on an unfinished drive call"
+  assert_no_grep "issue the same foreground call again" "$brief" \
+    "the no-mistakes DOD still holds the pipeline in repeated foreground calls"
   assert_no_grep "background the drive call" "$brief" "the no-mistakes DOD still backgrounds the drive call"
-  pass "fm-brief: workers end the turn on a decision, wait in one bounded shell command, and never poll"
+  pass "fm-brief: workers end the turn on a decision, CI, or pipeline wait, naming the run, and never poll"
 }
 
 # Without config/wait-no-turns the scaffold matches the pre-flag brief and drive text.

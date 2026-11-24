@@ -441,14 +441,14 @@ fm_nm_driving_block() {  # <forge|no-ci>
 "
     pr_reattach_clause="; once checks are green it returns \`checks-passed\` immediately, and"
   fi
-  # config/wait-no-turns selects the foreground drive. Absent, the text matches
-  # the backgrounded drive a home had before that flag.
+  # config/wait-no-turns selects the short drive that ends the turn on a
+  # declared wait. Absent, the text matches the backgrounded drive a home had
+  # before that flag.
   if [ -e "$(fm_dod_config_dir)/wait-no-turns" ]; then
-    drive_block="Drive the run with ONE foreground \`no-mistakes axi run\` and let it block.
-It bounds its own hold for you: \`--wait\` (default 8m) exists precisely so a harness with a ten-minute command cap gets a structured return instead of being killed mid-hold.
-Declare that wait using the brief's status-reporting rule before the foreground drive call.
-Never background a wait, and never arm a timer to stand in for one: a backgrounded call returns in milliseconds, so it does not wait at all, and every timer left behind fires later as a paid wake for nothing.
-${pr_return_line}Whenever a drive call returns without a gate or an outcome - its own wait elapsed, or it was killed or timed out - that is not a failure: reattach at once by re-running \`no-mistakes axi run\` without flags, and issue the same foreground call again, one at a time, until a gate or outcome comes back${pr_reattach_clause} if it refuses because no run is active, read the finished outcome from \`no-mistakes axi status\`."
+    drive_block="Pass \`--wait 90s\` on every \`no-mistakes axi run\` and \`respond\` call, one call at a time.
+Never background a drive call, and never arm a timer to stand in for one: a backgrounded call returns in milliseconds, so it does not wait at all, and every timer left behind fires later as a paid wake for nothing.
+${pr_return_line}Whenever a drive call returns without a gate or an outcome - its own wait elapsed, or it was killed or timed out - that is not a failure: declare the wait as the brief's Waiting section says, naming the run id, and end your turn.
+When the watcher wakes you, reattach by re-running \`no-mistakes axi run --wait 90s\`${pr_reattach_clause} if it refuses because no run is active, read the finished outcome from \`no-mistakes axi status\`."
   else
     drive_block="One drive call blocks until the next gate or outcome, which routinely outlives what your harness lets a single command run: Claude Code kills a command at ten minutes maximum, while one fix round is capped around thirty minutes and up to three rounds chain.
 So background the drive call instead of sitting in one blocking hold your harness will kill, and read its return when it finishes.

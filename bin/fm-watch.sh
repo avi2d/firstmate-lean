@@ -1956,15 +1956,16 @@ busy_stream_snapshot_current() {  # <task> <observed snapshot>
 FM_NM_PARKED_CHECK_SECS=${FM_NM_PARKED_CHECK_SECS:-120}
 case "$FM_NM_PARKED_CHECK_SECS" in ''|*[!0-9]*) FM_NM_PARKED_CHECK_SECS=120 ;; esac
 
-# Ring a paused worker whose declared wait names its no-mistakes run while that
-# run sits parked at a gate waiting on the worker itself. A still-executing run
-# stays quiet, and so does a gate owed a human answer. The steer is an ordinary
-# ladder-managed record, so the re-ring ladder repeats the doorbell and escalates
-# to a stale wake after its bounded budget when nothing reattaches; an
-# acknowledged note is reattach evidence and rings no further.
+# Ring a paused worker whose declared wait names its no-mistakes run once that
+# run sits parked at a gate waiting on the worker itself or has finished. A
+# still-executing run stays quiet, and so does a gate owed a human answer.
+# The steer is an ordinary ladder-managed record, so the re-ring ladder repeats
+# the doorbell and escalates to a stale wake after its bounded budget when
+# nothing reattaches; an acknowledged note is reattach evidence and rings no
+# further.
 # The run read is one bounded call per window per FM_NM_PARKED_CHECK_SECS.
-nm_parked_agent_ring() {  # <window> <task>
-  local win=$1 task=$2 key statusf last meta kind wt branch toon run_branch id gate msg rec backend
+nm_named_run_ring() {  # <window> <task>
+  local win=$1 task=$2 key statusf last meta kind wt branch toon run_branch id gate outcome event msg rec backend
   key=$(window_key "$win")
   statusf="$STATE/$task.status"
   last=$(status_declared_wait_line "$statusf")
@@ -1985,16 +1986,25 @@ nm_parked_agent_ring() {  # <window> <task>
   id=$(fm_nm_strip_quotes "$(fm_nm_field "$toon" id)")
   case "$id" in ''|*[!A-Za-z0-9_-]*) return 1 ;; esac
   case "$last" in *"$id"*) ;; *) return 1 ;; esac
-  fm_nm_run_parked_awaiting_agent "$toon" || return 1
-  gate=$(fm_nm_run_gate "$toon")
-  msg="no-mistakes run $id is parked at $gate waiting on you. Answer it with axi respond, then resume; if it already cleared, resume and this note needs no reply."
+  if fm_nm_run_parked_awaiting_agent "$toon"; then
+    gate=$(fm_nm_run_gate "$toon")
+    event="parked at $gate"
+    msg="no-mistakes run $id is parked at $gate waiting on you. Answer it with axi respond, then resume; if it already cleared, resume and this note needs no reply."
+  elif ! fm_nm_run_is_active "$toon"; then
+    outcome=$(fm_nm_strip_quotes "$(fm_nm_field "$toon" outcome)")
+    [ -n "$outcome" ] || outcome=$(fm_nm_strip_quotes "$(fm_nm_field "$toon" status)")
+    event="finished $outcome"
+    msg="no-mistakes run $id finished with outcome $outcome. Read it with no-mistakes axi status, then resume."
+  else
+    return 1
+  fi
   rec=$(fm_task_inbox_write_idempotent "$STATE" "$task" "$msg") || return 1
   case "$rec" in */handled/*) ;; *)
     backend=$(window_backend "$win")
     fm_task_inbox_ring "$backend" "$win" "$rec" "$(window_label "$win")" || true
     ;;
   esac
-  triage_log "parked-gate ring: $task run $id at $gate"
+  triage_log "named-run ring: $task run $id $event"
   return 0
 }
 
@@ -2045,7 +2055,7 @@ wait_bounded_alarm() {  # <task>
 handle_paused_stale() {  # <window> <task> <hash>
   local win=$1 task=$2 h=$3 key statusf mtime age detail reason declaration last until now min_age
   key=$(window_key "$win")
-  nm_parked_agent_ring "$win" "$task" || true
+  nm_named_run_ring "$win" "$task" || true
   printf '%s' "$h" > "$STATE/.stale-$key"
   : > "$STATE/.paused-$key"
   wedge_episode_end "$key"
@@ -2450,7 +2460,7 @@ surface_nonterminal_stale() {  # <window> <hash> [dialog-name]
   last=$(status_declared_wait_line "$STATE/$task.status")
   STALE_WAIT_DECLARATION=
   if status_is_paused "$last"; then
-    nm_parked_agent_ring "$win" "$task" || true
+    nm_named_run_ring "$win" "$task" || true
     declared=0
     bounded=0
     STALE_WAIT_DECLARATION=$(stale_wait_declaration "$task")
