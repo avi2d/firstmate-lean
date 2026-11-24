@@ -522,7 +522,7 @@ The watcher rings you when the run parks at a gate waiting on you or finishes; r
 Never send the same `respond` again after it returned, because it would answer whichever gate parks next without you reading it.
 For any other external wait, check it once, and if it has not changed, append `paused:` naming it with its owner and recheck, and end your turn; firstmate raises it at its recheck.
 Append `paused:` once per wait, and never again for the same run.
-Your own validation round, which you declare once just before its blocking hold, is the one wait you hold in a command: append `paused:` once just before its first blocking command, then stay in the command, and never append it again as you reissue that command.
+The one wait you hold in a command is your own validation round, which you declare once just before its blocking hold: append `paused:` once just before its first blocking command, then stay in the command, and never append it again as you reissue that command.
 Bound that command by what your harness lets one command run: in Pi pass the bash tool a `timeout` of at most 2700 seconds, because Pi sets none by default; in Claude Code pass the Bash tool its maximum `timeout` of 600000 ms, because its default is 2 minutes; in Codex keep waiting on a still-running command with empty `write_stdin` polls of up to 300000 ms; elsewhere pass your shell tool its largest timeout and assume at most 10 minutes.
 Where another part of this brief says to hold a wait on CI or the pipeline in a command, this section wins.
 EOF
