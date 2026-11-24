@@ -27,7 +27,7 @@ test_wedge_threshold_defers_to_a_declared_wait_under_a_working_verdict() {
   local working='state: working · source: run-step · ci running'
 
   dir=$(wedge_threshold_fixture declared-wait-working \
-    'paused: final validation at step 6/6 - clean whole-assembly baseline (~20 min) | owner=release-service | recheck=2099-01-01' 0)
+    'paused: final validation at step 6/6 - clean whole-assembly baseline (~20 min) | owner=release-service | recheck=2099-01-01T00:00Z' 0)
   state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"; capture="$dir/pane.txt"
   window="test:fm-wedge"; key=$(watch_window_key "$window")
   n=1
@@ -48,7 +48,7 @@ test_wedge_threshold_defers_to_a_declared_wait_under_a_working_verdict() {
   # down. So the recheck is governed by how old the declaration is, and the age
   # it publishes is that declaration's age, named as the declaration it is.
   dir=$(wedge_threshold_fixture declared-wait-aged \
-    'paused: waiting on the upstream release cut | owner=release-service | recheck=2099-01-01' 2000)
+    'paused: waiting on the upstream release cut | owner=release-service | recheck=2099-01-01T00:00Z' 2000)
   state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"; capture="$dir/pane.txt"
   FM_TEST_PAUSE_RESURFACE=240 wedge_threshold_round "$state" "$fakebin" "$out" "$capture" "$window" "$working" exit \
     || fail "a declaration older than the recheck cadence was never rechecked: $(cat "$out")"
@@ -74,7 +74,7 @@ test_wedge_threshold_defers_to_a_declared_wait_under_a_working_verdict() {
   # so the exemption ends exactly where the declaration does - as long as nothing
   # ELSE accounts for the quiet.
   past=$(iso_utc_at "$(( $(date +%s) - 7200 ))")
-  dir=$(wedge_threshold_fixture declared-wait-elapsed "paused: waiting on the build queue until $past | owner=release-service | recheck=2099-01-01" 0)
+  dir=$(wedge_threshold_fixture declared-wait-elapsed "paused: waiting on the build queue until $past | owner=release-service | recheck=2099-01-01T00:00Z" 0)
   state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"; capture="$dir/pane.txt"
   wedge_threshold_round "$state" "$fakebin" "$out" "$capture" "$window" "$working" exit \
     || fail "a declared wait whose own clearing time had passed stayed silent"
@@ -110,7 +110,7 @@ test_wedge_threshold_keeps_a_wait_past_a_default_key_answer() {
   local working='state: working · source: run-step · ci running'
 
   dir=$(wedge_threshold_fixture default-answer-after-wait \
-    "$(printf 'needs-decision: which color\npaused: waiting on the vendor release | owner=release-service | recheck=2099-01-01\nresolved [key=default]: answered: blue')" 0)
+    "$(printf 'needs-decision: which color\npaused: waiting on the vendor release | owner=release-service | recheck=2099-01-01T00:00Z\nresolved [key=default]: answered: blue')" 0)
   state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"; capture="$dir/pane.txt"
   window="test:fm-wedge"; key=$(watch_window_key "$window")
   n=1
@@ -125,7 +125,7 @@ test_wedge_threshold_keeps_a_wait_past_a_default_key_answer() {
     || fail "a default-key answer let a waiting lane count $(cat "$state/.wedge-escalations-$key") wedge escalation(s)"
 
   dir=$(wedge_threshold_fixture keyless-retraction \
-    "$(printf 'paused: waiting on the vendor release | owner=release-service | recheck=2099-01-01\nresolved: the vendor shipped')" 0)
+    "$(printf 'paused: waiting on the vendor release | owner=release-service | recheck=2099-01-01T00:00Z\nresolved: the vendor shipped')" 0)
   state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"; capture="$dir/pane.txt"
   wedge_threshold_round "$state" "$fakebin" "$out" "$capture" "$window" "$working" exit \
     || fail "a worker's own keyless resolved line did not retract its wait: $(cat "$out")"
@@ -240,7 +240,7 @@ test_wedge_threshold_defers_to_a_backlog_captain_hold() {
   # hold the worker's line never shows still bounds the ladder.
   past=$(iso_utc_at "$(( $(date +%s) - 7200 ))")
   dir=$(backlog_hold_wedge_fixture backlog-hold-elapsed-pause 0 '' \
-    "paused: waiting on the build queue until $past | owner=release-service | recheck=2099-01-01") \
+    "paused: waiting on the build queue until $past | owner=release-service | recheck=2099-01-01T00:00Z") \
     || fail "could not build a backlog captain-hold wedge fixture"
   state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"; capture="$dir/pane.txt"
   FM_HOME="$dir" FM_DATA_OVERRIDE="$dir/data" \
@@ -552,7 +552,7 @@ test_wedge_threshold_defers_to_a_worker_blocker() {
 
   dir=$(wedge_threshold_fixture worker-blocker-fresh \
     'working: wiring the client
-blocked: need the API key for the staging account | owner=ci | recheck=2099-01-01' 0 600)
+blocked: need the API key for the staging account | owner=ci | recheck=2099-01-01T00:00Z' 0 600)
   arm_worker_wait "$dir"
   state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"; capture="$dir/pane.txt"
   n=1
@@ -568,7 +568,7 @@ blocked: need the API key for the staging account | owner=ci | recheck=2099-01-0
 
   # The deferral is bounded: once the blocker is older than the cadence it
   # re-surfaces once, aged from the line, naming firstmate and the clearing action.
-  dir=$(wedge_threshold_fixture worker-blocker-aged 'blocked: need the API key for the staging account | owner=ci | recheck=2099-01-01' 2000 600)
+  dir=$(wedge_threshold_fixture worker-blocker-aged 'blocked: need the API key for the staging account | owner=ci | recheck=2099-01-01T00:00Z' 2000 600)
   arm_worker_wait "$dir"
   state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"; capture="$dir/pane.txt"
   wedge_threshold_round "$state" "$fakebin" "$out" "$capture" "$window" "$working" exit \
@@ -601,12 +601,12 @@ blocked: need the API key for the staging account | owner=ci | recheck=2099-01-0
   # a newer worker line, a resolved line, a supervisor-reserved key, and an inbox
   # record the worker acknowledged after writing the blocker.
   for case_log in \
-    'blocked: need the API key for the staging account | owner=ci | recheck=2099-01-01
+    'blocked: need the API key for the staging account | owner=ci | recheck=2099-01-01T00:00Z
 working: resumed without it' \
-    'blocked: need the API key for the staging account | owner=ci | recheck=2099-01-01
+    'blocked: need the API key for the staging account | owner=ci | recheck=2099-01-01T00:00Z
 resolved: firstmate supplied the key' \
-    'blocked [key=remote-reply-continuity-mate1]: the remote reply mirror stopped | owner=ci | recheck=2099-01-01' \
-    'blocked: need the API key for the staging account | owner=ci | recheck=2099-01-01|handled'; do
+    'blocked [key=remote-reply-continuity-mate1]: the remote reply mirror stopped | owner=ci | recheck=2099-01-01T00:00Z' \
+    'blocked: need the API key for the staging account | owner=ci | recheck=2099-01-01T00:00Z|handled'; do
     dir=$(wedge_threshold_fixture worker-blocker-ended "${case_log%|handled}" 2000 600)
     arm_worker_wait "$dir"
     state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"; capture="$dir/pane.txt"

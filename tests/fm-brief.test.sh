@@ -628,7 +628,7 @@ test_no_mistakes_dod_green_detection() {
     "no-mistakes DOD must say axi status cannot show a green PR in merge monitoring"
   assert_grep "never wait on a status poll for the next gate or outcome" "$brief" \
     "no-mistakes DOD must forbid waiting on a status poll"
-  assert_grep "reattach at once by re-running \`no-mistakes axi run\` without flags" "$brief" \
+  assert_grep "reattach at once with \`no-mistakes axi run --wait 90s\`" "$brief" \
     "no-mistakes DOD must reattach the drive call after a bounded return"
   assert_grep "once checks are green it returns \`checks-passed\` immediately" "$brief" \
     "no-mistakes DOD must say a reattach reports an already-green PR"
