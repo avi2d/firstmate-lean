@@ -442,9 +442,12 @@ fm_nm_driving_block() {  # <forge|no-ci>
     pr_reattach_clause="; once checks are green it returns \`checks-passed\` immediately, and"
   fi
   drive_block="Pass \`--wait 90s\` on every \`no-mistakes axi run\` and \`respond\` call, one call at a time.
+Never background a drive call or arm a timer to stand in for one: a backgrounded call returns at once, and a leftover timer fires later as a paid wake.
 ${pr_return_line}Whenever a drive call returns without a gate or outcome, reattach at once with \`no-mistakes axi run --wait 90s\`${pr_reattach_clause} if no run is active, read the finished outcome from \`no-mistakes axi status\`.
-Keep driving and answer worker-owned gates until the run reaches a gate needing firstmate, opens its PR, or ends.
-If you must end your turn while the run is still working, declare \`owner=no-mistakes\` only after confirming it is working, never while it waits at a worker-owned gate."
+Keep driving until the run reaches a gate needing firstmate, opens its PR, or ends.
+Answer only auto-fix or settled gates: gates whose findings are all auto-fix, or which the brief or an earlier firstmate answer already settled.
+Send any ask-user finding to firstmate as \`needs-decision\`.
+If you must end your turn while the run is still working, declare \`owner=no-mistakes\` only after confirming it is working, never while it waits at an auto-fix or settled gate."
 
   cat <<EOF
 You drive no-mistakes by responding to its gates, not by implementing fixes.

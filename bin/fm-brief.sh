@@ -515,8 +515,10 @@ Instead, name what you wait on in a `paused:` line and end your turn; the watche
 To wait on CI, find the run still in progress, for example with `gh run list --branch <branch> --limit 5`, and append `paused:` naming it as `CI run <id>` with `owner=CI`.
 When that run finishes, the watcher sends `CI run <id> in <owner>/<repo> completed with conclusion <conclusion>`; if `gh pr checks <pr>` then shows another run still in progress, declare that one the same way.
 To wait on your own no-mistakes run, drive it with `no-mistakes axi run` or `respond` and `--wait 90s`.
-Keep driving the run with bounded waits until it reaches a gate needing firstmate, opens its PR, or ends; answer worker-owned gates yourself.
-If you must end your turn while it is still working, declare `owner=no-mistakes` only after confirming it is working, never while it waits at a worker-owned gate.
+Keep driving the run with bounded waits until it reaches a gate needing firstmate, opens its PR, or ends.
+Answer only auto-fix or settled gates: gates whose findings are all auto-fix, or which the brief or an earlier firstmate answer already settled.
+Send any ask-user finding to firstmate as `needs-decision`.
+If you must end your turn while it is still working, declare `owner=no-mistakes` only after confirming it is working, never while it waits at an auto-fix or settled gate.
 Never send the same `respond` again after it returned, because it would answer whichever gate parks next without you reading it.
 For any other external wait, check it once, and if it has not changed, append `paused:` naming it with its owner and recheck, and end your turn; firstmate raises it at its recheck.
 Append `paused:` once per wait, and never again for the same run.
