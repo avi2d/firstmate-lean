@@ -54,23 +54,54 @@ function adapterOutput(args) {
   return output.stdout;
 }
 
-function adapterFollowup(ids, marker) {
-  return ids.find(id => {
-    const shown = adapterOutput(['show', id, '--full']);
-    const body = /^  body: (.*)$/m.exec(shown)?.[1];
-    return body && hasFollowupMarker(body.startsWith('"') ? JSON.parse(body) : body, marker);
-  });
+function toonValue(raw) {
+  return raw.startsWith('"') ? JSON.parse(raw) : raw;
 }
 
-function activeAdapterIds() {
-  const lines = adapterOutput(['list']).split('\n');
+function toonFields(line) {
+  const fields = [];
+  const value = /\s*("(?:[^"\\]|\\.)*"|[^,]*)(,|$)/y;
+  for (let match; value.lastIndex < line.length && (match = value.exec(line));) {
+    fields.push(toonValue(match[1]));
+    if (!match[2]) break;
+  }
+  return fields;
+}
+
+const truncatedBody = /\n\.\.\. \(truncated, \d+ chars total - [^\n]*\)$/;
+
+// A list body is cut at a fixed length, so only the lines that end before the
+// cut are known; a marker past the cut is decided by reading that row in full.
+function listedFollowup(body, marker) {
+  const cut = truncatedBody.exec(body);
+  if (!cut) return hasFollowupMarker(body, marker);
+  const shown = body.slice(0, cut.index);
+  const complete = shown.slice(0, Math.max(shown.lastIndexOf('\n'), 0));
+  return hasFollowupMarker(complete, marker) || undefined;
+}
+
+function fullBodyFollowup(id, marker) {
+  const body = /^  body: (.*)$/m.exec(adapterOutput(['show', id, '--full']))?.[1];
+  return Boolean(body) && hasFollowupMarker(toonValue(body), marker);
+}
+
+function adapterFollowup(rows, marker) {
+  return rows.find(({ id, body }) => listedFollowup(body, marker) ?? fullBodyFollowup(id, marker))?.id;
+}
+
+function activeAdapterRows() {
+  const lines = adapterOutput(['list', '--fields', 'body']).split('\n');
   if (lines.includes('count: 0')) return [];
-  const start = lines.findIndex(line => /^tasks\[\d+\]\{id,/.test(line));
+  const start = lines.findIndex(line => /^tasks\[\d+\]\{id,.*,body\}:$/.test(line));
   if (start < 0) throw new Error('tasks-axi list did not return a task table');
   const count = Number(/^tasks\[(\d+)\]/.exec(lines[start])[1]);
-  const ids = lines.slice(start + 1, start + 1 + count).map(line => /^\s+([A-Za-z0-9._-]+),/.exec(line)?.[1]);
-  if (ids.length !== count || ids.includes(undefined)) throw new Error('tasks-axi list returned an invalid task table');
-  return ids;
+  const width = /\{(.*)\}/.exec(lines[start])[1].split(',').length;
+  const rows = lines.slice(start + 1, start + 1 + count).map(line => {
+    const fields = /^\s+[A-Za-z0-9._-]+,/.test(line) ? toonFields(line) : [];
+    return fields.length === width ? { id: fields[0], body: fields.at(-1) } : undefined;
+  });
+  if (rows.length !== count || rows.includes(undefined)) throw new Error('tasks-axi list returned an invalid task table');
+  return rows;
 }
 
 function parseAdd(args) {
@@ -132,13 +163,14 @@ function add(args) {
   const request = parseAdd(args);
   const { followupKey, marker } = request;
   const file = process.env.TASKS_AXI_FILE;
-  const active = file ? markdownItems(file, followupKey, marker) : { ids: activeAdapterIds() };
+  const rows = file ? [] : activeAdapterRows();
+  const active = file ? markdownItems(file, followupKey, marker) : { ids: rows.map(row => row.id) };
   const archive = file && (configuredArchive('.tasks.toml') ??
     configuredArchive(path.join(os.homedir(), '.tasks-axi', 'config.toml')) ??
     path.join(path.dirname(file), 'done-archive.md'));
   const reserved = archive ? markdownItems(archive, followupKey, marker) : { ids: [] };
   const replay = active.replay ?? reserved.replay ??
-    (!file && marker ? active.ids.find(id => id === followupKey) ?? adapterFollowup(active.ids, marker) : undefined);
+    (!file && marker ? active.ids.find(id => id === followupKey) ?? adapterFollowup(rows, marker) : undefined);
   if (replay) {
     console.log(JSON.stringify({ ok: true, action: 'add', already: true, task: { id: replay } }));
     return;

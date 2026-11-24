@@ -506,6 +506,118 @@ test_numbered_followup_replay_does_not_allocate_another_id_after_archiving() {
   pass "$store files a numbered follow-up once even after it is archived"
 }
 
+# A configured non-markdown adapter stands in for the real one: a JSON store
+# behind the tasks-axi list/show/add surface, with list cutting each body the
+# way tasks-axi does (500 characters, then a line naming the full length).
+make_adapter_home() {  # <name> <seed-js>; prints the case directory
+  local dir="$TMP_ROOT/$1"
+  mkdir -p "$dir/bin" "$dir/home/data" "$dir/home/config"
+  cat > "$dir/bin/tasks-axi" <<'JS'
+#!/usr/bin/env node
+'use strict';
+const fs = require('node:fs');
+const store = process.env.FAKE_AXI_STORE;
+const args = process.argv.slice(2);
+fs.appendFileSync(process.env.FAKE_AXI_LOG, args[0] + '\n');
+const tasks = JSON.parse(fs.readFileSync(store, 'utf8'));
+const toon = value => /^$|^\s|\s$|[,":\\\n]|^(true|false|null|-?\d)/.test(value) ? JSON.stringify(value) : value;
+const listed = task => task.body.length <= 500 ? task.body
+  : task.body.slice(0, 500) + '\n... (truncated, ' + task.body.length + ' chars total - use show ' + task.id + ' --full to see complete text)';
+const flag = name => args.find(arg => arg.startsWith('--' + name + '='))?.slice(name.length + 3);
+if (args[0] === 'list' && args[1] === '--fields' && args[2] === 'body') {
+  console.log('count: ' + tasks.length);
+  if (tasks.length) console.log('tasks[' + tasks.length + ']{id,state,kind,repo,title,body}:');
+  for (const task of tasks) console.log('  ' + [task.id, 'queued', 'task', task.repo, toon(task.title), toon(listed(task))].join(','));
+} else if (args[0] === 'show' && args[2] === '--full') {
+  const task = tasks.find(candidate => candidate.id === args[1]);
+  console.log(['task:', '  id: ' + task.id, '  title: ' + toon(task.title), '  state: queued', '  body: ' + toon(task.body)].join('\n'));
+} else if (args[0] === 'add') {
+  tasks.push({ id: args[1], title: flag('title'), repo: flag('repo'), body: flag('body') ?? '' });
+  fs.writeFileSync(store, JSON.stringify(tasks));
+  console.log(JSON.stringify({ ok: true, action: 'add', task: { id: args[1] } }));
+} else {
+  console.error('fake adapter: unsupported ' + args.join(' '));
+  process.exit(2);
+}
+JS
+  chmod +x "$dir/bin/tasks-axi"
+  node -e "require('fs').writeFileSync(process.argv[1], JSON.stringify((() => { $2 })()))" "$dir/store.json" \
+    || fail "cannot seed the adapter store for $1"
+  : > "$dir/calls.log"
+  printf '%s\n' "$dir"
+}
+
+adapter_followup() {  # <case-dir> <key>; prints the add result
+  local dir=$1
+  PATH="$dir/bin:$PATH" TASKS_AXI_BACKEND=fakeadapter FAKE_AXI_STORE="$dir/store.json" \
+    FAKE_AXI_LOG="$dir/calls.log" FM_HOME="$dir/home" \
+    bash "$WRAPPER" add "Follow-up $2" --mint --repo proj --json --followup-key "$2" \
+    --body "Follow-up reported by the worker on proj-1."
+}
+
+adapter_calls() {  # <case-dir> <verb>
+  grep -cx "$2" "$1/calls.log" || true
+}
+
+adapter_rows() {  # <case-dir>
+  node -e "console.log(JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')).length)" "$1/store.json"
+}
+
+test_adapter_followups_over_157_tasks_do_not_read_each_task() {
+  local dir key out id start elapsed
+  local -a ids=()
+  dir=$(make_adapter_home adapter-157 '
+    const tasks = [];
+    for (let n = 1; n <= 157; n++) tasks.push({ id: "proj-" + n, title: "Task " + n, repo: "proj", body: "Notes for task " + n + "." });
+    tasks[39].body = "Follow-up reported by the worker on proj-1.\n\nFollow-up key: proj-1-fu-filed";
+    return tasks;')
+  start=$(date +%s)
+  for key in proj-1-fu-0001 proj-1-fu-0002 proj-1-fu-0003 proj-1-fu-0004; do
+    out=$(adapter_followup "$dir" "$key") || fail "adapter follow-up $key failed: $out"
+    id=$(printf '%s\n' "$out" | jq -er 'select(.already != true) | .task.id') \
+      || fail "adapter follow-up $key was not filed as new: $out"
+    ids+=("$id")
+  done
+  elapsed=$(( $(date +%s) - start ))
+  [ "$elapsed" -lt 90 ] || fail "four adapter follow-ups over 157 tasks took ${elapsed}s"
+  assert_equals "proj-158 proj-159 proj-160 proj-161" "${ids[*]}" "the four follow-ups did not get the next free IDs"
+  assert_equals 4 "$(adapter_calls "$dir" list)" "each follow-up add should list the backlog once"
+  assert_equals 0 "$(adapter_calls "$dir" show)" "a follow-up add read tasks one at a time"
+
+  out=$(adapter_followup "$dir" proj-1-fu-0002) || fail "the repeated follow-up failed: $out"
+  assert_equals "true proj-159" "$(printf '%s\n' "$out" | jq -r '"\(.already) \(.task.id)"')" \
+    "a repeated follow-up key was not matched to its row"
+  out=$(adapter_followup "$dir" proj-1-fu-filed) || fail "the pre-filed follow-up failed: $out"
+  assert_equals "true proj-40" "$(printf '%s\n' "$out" | jq -r '"\(.already) \(.task.id)"')" \
+    "a follow-up already in the backlog was not matched to its row"
+  assert_equals 161 "$(adapter_rows "$dir")" "a repeated follow-up key filed another row"
+  assert_equals 4 "$(adapter_calls "$dir" add)" "a repeated follow-up key reached the adapter's add"
+  pass "four adapter follow-ups over 157 tasks list the backlog once each, and repeated keys file nothing"
+}
+
+test_adapter_followup_marker_past_the_list_cut_is_not_refiled() {
+  local dir out
+  dir=$(make_adapter_home adapter-cut '
+    const long = Array.from({ length: 60 }, (_, n) => "context line " + n).join("\n");
+    return [
+      { id: "proj-1", title: "Parent, with \"quotes\": here", repo: "proj", body: long + "\n\nFollow-up key: proj-1-fu-late" },
+      { id: "proj-2", title: "Mention only", repo: "proj", body: "see Follow-up key: proj-1-fu-inline here" },
+      { id: "proj-3", title: "true", repo: "proj", body: "intro\n\nFollow-up key: proj-1-fu-early\n\n" + long },
+    ];')
+  out=$(adapter_followup "$dir" proj-1-fu-late) || fail "the late-marker follow-up failed: $out"
+  assert_equals "true proj-1" "$(printf '%s\n' "$out" | jq -r '"\(.already) \(.task.id)"')" \
+    "a marker past the list cut was missed and the follow-up filed again"
+  : > "$dir/calls.log"
+  out=$(adapter_followup "$dir" proj-1-fu-early) || fail "the early-marker follow-up failed: $out"
+  assert_equals "true proj-3" "$(printf '%s\n' "$out" | jq -r '"\(.already) \(.task.id)"')" \
+    "a marker before the list cut was not matched"
+  assert_equals 1 "$(adapter_calls "$dir" show)" "only the earlier cut row should be read in full"
+  out=$(adapter_followup "$dir" proj-1-fu-inline) || fail "the inline-mention follow-up failed: $out"
+  assert_equals "false proj-4" "$(printf '%s\n' "$out" | jq -r '"\(.already // false) \(.task.id)"')" \
+    "a key mentioned inside a line was treated as a follow-up marker"
+  pass "an adapter follow-up marker past the list cut is found, and a mention inside a line is not"
+}
+
 
 if [ "${FM_TEST_BACKLOG_MESSAGE_LOCK_ONLY:-0}" = 1 ]; then
   [ "$HAVE_TASKS_AXI" = 1 ] || fail "the message lock test requires tasks-axi"
@@ -518,6 +630,8 @@ test_numbered_ticket_does_not_ship_on_legacy_slug_or_number_only
 test_backlog_md_keeps_drafts_visible_without_making_them_dispatchable
 test_backlog_md_lifecycle_preserves_a_running_slug_id
 test_numbered_followup_replay_does_not_allocate_another_id_after_archiving backlog-md
+test_adapter_followups_over_157_tasks_do_not_read_each_task
+test_adapter_followup_marker_past_the_list_cut_is_not_refiled
 test_guard_reports_regular_code_root_backlog
 test_guard_reports_foreign_link_and_archive
 test_guard_silent_for_single_home
