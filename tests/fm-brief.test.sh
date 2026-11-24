@@ -1270,6 +1270,24 @@ test_absent_no_local_tests_keeps_the_test_step_running() {
   pass "fm-brief: without config/no-local-tests the briefs keep the pipeline test step"
 }
 
+# Contract: a worker never starts CI by hand on a head a pull-request run
+# already tests, and reports a failure its change did not cause instead of
+# rerunning it.
+test_workers_never_rerun_ci_a_pull_request_run_covers() {
+  local home id brief
+  home="$TMP_ROOT/no-hand-ci"
+  mkdir -p "$home/data"
+  scaffold_local_tests_variants "$home"
+  for id in lt-nm lt-manual lt-direct lt-scout; do
+    brief="$home/data/$id/brief.md"
+    assert_grep "Never start CI by hand on a head that a pull-request run already tests: no \`gh workflow run\` and no \`gh run rerun\` for it." \
+      "$brief" "$id: a worker may still dispatch or rerun CI a pull-request run covers"
+    assert_grep "append \`blocked:\` with the run URL and the failing check instead of rerunning it" \
+      "$brief" "$id: a flaky failure may still be rerun instead of reported"
+  done
+  pass "fm-brief: workers report a flaky CI failure and never start CI a pull-request run covers"
+}
+
 test_inbox_guidance_explains_marked_body_terminator() {
   local home brief kind id
   home="$TMP_ROOT/inbox-guidance"
@@ -1738,6 +1756,7 @@ test_no_local_tests_skips_test_step_instead_of_running_suites
 test_no_local_tests_rejects_a_brief_that_drops_the_throwaway_check_allowance
 test_no_local_tests_rejects_a_brief_that_allows_a_package_json_test_script
 test_absent_no_local_tests_keeps_the_test_step_running
+test_workers_never_rerun_ci_a_pull_request_run_covers
 test_inbox_guidance_explains_marked_body_terminator
 test_home_brief_include_is_appended_last
 test_base_branch_is_rendered_and_bounded
@@ -1749,3 +1768,4 @@ test_branch_prefix_value_is_validated
 test_branch_prefix_command_is_shell_safe
 test_crewmate_scaffolds_forbid_pool_administration
 test_ship_and_scout_name_the_per_task_scratch_root
+

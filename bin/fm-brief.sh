@@ -640,6 +640,7 @@ IFS= read -r -d '' MACHINE_PROOF_RULES <<'EOF' || true
 - To preview a site, serve it on a local port and inspect it there; never depend on a login-gated deployment.
 - You may run a throwaway script or command under your task's scratch directory to exercise the change; do not run the repository's own tests on this machine (see Local tests).
 - CI on the branch or pull request is proof in the real place. If the project's CI does not start on pull requests, dispatch it on the branch and name the run id, unless its instructions restrict CI to main. For a main-only project, run lint and typecheck locally, report the PR without waiting for CI, and identify the main run that will test it after merge.
+- Never start CI by hand on a head that a pull-request run already tests: no `gh workflow run` and no `gh run rerun` for it. When a run fails on something your change did not touch, such as a flaky test or a runner fault, append `blocked:` with the run URL and the failing check instead of rerunning it.
 - Unfinished work is not a blocker: report what is left and keep working the rest.
 EOF
 MACHINE_PROOF_BLOCK="# Machine and proof
