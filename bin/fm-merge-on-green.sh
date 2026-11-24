@@ -31,8 +31,8 @@ Usage:
 sweep   Assess every task in this home that recorded a GitHub pr=, or whose
         done line names one, and act:
         merge a green pull request through bin/fm-pr-merge.sh once it is
-        settled, or bring a head that is behind its base up to date with
-        gh pr update-branch, which merges the base in and never rebases.
+        settled, or bring a behind head that needs an update up to date
+        with gh pr update-branch, which merges the base in and never rebases.
         Green is settled when its last check finished at least
         FM_MERGE_ON_GREEN_SETTLE_SECS ago (default 10), or when the same head
         read green on two sweeps that far apart.
@@ -525,7 +525,13 @@ EOF
   case "$behind" in
     ''|*[!0-9]*) verdict wait "could not compare the head with $base" ;;
     0) verdict green "$green_reason" ;;
-    *) verdict update "the head is $behind commits behind $base" ;;
+    *)
+      if GH_HOST="$FM_PR_HOST" github_disjoint_base_tip "$FM_PR_PATH" "$base" "$HEAD" "$merge_state" forge gh >/dev/null; then
+        verdict green "no changed path is shared with the base advance"
+      else
+        verdict update "the head is $behind commits behind $base"
+      fi
+      ;;
   esac
 }
 

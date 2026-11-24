@@ -600,7 +600,17 @@ A pull request merges only when every one of these holds, each read by the progr
 
 Every merge goes through `bin/fm-pr-merge.sh`, which re-verifies the live head, the user hold, the per-pull-request merge hold, and every check before the forge call.
 It is given the head that read green, so a head pushed since then is refused instead of merged on the earlier head's checks.
-A head that is behind its base is first brought up to date with `gh pr update-branch`, which merges the base into the branch and never rebases, and merges once its new head is green.
+A behind head can merge without an update only if GitHub reports a clean merge state and the head and base changed no shared paths since their merge base.
+The comparison counts both paths in a rename and does not treat a truncated file list as proof.
+If the paths overlap, the comparison is inconclusive, or GitHub requires the branch to be up to date, the update merges the base into the head without rebasing.
+An attended merge still needs `--update-branch` to permit that update.
+The updated head must pass its checks before it can merge.
+
+Before an update is skipped, Firstmate records a watch that survives task cleanup.
+The watch checks GitHub Actions push runs on the target branch for the exact landed merge commit.
+A failed run raises a check wake with the run URL.
+The watch waits for runs to appear and stops without a wake if all matching runs have settled green after the five-minute discovery window.
+If there is still no verdict after 24 hours, Firstmate reports that it could not verify CI.
 A refused merge or a failed update is retried at the same head only after `FM_MERGE_ON_GREEN_RETRY_SECS`, 300 seconds by default.
 A merge refused for security-sensitive paths instead holds the task for the user once, and that head is never retried.
 A pull request skipped for what the forge reported, such as a red check, is read again only every `FM_MERGE_ON_GREEN_SKIP_RECHECK_SECS`, 60 seconds by default, so a standing red pull request does not spend a forge read on every sweep.

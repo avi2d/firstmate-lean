@@ -40,7 +40,7 @@ rule='━━━━━━━━━━━━━━━━━━━━━━━━�
   elif [ "$FM_SUP_SOURCES" -gt 0 ]; then
     printf '●  %s process-event source(s) registered, but no live watcher holds this home lock (last beat: %s).\n' "$FM_SUP_SOURCES" "$FM_SUP_BEACON_DESC"
   elif [ "$FM_SUP_CHECKS" -gt 0 ]; then
-    printf '●  %s registered custom check(s), but no live watcher holds this home lock (last beat: %s).\n' "$FM_SUP_CHECKS" "$FM_SUP_BEACON_DESC"
+    printf '●  %s registered check(s), but no live watcher holds this home lock (last beat: %s).\n' "$FM_SUP_CHECKS" "$FM_SUP_BEACON_DESC"
   else
     printf '●  Supervision is required, but no live watcher holds this home lock (last beat: %s).\n' "$FM_SUP_BEACON_DESC"
   fi

@@ -25,7 +25,7 @@ fm_sup_stat_mtime() {
 # Populates, for the state dir at $1:
 #   FM_SUP_IN_FLIGHT      count of state/*.meta (in-flight tasks)
 #   FM_SUP_SOURCES        count of registered process-to-event sources
-#   FM_SUP_CHECKS         count of registered custom checks: a state/<id>.check.sh
+#   FM_SUP_CHECKS         count of base CI watches and registered custom checks: a state/<id>.check.sh
 #                         with the state/<id>.check-trust binding that
 #                         bin/fm-check-register.sh writes. Task PR polls have no binding.
 #                         Presence of the binding is the whole test: whether
@@ -36,7 +36,7 @@ fm_sup_stat_mtime() {
 #   FM_SUP_NEEDED         true/false - in-flight work, a
 #                         registered event source (a source is a wait on an
 #                         external process, not a task, so it has no metadata),
-#                         or a registered custom check
+#                         or a registered check
 #   FM_SUP_WATCHER_FRESH  true/false - a watcher beacon within the grace window
 #   FM_SUP_BEACON_DESC    human-readable beacon age, for banners ("never" if absent)
 #   FM_SUP_QUEUE_PENDING  true/false - state/.wake-queue has unread records
@@ -60,6 +60,10 @@ fm_supervision_status() {
     FM_SUP_SOURCES=$((FM_SUP_SOURCES + 1))
   done
   FM_SUP_CHECKS=0
+  for check in "$state"/*.main-ci-watch; do
+    [ -f "$check" ] && [ ! -L "$check" ] || continue
+    FM_SUP_CHECKS=$((FM_SUP_CHECKS + 1))
+  done
   for check in "$state"/*.check.sh; do
     [ -e "$check" ] || continue
     id=${check##*/}

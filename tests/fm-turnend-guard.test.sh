@@ -334,14 +334,22 @@ test_hook_blocks_from_fm_home_state() {
 
 
 test_hook_registered_check_only_blocks_with_check_banner() {
-  local dir out status
-  dir=$(make_primary_dir "$TMP_ROOT/hook-check-only")
-  register_custom_check "$dir/state" issue-comments
-  out=$(run_hook "$dir"); status=$?
-  expect_code 2 "$status" "default hook mode must block a registered-check-only blind turn"
-  assert_contains "$out" "1 registered custom check(s), but no live watcher" "check-only blind stop must identify its supervision need"
-  assert_not_contains "$out" "X-mode relay polling needs supervision" "check-only blind stop must not be misreported as relay polling"
-  pass "fm-turnend-guard: registered-check-only supervision is named in the block banner"
+  local dir out status kind
+  for kind in custom main-ci; do
+    dir=$(make_primary_dir "$TMP_ROOT/hook-check-only-$kind")
+    if [ "$kind" = custom ]; then
+      register_custom_check "$dir/state" issue-comments
+    else
+      FM_STATE_OVERRIDE="$dir/state" "$ROOT/bin/fm-main-ci-watch.sh" arm \
+        https://github.com/example/repo/pull/7 main aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+        || fail "could not record a main CI watch"
+    fi
+    out=$(run_hook "$dir"); status=$?
+    expect_code 2 "$status" "$kind check must keep supervision required without a task"
+    assert_contains "$out" "1 registered check(s), but no live watcher" "$kind check must identify its supervision need"
+    assert_not_contains "$out" "X-mode relay polling needs supervision" "$kind check must not be misreported as relay polling"
+  done
+  pass "fm-turnend-guard: custom and main CI checks keep supervision required without tasks"
 }
 
 test_hook_ignores_repo_state_when_fm_home_set() {
