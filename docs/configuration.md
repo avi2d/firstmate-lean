@@ -11,7 +11,7 @@ Start with the directory layout, then use the setting reference for the behavior
 | Task windows and worker tools | [Runtime backend](#runtime-backend-configbackend--fm_backend) and [harness support](#harness-support) |
 | Worker accounts, excluded tools, or launch environment | [Pi account pin](#worker-account-pin-configpi-account), [worker tool exclusions](#worker-tool-exclusions-configcrew-exclude-tools), and [worker launch environment](#worker-launch-environment-configlaunch-env-allowlist) |
 | Backlog, preferences, and memory | [Backlog backend](#backlog-backend-taskstoml--configbacklog-backend), [external memory tiers](#external-memory-tiers-memory-layering-section), [record export](#record-export-configrecord-export-root), and [startup memory budget](#startup-memory-budget-configstartup-memory-budget) |
-| Supervision and presentation | [Pi supervision branch](#pi-supervision-branch) and [Calm preference](#calm-preference-configcalm) |
+| Supervision and presentation | [Pi supervision branch](#pi-supervision-branch), [Calm preference](#calm-preference-configcalm), and [Pi tool-time cap](#pi-tool-time-cap) |
 | Merging green yolo pull requests without a turn | [Merge on green](#merge-on-green) |
 | Per-run overrides and tuning | [Environment variables](#environment-variables) |
 
@@ -206,6 +206,29 @@ Before enabling the managed guard, preserve both legacy files and any existing c
 Retain the backup and deliberately review the existing configuration before setting `enabled: true` and reloading extensions normally.
 No automatic migration, removal, overwrite, reload or live-process change occurs.
 For a locally installed file at either new managed path, preflight the update and use Git's `--no-overwrite-ignore` fast-forward option; an older updater does not protect arbitrary ignored-path collisions.
+
+## Pi tool-time cap
+
+The tracked `.pi/extensions/fm-primary-tool-time-cap.ts` extension limits how long one tool call of the Pi primary can run.
+Pi enforces the limit, so it holds whatever the model asks for.
+Before each `bash` call, the extension sets the call's `timeout` to the cap when it is missing or larger.
+Before each `codemode` call, it sets `timeout_ms` in the script's first-line `// @options:` the same way, adding that line when the script has none and keeping its other options.
+A `bash` call nested inside a `codemode` script is capped too.
+A shorter limit the model asked for is kept.
+
+When the cap lowers a requested limit, the model sees a short note in the tool result that names the requested and the applied limit.
+When the cap only fills in a missing limit, the note appears only if the call failed, which is where a hit deadline shows, so ordinary results stay unchanged.
+A capped nested call is reported on the result of its `codemode` call.
+
+The optional local, gitignored `config/tool-time-cap` holds the cap as a whole number of seconds from 1 through 86400.
+An absent file means 90 seconds.
+An invalid value also means 90 seconds, and each note names the invalid file.
+The extension reads the file on every call, so a change applies to the next call without a reload.
+It resolves the config directory from `FM_CONFIG_OVERRIDE`, then `FM_HOME`, `FM_ROOT_OVERRIDE` and the tracked code root.
+
+The cap applies to a Pi session started in the Firstmate code root without `FM_TASK_ID`, `FM_TASK_INBOX` or `FM_SUPERVISION_ACTOR`, which excludes worker sessions.
+Other tools, workers and other primary harnesses are outside it.
+Current installed-harness evidence is recorded in [runtime backend verification](verification/runtime-backends.md#pi-tool-time-cap).
 
 ## Pi supervision branch
 

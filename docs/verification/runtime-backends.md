@@ -1350,3 +1350,43 @@ ok - Pi 1.4.0 installed RPC read guard: veto, abort, durable latch, operational 
 `tests/fm-read-repetition.test.sh` independently exercises ownership denials and regain, configuration bounds, default-off registration, reset provenance, bounded history, group-recognition controls and preservation of the ignored legacy guard/helper/configuration through a real pre-feature Git fast-forward.
 No macOS or Windows ancestry, native-adapter interception, separate native-tool execution, terminal screenshot/display, worker or fleet-wide protection is claimed.
 The runtime fixture does not reproduce spontaneous model-loop onset or establish a model/serving root cause.
+
+## Pi tool-time cap
+
+Verified on 2026-11-24 UTC on Linux x86_64 with installed Pi 1.6.0 and Node 24.22.1.
+The operator contract is owned by [configuration](../configuration.md#pi-tool-time-cap).
+Each run was a real `pi --print` session with a live model, started in the code root with no worker variables, loading only this extension and, for the codemode run, the built-in codemode extension.
+The prompts asked for the exact call shown, and each run's wall time includes the model turns around the call.
+
+```sh
+pi --print -ne -e .pi/extensions/fm-primary-tool-time-cap.ts --tools bash --no-mcp --no-skills -nc "<call bash: sleep 200; echo finished, no timeout>"
+Command timed out after 90 seconds
+[Pi tool-time cap: this bash call asked for no time limit and was limited to 90 s. Do not wait inside a tool call; end the turn and let the next wake resume the work.]
+exit=0 wall=97s
+
+pi --print -ne -e .pi/extensions/fm-primary-tool-time-cap.ts --tools bash --no-mcp --no-skills -nc "<call bash: sleep 200; echo finished, timeout 300>"
+Command timed out after 90 seconds
+[Pi tool-time cap: this bash call asked for 300 s and was limited to 90 s. Do not wait inside a tool call; end the turn and let the next wake resume the work.]
+exit=0 wall=96s
+
+pi --print -ne -e builtin:codemode -e .pi/extensions/fm-primary-tool-time-cap.ts --tools +codemode --no-mcp --no-skills -nc "<call codemode, no options line: await tools.bash({command: 'sleep 200; echo finished'})>"
+Script failed
+Wall time 90.1 seconds
+Script error:
+Script timed out: Execution timed out after 90000 ms
+Tool calls made before the failure (they are not undone): bash (cancelled)
+[Pi tool-time cap: this codemode call asked for no time limit and was limited to 90 s. Do not wait inside a tool call; end the turn and let the next wake resume the work.]
+[Pi tool-time cap: a nested bash call asked for no time limit and was limited to 90 s. Do not wait inside a tool call; end the turn and let the next wake resume the work.]
+exit=0 wall=101s
+
+FM_CONFIG_OVERRIDE=<dir holding tool-time-cap = 5> pi --print ... "<call bash: sleep 30; echo finished, no timeout>"
+Command timed out after 5 seconds
+exit=0 wall=13s
+
+FM_TASK_ID=proof-worker pi --print ... "<call bash: sleep 100; echo finished, no timeout>"
+finished
+exit=0 wall=107s
+```
+
+No `sleep 200` process remained after the capped runs.
+`tests/fm-tool-time-cap.test.sh` pins the clamp, config and note rules without a model, and `tests/fm-pi-primary-types.test.sh` typechecks the extension against the SDK matrix.

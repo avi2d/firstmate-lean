@@ -306,6 +306,7 @@ family_for_basename() {
     fm-herdr-lab.test.sh|fm-lint.test.sh|\
     fm-lint-workflows.test.sh|\
     fm-operational-input.test.sh|fm-pi-primary-types.test.sh|fm-read-repetition.test.sh|\
+    fm-tool-time-cap.test.sh|\
     fm-harness-adapter-references.test.sh|fm-project-mode.test.sh|\
     fm-send-settle.test.sh|\
     fm-supervision-instructions.test.sh|fm-task-delivery.test.sh|\
@@ -828,6 +829,7 @@ tests/fm-test-isolation-proof.test.sh 5640
 tests/fm-test-linux.test.sh 1500
 tests/fm-test-tap-verify.test.sh 1000
 tests/fm-timeout-lib.test.sh 36444
+tests/fm-tool-time-cap.test.sh 600
 tests/fm-tool-update-check.test.sh 14383
 tests/fm-trace-context-lib.test.sh 717
 tests/fm-trace-context-spawn.test.sh 57488
@@ -1538,6 +1540,10 @@ families_for_changed_path() {
     .pi/extensions/fm-primary-read-repetition.ts|.pi/extensions/lib/fm-primary-read-repetition-policy.ts|tests/fixtures/fm-read-repetition-sdk.mjs|tests/fixtures/fm-read-repetition-live.mjs)
       printf '%s\n' __script__:fm-read-repetition.test.sh
       printf '%s\n' __script__:fm-read-repetition-live.test.sh
+      printf '%s\n' __script__:fm-pi-primary-types.test.sh
+      ;;
+    .pi/extensions/fm-primary-tool-time-cap.ts)
+      printf '%s\n' __script__:fm-tool-time-cap.test.sh
       printf '%s\n' __script__:fm-pi-primary-types.test.sh
       ;;
     .pi/extensions/fm-branch-supervision.ts|.pi/extensions/lib/fm-async-exec.ts|\
