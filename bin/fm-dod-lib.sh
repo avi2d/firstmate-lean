@@ -441,21 +441,14 @@ fm_nm_driving_block() {  # <forge|no-ci>
 "
     pr_reattach_clause="; once checks are green it returns \`checks-passed\` immediately, and"
   fi
-  # config/wait-no-turns selects the short drive that ends the turn on a
-  # declared wait. Absent, the text matches the backgrounded drive a home had
-  # before that flag.
-  if [ -e "$(fm_dod_config_dir)/wait-no-turns" ]; then
-    drive_block="Pass \`--wait 90s\` on every \`no-mistakes axi run\` and \`respond\` call, one call at a time.
-Never background a drive call, and never arm a timer to stand in for one: a backgrounded call returns in milliseconds, so it does not wait at all, and every timer left behind fires later as a paid wake for nothing.
-${pr_return_line}Whenever a drive call returns without a gate or an outcome - its own wait elapsed, or it was killed or timed out - that is not a failure: declare the wait as the brief's Waiting section says, naming the run id, and end your turn.
-When the watcher wakes you, reattach by re-running \`no-mistakes axi run --wait 90s\`${pr_reattach_clause} if it refuses because no run is active, read the finished outcome from \`no-mistakes axi status\`."
-  else
-    drive_block="One drive call blocks until the next gate or outcome, which routinely outlives what your harness lets a single command run: Claude Code kills a command at ten minutes maximum, while one fix round is capped around thirty minutes and up to three rounds chain.
-So background the drive call instead of sitting in one blocking hold your harness will kill, and read its return when it finishes.
-Declare that wait using the brief's status-reporting rule before waiting on the backgrounded drive call.
-Where a harness's own command limit is not established, assume it bounds commands and use that same backgrounded shape.
-${pr_return_line}Whenever a drive call returns without a gate or an outcome - its own wait elapsed, or it was killed or timed out - reattach at once by re-running \`no-mistakes axi run\` without flags, backgrounded the same way${pr_reattach_clause} if it refuses because no run is active, read the finished outcome from \`no-mistakes axi status\`."
-  fi
+  drive_block="Pass \`--wait 90s\` on every \`no-mistakes axi run\` and \`respond\` call, one call at a time.
+Never background a drive call or arm a timer to stand in for one: a backgrounded call returns at once, and a leftover timer fires later as a paid wake.
+${pr_return_line}Whenever a drive call returns without a gate or outcome, reattach at once with \`no-mistakes axi run --wait 90s\`${pr_reattach_clause} if no run is active, read the finished outcome from \`no-mistakes axi status\`.
+Keep driving until the run reaches a gate needing firstmate, opens its PR, or ends.
+Answer only auto-fix or settled gates: gates whose findings are all auto-fix, or which the brief or an earlier firstmate answer already settled.
+Send any ask-user finding to firstmate as \`needs-decision\`.
+If you must end your turn while the run is still working, declare \`owner=no-mistakes\` only after confirming it is working, never while it waits at an auto-fix or settled gate."
+
   cat <<EOF
 You drive no-mistakes by responding to its gates, not by implementing fixes.
 Follow the guidance no-mistakes itself provides for the mechanics: it loads when you invoke /no-mistakes, and \`no-mistakes axi run --help\` plus the \`help\` lines in each \`axi\` response are authoritative and version-matched to the installed binary.
@@ -729,7 +722,7 @@ Before you report done, read the PR back from the forge and confirm it is not a 
 A draft cannot be merged, so a done report on one leaves the merge unasked.
 Then append \`done [at=<epoch>]: PR {url}\` to the status file and stop.
 That \`done:\` is accepted only when this copy's HEAD - your latest commit - is pushed to your PR branch; the check tests that commit, not merely that a branch moved.
-If you deliberately keep the PR a draft, append \`paused [at=<epoch>]: {why the draft is held} | owner=<who> | recheck=<YYYY-MM-DD>\` instead of done.
+If you deliberately keep the PR a draft, append \`paused [at=<epoch>]: {why the draft is held} | owner=<who> | recheck=<YYYY-MM-DDTHH:MMZ>\` instead of done.
 Do NOT run /no-mistakes. The configured merge authority decides whether to merge the PR; firstmate relays the outcome.
 EOF
       ;;
@@ -770,7 +763,7 @@ After /no-mistakes reports CI green (the CI-ready return point - do not wait for
 A draft cannot be merged, so a done report on one leaves the merge unasked.
 Then append \`done [at=<epoch>]: PR {url} checks green\` and stop. You are finished.
 That CI-ready \`done:\` is accepted only when this copy's HEAD - your latest commit - is one the /no-mistakes run pushed, so commit nothing after the run; the check tests that commit, not merely that a branch moved.
-If you deliberately keep the PR a draft, append \`paused [at=<epoch>]: {why the draft is held} | owner=<who> | recheck=<YYYY-MM-DD>\` instead of done.
+If you deliberately keep the PR a draft, append \`paused [at=<epoch>]: {why the draft is held} | owner=<who> | recheck=<YYYY-MM-DDTHH:MMZ>\` instead of done.
 EOF
       ;;
     *)

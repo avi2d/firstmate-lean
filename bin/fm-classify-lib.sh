@@ -1350,14 +1350,9 @@ EOF
 
 # --- declared-wait owner and recheck -----------------------------------------
 
-# A bare date falls due when that UTC day ends.
 wait_recheck_due_epoch() {  # <recheck> -> epoch the wait falls due; nonzero when unreadable
-  local day
   case "$1" in
-    [0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9])
-      day=$(fm_utc_iso_to_epoch "$1T00:00Z") || return 1
-      printf '%s' "$(( day + 86400 ))"
-      ;;
+    [0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9]) printf '0' ;;
     *) fm_utc_iso_to_epoch "$1" ;;
   esac
 }

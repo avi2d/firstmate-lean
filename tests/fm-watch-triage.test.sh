@@ -3246,7 +3246,7 @@ test_busy_declared_pause_is_rechecked_not_wedge_escalated() {
   printf 'Working... (7200.4s) lavish-axi poll' > "$capture_file"
   printf 'window=%s\nbackend=herdr\nkind=scout\nharness=pi\n' "$window" > "$state/review-scout.meta"
   record_pi_busy "$state" review-scout
-  printf 'paused: hosting the Lavish review, awaiting captain feedback | owner=captain | recheck=2099-01-01\n' > "$statusf"
+  printf 'paused: hosting the Lavish review, awaiting captain feedback | owner=captain | recheck=2099-01-01T00:00Z\n' > "$statusf"
   sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-review-scout_status"
   key=$(watch_window_key "$window")
   # No completed turn for hours (the single blocking poll call): age the spawn

@@ -628,7 +628,7 @@ test_no_mistakes_dod_green_detection() {
     "no-mistakes DOD must say axi status cannot show a green PR in merge monitoring"
   assert_grep "never wait on a status poll for the next gate or outcome" "$brief" \
     "no-mistakes DOD must forbid waiting on a status poll"
-  assert_grep "reattach at once by re-running \`no-mistakes axi run\` without flags" "$brief" \
+  assert_grep "reattach at once with \`no-mistakes axi run --wait 90s\`" "$brief" \
     "no-mistakes DOD must reattach the drive call after a bounded return"
   assert_grep "once checks are green it returns \`checks-passed\` immediately" "$brief" \
     "no-mistakes DOD must say a reattach reports an already-green PR"
@@ -1114,9 +1114,6 @@ test_inbox_listing_command_is_safe_on_empty_inbox() {
   pass "fm-brief: inbox listing is silent on empty/absent inbox and numerically ordered"
 }
 
-# Contract: a waiting worker spends no turns. A decision, CI, or pipeline wait
-# names what it waits on and ends the turn, no wait on CI or the pipeline is
-# held in a long command, and a waiting worker never polls its inbox.
 test_workers_wait_without_spending_turns() {
   local home id brief
   home="$TMP_ROOT/wait-home"
@@ -1129,16 +1126,16 @@ test_workers_wait_without_spending_turns() {
   for id in brief-wait-ship brief-wait-scout; do
     brief="$home/data/$id/brief.md"
     assert_grep "end your turn at once" "$brief" "$id: a decision wait must end the turn"
-    assert_grep "Never hold a wait on CI or the pipeline in a long command" "$brief" \
-      "$id: a CI or pipeline wait may still be held in a long command"
+    assert_grep "Never hold a wait on CI in a long command" "$brief" \
+      "$id: a CI wait may still be held in a long command"
     assert_no_grep "gh pr checks <pr> --watch" "$brief" "$id: the brief still offers a watched CI wait"
     assert_no_grep "is the sanctioned foreground wait" "$brief" "$id: the brief still offers an until-loop wait"
     assert_grep "append \`paused:\` naming it as \`CI run <id>\` with \`owner=CI\`" "$brief" \
       "$id: a CI wait does not name its run id"
-    assert_grep "append \`paused:\` naming the run id with \`owner=no-mistakes\`, and end your turn" "$brief" \
-      "$id: a pipeline wait does not name its run and end the turn"
-    assert_grep "reattach then with \`no-mistakes axi run --wait 90s\`" "$brief" \
-      "$id: a woken pipeline wait does not reattach with a short drive"
+    assert_grep "Keep driving the run with bounded waits" "$brief" \
+      "$id: the pipeline is not driven through bounded waits"
+    assert_grep "Send any ask-user finding to firstmate" "$brief" \
+      "$id: an ask-user finding is not escalated"
     assert_grep "Never send the same \`respond\` again" "$brief" \
       "$id: a returned respond may be resent"
     assert_grep "a \`timeout\` of at most 2700 seconds" "$brief" "$id: the Pi ceiling for a validation round is missing"
@@ -1151,15 +1148,14 @@ test_workers_wait_without_spending_turns() {
   brief="$home/data/brief-wait-ship/brief.md"
   assert_grep "Pass \`--wait 90s\` on every \`no-mistakes axi run\` and \`respond\` call" "$brief" \
     "the no-mistakes DOD does not bound each drive call"
-  assert_grep "naming the run id, and end your turn" "$brief" \
-    "the no-mistakes DOD does not end the turn on an unfinished drive call"
+  assert_grep "reattach at once with \`no-mistakes axi run --wait 90s\`" "$brief" \
+    "the no-mistakes DOD does not reattach after an unfinished drive call"
   assert_no_grep "issue the same foreground call again" "$brief" \
     "the no-mistakes DOD still holds the pipeline in repeated foreground calls"
   assert_no_grep "background the drive call" "$brief" "the no-mistakes DOD still backgrounds the drive call"
-  pass "fm-brief: workers end the turn on a decision, CI, or pipeline wait, naming the run, and never poll"
+  pass "fm-brief: workers drive pipeline waits and end the turn on decisions and CI"
 }
 
-# Without config/wait-no-turns the scaffold matches the pre-flag brief and drive text.
 test_wait_no_turns_absent_keeps_the_previous_brief() {
   local home brief
   home="$TMP_ROOT/wait-off"
@@ -1171,10 +1167,10 @@ test_wait_no_turns_absent_keeps_the_previous_brief() {
   assert_no_grep "end your turn at once" "$brief" "an absent flag still added the waiting section"
   assert_grep "natural checkpoint" "$brief" "an absent flag dropped the unprompted inbox check"
   assert_no_grep "Do not poll or list the inbox while waiting" "$brief" "an absent flag still added the no-poll inbox line"
-  assert_grep "background the drive call" "$brief" "an absent flag replaced the backgrounded drive text"
+  assert_grep "Never background a drive call" "$brief" "an absent flag permits backgrounded drive calls"
   assert_no_grep "issue the same foreground call again" "$brief" \
     "an absent flag still asked for the foreground reattach"
-  pass "fm-brief: without config/wait-no-turns the brief and drive text stay as they were"
+  pass "fm-brief: without config/wait-no-turns the drive stays bounded"
 }
 
 scaffold_local_tests_variants() {  # <home>

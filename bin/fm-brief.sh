@@ -184,15 +184,14 @@ PAUSED_VERB=${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}
 AGENT_RECHECK_TEXT=$(wait_overdue_text "$(wait_agent_recheck_secs)")
 IFS= read -r -d '' CREWMATE_PAUSE_INSTRUCTIONS <<EOF || true
    Use \`$PAUSED_VERB: {why}\` - distinct from \`blocked:\` - when deliberately waiting for work or an external condition expected to clear on its own, including your own validation round.
-   Before ending your turn with your own background shell or monitor still running, or before waiting on your own pipeline run or a long foreground command, append \`$PAUSED_VERB [at=<epoch>]: {job and completion condition} | owner=<who> | recheck=<YYYY-MM-DD>\` to the status file.
+   Before ending your turn with your own background shell or monitor still running, or before waiting on your own pipeline run or a long foreground command, append \`$PAUSED_VERB [at=<epoch>]: {job and completion condition} | owner=<who> | recheck=<YYYY-MM-DDTHH:MMZ>\` to the status file.
    Name what you are waiting for and what will let you resume; do not repeat the declaration on every poll.
-   End every \`$PAUSED_VERB\` or \`blocked\` line with \` | owner=<who> | recheck=<YYYY-MM-DD>\`: owner names who or what clears the wait (you, firstmate, the captain, a CI run, an outside service), and recheck is the UTC date - or \`<YYYY-MM-DDTHH:MMZ>\` time - after which a wait still standing is overdue.
+   End every \`$PAUSED_VERB\` or \`blocked\` line with \` | owner=<who> | recheck=<YYYY-MM-DDTHH:MMZ>\`: owner names who or what clears the wait (you, firstmate, the captain, a CI run, an outside service), and recheck is a full UTC time within 20 minutes, after which a wait still standing is overdue.
    Firstmate flags a wait missing either field, and raises one still standing once its recheck has passed.
    When the owner is no-mistakes, the pipeline or you, Firstmate raises the wait $AGENT_RECHECK_TEXT after it first sees the line, whatever recheck you wrote, checks no-mistakes for your branch, and sends you what it found; append a fresh \`$PAUSED_VERB\` line if the wait still stands.
-   Only a wait owned by CI that names its CI run id, such as \`CI run 123456\`, keeps a later recheck.
    Do not declare active implementation or reasoning as a wait.
    Firstmate may still raise one first-sight alert; the declared wait then uses the existing long recheck cadence instead of repeated possible-wedge alarms.
-   When you know when the wait clears, include \`until <YYYY-MM-DDTHH:MMZ>\` (UTC) for a recheck at that time; for your own background job or command with a timeout, that time is its start plus its timeout, rounded up to the minute.
+   When you know when the wait clears, include \`until <YYYY-MM-DDTHH:MMZ>\` (UTC); keep recheck within 20 minutes even if that time is later.
    Follow the resolution rule below when the wait clears, then resume the task.
    Use \`blocked:\` when you are stuck and need help.
 EOF
@@ -511,20 +510,21 @@ IFS= read -r -d '' WAIT_SECTION <<'EOF' || true
 # Waiting
 Every turn you take resends your whole context, so a wait must cost no turns.
 After you append `needs-decision:` or `blocked:`, end your turn at once: do not check the inbox, the status file, or anything else, because the answer arrives as a terminal message that starts your next turn.
-Never hold a wait on CI or the pipeline in a long command, and never poll it: no `gh pr checks --watch`, no `until` or `sleep` loop, no backgrounded command, and no `sleep` followed by a status check.
+Never hold a wait on CI in a long command, and never poll it: no `gh pr checks --watch`, no `until` or `sleep` loop, no backgrounded command, and no `sleep` followed by a status check.
 Instead, name what you wait on in a `paused:` line and end your turn; the watcher starts your next turn with a terminal message when it changes.
 To wait on CI, find the run still in progress, for example with `gh run list --branch <branch> --limit 5`, and append `paused:` naming it as `CI run <id>` with `owner=CI`.
 When that run finishes, the watcher sends `CI run <id> in <owner>/<repo> completed with conclusion <conclusion>`; if `gh pr checks <pr>` then shows another run still in progress, declare that one the same way.
 To wait on your own no-mistakes run, drive it with `no-mistakes axi run` or `respond` and `--wait 90s`.
-When that call returns with the run still executing, append `paused:` naming the run id with `owner=no-mistakes`, and end your turn.
-While the run's `ci` step watches the pull request, also name that CI run in the same line as `CI run <id>`, so its finish wakes you too.
-The watcher rings you when the run parks at a gate waiting on you or finishes; reattach then with `no-mistakes axi run --wait 90s`.
+Keep driving the run with bounded waits until it reaches a gate needing firstmate, opens its PR, or ends.
+Answer only auto-fix or settled gates: gates whose findings are all auto-fix, or which the brief or an earlier firstmate answer already settled.
+Send any ask-user finding to firstmate as `needs-decision`.
+If you must end your turn while it is still working, declare `owner=no-mistakes` only after confirming it is working, never while it waits at an auto-fix or settled gate.
 Never send the same `respond` again after it returned, because it would answer whichever gate parks next without you reading it.
 For any other external wait, check it once, and if it has not changed, append `paused:` naming it with its owner and recheck, and end your turn; firstmate raises it at its recheck.
 Append `paused:` once per wait, and never again for the same run.
-The one wait you hold in a command is your own validation round, which you declare once just before its blocking hold: append `paused:` once just before its first blocking command, then stay in the command, and never append it again as you reissue that command.
+A wait you hold in a command is your own validation round, which you declare once just before its blocking hold: append `paused:` once just before its first blocking command, then stay in the command, and never append it again as you reissue that command.
 Bound that command by what your harness lets one command run: in Pi pass the bash tool a `timeout` of at most 2700 seconds, because Pi sets none by default; in Claude Code pass the Bash tool its maximum `timeout` of 600000 ms, because its default is 2 minutes; in Codex keep waiting on a still-running command with empty `write_stdin` polls of up to 300000 ms; elsewhere pass your shell tool its largest timeout and assume at most 10 minutes.
-Where another part of this brief says to hold a wait on CI or the pipeline in a command, this section wins.
+Where another part of this brief says to hold a wait on CI in a command, this section wins.
 EOF
 WAIT_SECTION=${WAIT_SECTION%$'\n'}
 WAIT_BLOCK=
@@ -596,7 +596,7 @@ IFS= read -r -d '' SHARED_INFRA_RULE <<'EOF' || true
      updating it kills other lanes' in-flight pipeline runs; only firstmate manages the daemon.
      Before you append `blocked:` about the pipeline, run `no-mistakes daemon status` and
      `no-mistakes axi status`. If the daemon socket refuses connections or is missing, append
-     `blocked [at=<epoch>]: {the daemon error} | owner=firstmate | recheck=<YYYY-MM-DD>` and stop even when the local run record still says running or
+     `blocked [at=<epoch>]: {the daemon error} | owner=firstmate | recheck=<YYYY-MM-DDTHH:MMZ>` and stop even when the local run record still says running or
      fixing, because that record can be stale after the daemon exits. A run record failed with a
      daemon error is also a real block.
      Only after ruling out socket refusal, if the run is still running or fixing, reattach and keep
@@ -612,7 +612,7 @@ IFS= read -r -d '' SHARED_INFRA_RULE <<'EOF' || true
      backend, and `git worktree add|remove|move|prune`. A slot that looks unused is not evidence
      that it is free, and returning your own worktree is firstmate's job at cleanup, not yours.
    If you genuinely need a second checkout, another slot, or the daemon touched, append
-   `blocked [at=<epoch>]: {what you need} | owner=firstmate | recheck=<YYYY-MM-DD>` and stop; firstmate arranges it.
+   `blocked [at=<epoch>]: {what you need} | owner=firstmate | recheck=<YYYY-MM-DDTHH:MMZ>` and stop; firstmate arranges it.
 EOF
 SHARED_INFRA_RULE=${SHARED_INFRA_RULE%$'\n'}
 
@@ -711,7 +711,7 @@ $TASKTMP_RULE
    https:// URL exactly as the forge printed it, never a bare number such as "PR 108"; firstmate
    copies that URL from your line rather than assembling one.
 $CREWMATE_PAUSE_INSTRUCTIONS$FOLLOWUP_INSTRUCTIONS
-5. If you hit the same obstacle twice, append \`blocked [at=<epoch>]: {why} | owner=firstmate | recheck=<YYYY-MM-DD>\` and stop; firstmate will help.
+5. If you hit the same obstacle twice, append \`blocked [at=<epoch>]: {why} | owner=firstmate | recheck=<YYYY-MM-DDTHH:MMZ>\` and stop; firstmate will help.
 6. If a decision belongs to a human (product choices, destructive actions),
    append \`needs-decision [at=<epoch>]: {summary of options}\` and stop. Firstmate will reply with the decision.
    A decision or blocker you opened stays open until a \`resolved\` line carrying its exact key lands; a later \`done:\` or \`working:\` line never closes it, even when the answer is what started that work.
@@ -775,7 +775,7 @@ $SETUP_BASE
 
 **Verify isolation before anything else.** Run \`pwd -P\` and \`git rev-parse --show-toplevel\`; both must resolve to the disposable task worktree you were launched in, such as a treehouse pool path, not the primary checkout firstmate operates from.
 The path check is authoritative: \`git rev-parse --git-dir\` and \`git rev-parse --git-common-dir\` can help inspect the repo, but they do not prove you are outside the primary checkout.
-If the top-level path is the primary checkout or not the worktree you were launched in, STOP - do not branch or commit here - append \`blocked [at=<epoch>]: launched in primary checkout, not an isolated worktree | owner=firstmate | recheck=<YYYY-MM-DD>\` to the status file and stop.
+If the top-level path is the primary checkout or not the worktree you were launched in, STOP - do not branch or commit here - append \`blocked [at=<epoch>]: launched in primary checkout, not an isolated worktree | owner=firstmate | recheck=<YYYY-MM-DDTHH:MMZ>\` to the status file and stop.
 
 1. First action: create your branch: \`git checkout -b $BRANCH_Q --\`$SETUP2
 
@@ -800,7 +800,7 @@ $TASKTMP_RULE
    A mid-task \`working:\` line (including setup complete) is nonterminal: do not end the
    turn after it; continue the same stage until a defined \`done:\` gate under Definition of done.
 $CREWMATE_PAUSE_INSTRUCTIONS$FOLLOWUP_INSTRUCTIONS
-5. If you hit the same obstacle twice, append \`blocked [at=<epoch>]: {why} | owner=firstmate | recheck=<YYYY-MM-DD>\` and stop; firstmate will help.
+5. If you hit the same obstacle twice, append \`blocked [at=<epoch>]: {why} | owner=firstmate | recheck=<YYYY-MM-DDTHH:MMZ>\` and stop; firstmate will help.
 6. If a decision belongs above the implementation worker (product choices, destructive actions),
    append \`needs-decision [at=<epoch>]: {summary of options}\` and stop. Firstmate will reply with the decision.
 $ASK_USER_BLOCK

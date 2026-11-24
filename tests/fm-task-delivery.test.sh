@@ -1556,7 +1556,7 @@ test_forge_gerrit_changes_what_no_mistakes_means() {
     "the gerrit worker was told to wait for a checks-passed return its skipped ci step never gives"
   # shellcheck disable=SC2016 # Backticks are literal generated Markdown.
   grep -v "reports the green PR" "$TMP_ROOT/forge-dod/plain-middle" \
-    | sed 's/; once checks are green it returns `checks-passed` immediately, and if it refuses/; if it refuses/' \
+    | sed 's/; once checks are green it returns `checks-passed` immediately, and if no run is active/; if no run is active/' \
     > "$TMP_ROOT/forge-dod/plain-middle-no-pr"
   cmp -s "$TMP_ROOT/forge-dod/gerrit-middle" "$TMP_ROOT/forge-dod/plain-middle-no-pr" \
     || fail "the forge changed the forge-independent half of the pipeline contract"
