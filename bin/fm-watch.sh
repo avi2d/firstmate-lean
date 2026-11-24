@@ -3493,6 +3493,13 @@ while :; do
       pr_register_reason="check: pr-register: $FM_CHECK_RESULT"
       fm_wake_append check pr-register "$pr_register_reason" || exit 1
     fi
+    for c in "$STATE"/*.main-ci-watch; do
+      [ -f "$c" ] && [ ! -L "$c" ] || continue
+      FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" run_check_capture "$SCRIPT_DIR/fm-main-ci-watch.sh" check "$c" || exit 1
+      case "$FM_CHECK_RESULT" in
+        check:\ main\ CI*) touch "$STATE/.last-check"; wake "$FM_CHECK_RESULT" ;;
+      esac
+    done
     for c in "$STATE"/*.check.sh; do
       [ -e "$c" ] || continue
       is_pr_poll=0

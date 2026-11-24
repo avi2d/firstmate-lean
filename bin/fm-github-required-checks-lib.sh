@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Source to check the main-only CI policy and read GitHub's required check contexts.
+# Source to read GitHub's required checks and compare a PR with its base.
 
 github_main_only_empty_rollup() {
   local home=$1 project_url=$2 json=$3 config
@@ -24,6 +24,33 @@ github_urlencode_path_segment() {
     esac
   done
   printf '%s' "$encoded"
+}
+
+github_disjoint_base_tip() {
+  local repo=$1 base=$2 head=$3 merge_state=$4 comparison tip fork base_changes
+  shift 4
+  # A blocked merge state can hide the strict branch update requirement.
+  [ "$merge_state" = CLEAN ] || return 1
+  comparison=$("$@" api "repos/$repo/compare/$(github_urlencode_path_segment "$base")...$head?per_page=1") || return 1
+  tip=$(printf '%s' "$comparison" | jq -er 'select((.behind_by | type) == "number" and .behind_by > 0) | .base_commit.sha') || return 1
+  fork=$(printf '%s' "$comparison" | jq -er '.merge_base_commit.sha') || return 1
+  fm_pr_head_valid "$tip" && fm_pr_head_valid "$fork" && [ "$tip" != "$fork" ] || return 1
+  base_changes=$("$@" api "repos/$repo/compare/$fork...$tip?per_page=1") || return 1
+
+  # GitHub puts the changed files on page one and caps the list at 300.
+  printf '%s\n%s\n' "$comparison" "$base_changes" | jq -es --arg fork "$fork" '
+    def paths:
+      .files
+      | if type != "array" or length >= 300 then error("incomplete changed files") else . end
+      | [ .[]
+          | if (.status | type) != "string" or (.filename | type) != "string" or .filename == ""
+               or (.status == "renamed" and .previous_filename == null)
+               or (.previous_filename != null and ((.previous_filename | type) != "string" or .previous_filename == ""))
+            then error("invalid changed file") else .filename, (.previous_filename // empty) end ];
+    length == 2 and (.[1].merge_base_commit.sha == $fork and .[1].status == "ahead")
+    and ((.[0] | paths) as $pr | (.[1] | paths) as $base | ($pr - $base | length) == ($pr | length))
+  ' >/dev/null || return 1
+  printf '%s' "$tip"
 }
 
 # A plan refusal means there are no active rulesets. A permission refusal does not.

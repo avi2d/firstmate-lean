@@ -850,6 +850,21 @@ github_head_behind_base() {
   printf '%s' "$behind"
 }
 
+github_confirm_disjoint_base() {
+  local query live
+  IFS= read -r query <<'GRAPHQL'
+query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){baseRefName baseRef{target{oid}} headRefOid mergeStateStatus}}}
+GRAPHQL
+  live=$(fm_run_timed 10 gh api graphql -f "query=$query" \
+    -f "owner=$PR_OWNER" -f "repo=$PR_REPO" -F "number=$PR_NUMBER" 2>/dev/null) || return 1
+  printf '%s' "$live" | jq -e --arg base "$FM_PR_GITHUB_BASE" --arg tip "$FM_PR_GITHUB_DISJOINT_BASE_TIP" \
+    --arg head "$FM_PR_MERGE_HEAD" '
+      .data.repository.pullRequest
+      | .baseRefName == $base and .baseRef.target.oid == $tip
+        and .headRefOid == $head and .mergeStateStatus == "CLEAN"
+    ' >/dev/null
+}
+
 github_required_checks_missing() {
   local json=$1 required=$2 producers=$3
   printf '%s' "$json" | jq -r --argjson required "$required" --argjson producers "$producers" '
@@ -879,6 +894,7 @@ github_verify_mergeable() {
   local total=0 named=0 refusals='' mergeable_refusal=''
   local state='' draft='' mergeable='' merge_state='' live_head='' base=''
   FM_PR_GITHUB_BEHIND=false
+  FM_PR_GITHUB_DISJOINT_BASE_TIP=
   FM_PR_GITHUB_CHECKS_PENDING=false
   FM_PR_GITHUB_CHECKS_FAILED=false
   FM_PR_GITHUB_OTHER_REFUSAL=false
@@ -998,7 +1014,9 @@ EOF
 "
   elif [ "$behind" -gt 0 ]; then
     FM_PR_GITHUB_BEHIND=true
-    if [ "$UPDATE_BRANCH" != true ]; then
+    FM_PR_GITHUB_DISJOINT_BASE_TIP=$(github_disjoint_base_tip "$PR_PATH" "$base" "$live_head" "$merge_state" \
+      fm_run_timed 10 gh 2>/dev/null) || FM_PR_GITHUB_DISJOINT_BASE_TIP=
+    if [ -z "$FM_PR_GITHUB_DISJOINT_BASE_TIP" ] && [ "$UPDATE_BRANCH" != true ]; then
       FM_PR_GITHUB_OTHER_REFUSAL=true
       commits=commits
       [ "$behind" -ne 1 ] || commits=commit
@@ -2627,7 +2645,17 @@ case "$PROVIDER" in
         "$URL" "$UPSTREAM_SYNC_HEAD" "$FM_PR_MERGE_HEAD" >&2
       exit 1
     fi
-    if [ "$FM_PR_GITHUB_BEHIND" = true ]; then
+    if [ -n "$FM_PR_GITHUB_DISJOINT_BASE_TIP" ]; then
+      if ! github_confirm_disjoint_base; then
+        printf 'error: could not confirm the compared base tip and head for %s; retry against the current base\n' "$URL" >&2
+        exit 1
+      fi
+      if ! FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" "$SCRIPT_DIR/fm-main-ci-watch.sh" arm "$URL" "$FM_PR_GITHUB_BASE" "$FM_PR_MERGE_HEAD"; then
+        printf 'error: could not arm the base CI watch for %s; nothing was merged\n' "$URL" >&2
+        exit 1
+      fi
+      printf 'verified: %s shares no changed paths with the base advance; skipping the branch update\n' "$URL" >&2
+    elif [ "$FM_PR_GITHUB_BEHIND" = true ]; then
       if [ "$UPDATE_BRANCH" != true ]; then
         echo "error: $URL is behind its base; updating its source branch requires explicit --update-branch consent on this authorized merge request (the update remains if new checks prevent merging)" >&2
         exit 1

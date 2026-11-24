@@ -284,6 +284,10 @@ case "${1:-} ${2:-}" in
       exit 1
     fi
     case " $* " in
+      *'baseRef{target{oid}}'*)
+        cat "${FM_TEST_GH_LOG%/*}/github-disjoint-confirmation.json"
+        exit $?
+        ;;
       *stackEntry*)
         if [ -f "${FM_TEST_GH_STACK_FAIL:-}" ]; then
           cat "${FM_TEST_GH_STACK_FAIL}" >&2
@@ -297,6 +301,10 @@ case "${1:-} ${2:-}" in
     exit 0
     ;;
   "api repos/"*/compare/*)
+    case "$2" in
+      *'/compare/main...'*'?per_page=1') cat "${FM_TEST_GH_LOG%/*}/github-pr-comparison.json"; exit $? ;;
+      *'?per_page=1') cat "${FM_TEST_GH_LOG%/*}/github-base-comparison.json"; exit $? ;;
+    esac
     if [ -f "${FM_TEST_GH_COMPARE_FAIL:-}" ]; then
       echo 'gh: Not Found (HTTP 404)' >&2
       exit 1
@@ -4277,6 +4285,134 @@ test_github_draft_or_unreadable_draft_state_refuses() {
   pass "fm-pr-merge refuses a draft pull request and one with no boolean draft state"
 }
 
+write_github_disjoint_comparisons() {
+  local case_dir=$1 tip=$2 fork=$3 head
+  head=$(cat "$case_dir/github-head")
+  printf '3\n' > "$case_dir/github-compare"
+  printf '{"data":{"repository":{"pullRequest":{"baseRefName":"main","baseRef":{"target":{"oid":"%s"}},"headRefOid":"%s","mergeStateStatus":"CLEAN"}}}}\n' \
+    "$tip" "$head" > "$case_dir/github-disjoint-confirmation.json"
+  printf '{"behind_by":3,"base_commit":{"sha":"%s"},"merge_base_commit":{"sha":"%s"},"files":[{"status":"modified","filename":"old name.txt"}]}\n' \
+    "$tip" "$fork" > "$case_dir/github-pr-comparison.json"
+  printf '{"status":"ahead","merge_base_commit":{"sha":"%s"},"files":[{"status":"added","filename":"base.txt"}]}\n' \
+    "$fork" > "$case_dir/github-base-comparison.json"
+}
+
+test_github_disjoint_behind_merge_arms_ci_without_mutating_the_branch() {
+  local case_dir head tip fork watch
+  head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  tip=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+  fork=cccccccccccccccccccccccccccccccccccccccc
+  case_dir=$(make_case github-behind-disjoint)
+  add_gh_mocks "$case_dir" "$head"
+  write_github_disjoint_comparisons "$case_dir" "$tip" "$fork"
+
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/143 --expected-head "$head" --update-branch \
+    > "$case_dir/stdout" 2> "$case_dir/stderr" || fail "$(cat "$case_dir/stderr")"
+  assert_logged_gh_merge "$case_dir" 143 example/repo --squash
+  assert_no_grep '/update-branch' "$case_dir/gh.log" "disjoint merge mutated the branch despite no shared path"
+  for watch in "$case_dir/state/"*.main-ci-watch; do
+    [ -f "$watch" ] || fail "disjoint merge has no durable base CI watch"
+  done
+  pass "fm-pr-merge does not mutate a disjoint green branch and leaves a CI watch"
+}
+
+test_github_behind_merge_refuses_shared_rename_strict_unreadable_moved_or_red() {
+  local case_dir scenario head tip fork rc pattern
+  head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  tip=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+  fork=cccccccccccccccccccccccccccccccccccccccc
+  for scenario in rename strict truncated moved red; do
+    case_dir=$(make_case "github-behind-$scenario")
+    add_gh_mocks "$case_dir" "$head"
+    write_github_disjoint_comparisons "$case_dir" "$tip" "$fork"
+    pattern='branch must take in'
+    case "$scenario" in
+      rename)
+        printf '{"status":"ahead","merge_base_commit":{"sha":"%s"},"files":[{"status":"renamed","filename":"new.txt","previous_filename":"old name.txt"}]}\n' \
+          "$fork" > "$case_dir/github-base-comparison.json"
+        ;;
+      strict)
+        jq '.mergeStateStatus = "BEHIND"' "$case_dir/github-view.json" > "$case_dir/strict.json"
+        mv "$case_dir/strict.json" "$case_dir/github-view.json"
+        ;;
+      truncated)
+        jq --arg fork "$fork" -n '{status:"ahead",merge_base_commit:{sha:$fork},files:[range(300) | {status:"added",filename:"file-\(.)"}]}' \
+          > "$case_dir/github-base-comparison.json"
+        ;;
+      moved)
+        jq --arg sha "$head" '.data.repository.pullRequest.baseRef.target.oid = $sha' \
+          "$case_dir/github-disjoint-confirmation.json" > "$case_dir/moved.json"
+        mv "$case_dir/moved.json" "$case_dir/github-disjoint-confirmation.json"
+        pattern='could not confirm the compared base tip'
+        ;;
+      red)
+        write_github_red_json "$case_dir" "$head" ci
+        pattern="check 'ci' is not green"
+        ;;
+    esac
+    rc=0
+    run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/144 \
+      > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+    expect_code 1 "$rc" "$scenario: a behind branch must not merge"
+    assert_grep "$pattern" "$case_dir/stderr" "$scenario: did not name the refusal"
+    assert_no_grep 'pr merge' "$case_dir/gh.log" "$scenario: behind head reached the forge merge"
+    compgen -G "$case_dir/state/*.main-ci-watch" >/dev/null && fail "$scenario: CI watch armed before the merge passed its guards"
+  done
+  pass "fm-pr-merge does not skip a shared old rename path or a strict, incomplete, moved, or red comparison"
+}
+
+test_main_ci_watch_ignores_pr_head_and_surfaces_landed_push_failure_once() {
+  local case_dir head tip fork landed url watch run
+  head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  tip=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+  fork=cccccccccccccccccccccccccccccccccccccccc
+  landed=dddddddddddddddddddddddddddddddddddddddd
+  url=https://github.com/example/repo/pull/145
+  case_dir=$(make_case github-landed-main-ci)
+  add_gh_mocks "$case_dir" "$head"
+  write_github_disjoint_comparisons "$case_dir" "$tip" "$fork"
+  run_pr_merge "$case_dir" task-x1 "$url" > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "$(cat "$case_dir/stderr")"
+  for watch in "$case_dir/state/"*.main-ci-watch; do
+    [ -f "$watch" ] || fail "main CI watch was not recorded"
+  done
+  rm -f -- "$case_dir/state/task-x1.meta"
+
+  cat > "$case_dir/fakebin/gh" <<'SH'
+#!/usr/bin/env bash
+case "$*" in
+  "api repos/example/repo/pulls/145") cat "$CI_FIXTURE/pull.json" ;;
+  "api --paginate repos/example/repo/actions/runs?"*)
+    printf '%s\n' "$2 $3" >> "$CI_FIXTURE/requests"
+    cat "$CI_FIXTURE/runs.json"
+    ;;
+  *) exit 1 ;;
+esac
+SH
+  printf '{"state":"open","merged":false,"head":{"sha":"%s"},"base":{"ref":"main"}}\n' "$head" > "$case_dir/pull.json"
+  CI_FIXTURE="$case_dir" PATH="$case_dir/fakebin:$PATH" FM_STATE_OVERRIDE="$case_dir/state" \
+    "$ROOT/bin/fm-main-ci-watch.sh" check "$watch" || fail "open merge watch could not check"
+  assert_absent "$case_dir/requests" "main CI watch queried an open pull request's speculative merge commit"
+
+  printf '{"state":"closed","merged":true,"head":{"sha":"%s"},"base":{"ref":"main"},"merged_at":"2026-01-01T00:00:00Z","merge_commit_sha":"%s"}\n' \
+    "$head" "$landed" > "$case_dir/pull.json"
+  jq --arg head "$head" --arg landed "$landed" -n '{workflow_runs:[
+    {id:900,head_sha:$head,head_branch:"main",event:"push",status:"completed",conclusion:"failure"},
+    {id:901,head_sha:$landed,head_branch:"main",event:"pull_request",status:"completed",conclusion:"failure"},
+    {id:902,head_sha:$landed,head_branch:"other",event:"push",status:"completed",conclusion:"failure"},
+    {id:903,head_sha:$landed,head_branch:"main",event:"push",status:"completed",conclusion:"failure"}]}' \
+    > "$case_dir/runs.json"
+  for run in first repeat; do
+    CI_FIXTURE="$case_dir" PATH="$case_dir/fakebin:$PATH" FM_STATE_OVERRIDE="$case_dir/state" \
+      "$ROOT/bin/fm-main-ci-watch.sh" check "$watch" || fail "main CI watch could not check: $run"
+  done
+  assert_grep "head_sha=$landed&event=push" "$case_dir/requests" "watch did not pin the push run to the merge commit"
+  assert_grep "main CI red on main at $landed after $url: https://github.com/example/repo/actions/runs/903" \
+    "$case_dir/state/.wake-queue" "main CI failure did not become a check wake"
+  assert_equals 1 "$(grep -c 'check: main CI red' "$case_dir/state/.wake-queue")" "retired watch repeated its wake"
+  pass "main CI ignores non-push, non-base and non-merge-commit failures, and publishes the exact landed push failure once"
+}
+
 test_github_head_behind_base_refuses() {
   local case_dir rc head
   head=abababababababababababababababababababab
@@ -5404,6 +5540,9 @@ test_github_behind_updates_and_rechecks_before_merge
 test_github_red_checks_refuse_and_allow_red_waives_named
 test_github_draft_or_unreadable_draft_state_refuses
 test_github_head_behind_base_refuses
+test_github_disjoint_behind_merge_arms_ci_without_mutating_the_branch
+test_github_behind_merge_refuses_shared_rename_strict_unreadable_moved_or_red
+test_main_ci_watch_ignores_pr_head_and_surfaces_landed_push_failure_once
 test_github_head_containing_base_tip_merges
 test_github_unreadable_base_containment_refuses
 test_release_pr_merges_without_an_owning_task
