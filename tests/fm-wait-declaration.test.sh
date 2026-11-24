@@ -12,7 +12,6 @@ WATCH="$ROOT/bin/fm-watch.sh"
 
 TMP_ROOT=$(fm_test_tmproot fm-wait-declaration-tests)
 
-# 2026-10-26T09:00:00Z: recheck=2026-10-24 fell due at 2026-10-25T00:00Z, 33 hours earlier.
 NOW=1793005200
 
 utc_day() {  # <epoch> -> YYYY-MM-DD
@@ -41,12 +40,21 @@ $2
 EOF
 }
 
+test_bare_future_date_is_not_silently_deferred() {
+  local dir state items
+  dir=$(make_case wait-bare-date); state="$dir/state"
+  printf 'paused: waiting | owner=captain | recheck=2099-01-01\n' > "$state/t.status"
+  items=$(scan "$state") || fail "the scan failed on a bare date"
+  assert_contains "$(reasons "$items")" "wait overdue: t paused waiting on captain, recheck 2099-01-01 passed" "a bare date deferred the wait"
+  pass "a bare date is overdue even when its day is in the future"
+}
+
 test_accepted_shape_quiet_before_recheck() {
   local dir state items
   dir=$(make_case wait-accepted); state="$dir/state"
-  printf 'working: setup\npaused [at=1793000000]: release cut | owner=daily-release workflow | recheck=2026-10-26\n' > "$state/t.status"
+  printf 'working: setup\npaused [at=1793000000]: release cut | owner=daily-release workflow | recheck=2026-10-27T00:00Z\n' > "$state/t.status"
   items=$(scan "$state") || fail "the scan failed on a well-formed wait"
-  [ -z "$items" ] || fail "a well-formed wait whose recheck day has not ended was raised: $items"
+  [ -z "$items" ] || fail "a well-formed wait whose recheck time has not passed was raised: $items"
   printf 'paused [at=1793000000]: nm run | owner=the worker | recheck=2026-10-26T09:30Z\n' > "$state/t.status"
   items=$(scan "$state") || fail "the scan failed on a timed recheck"
   [ -z "$items" ] || fail "a wait whose recheck time is still ahead was raised: $items"
@@ -58,7 +66,7 @@ test_refused_shape_flagged() {
   dir=$(make_case wait-refused); state="$dir/state"
   printf 'paused [at=1793000000]: waiting for the release to cut\n' > "$state/a.status"
   printf 'paused [at=1793000000]: waiting | owner=captain\n' > "$state/b.status"
-  printf 'blocked [at=1793000000]: no credential | recheck=2026-10-30\n' > "$state/c.status"
+  printf 'blocked [at=1793000000]: no credential | recheck=2026-10-31T00:00Z\n' > "$state/c.status"
   printf 'paused [at=1793000000]: waiting | owner=captain | recheck=tomorrow\n' > "$state/d.status"
   items=$(scan "$state") || fail "the scan failed on undeclared fields"
   text=$(reasons "$items")
@@ -73,10 +81,10 @@ test_refused_shape_flagged() {
 test_overdue_raised_with_owner_and_time() {
   local dir state items text
   dir=$(make_case wait-overdue); state="$dir/state"
-  printf 'paused [at=1792800000]: release cut | owner=daily-release workflow | recheck=2026-10-24\n' > "$state/t.status"
+  printf 'paused [at=1792800000]: release cut | owner=daily-release workflow | recheck=2026-10-25T00:00Z\n' > "$state/t.status"
   items=$(scan "$state") || fail "the scan failed on an overdue wait"
   text=$(reasons "$items")
-  assert_contains "$text" "wait overdue: t paused waiting on daily-release workflow, recheck 2026-10-24 passed 1d 9h ago: release cut" "the overdue wait was not raised with its task, owner and overdue time"
+  assert_contains "$text" "wait overdue: t paused waiting on daily-release workflow, recheck 2026-10-25T00:00Z passed 1d 9h ago: release cut" "the overdue wait was not raised with its task, owner and overdue time"
   dir=$(make_case wait-overdue-blocker); state="$dir/state"
   printf 'blocked [key=cred] [at=1792800000]: no token | owner=captain | recheck=2026-10-26T08:00Z\n' > "$state/t.status"
   items=$(scan "$state") || fail "the scan failed on an overdue blocker"
@@ -88,9 +96,9 @@ test_cleared_wait_quiet() {
   local dir state items
   dir=$(make_case wait-cleared); state="$dir/state"
   {
-    printf 'paused [at=1792800000]: release cut | owner=ci | recheck=2026-10-24\n'
+    printf 'paused [at=1792800000]: release cut | owner=ci | recheck=2026-10-25T00:00Z\n'
     printf 'working [at=1792900000]: release shipped\n'
-    printf 'blocked [key=cred] [at=1792800000]: no token | owner=captain | recheck=2026-10-24\n'
+    printf 'blocked [key=cred] [at=1792800000]: no token | owner=captain | recheck=2026-10-25T00:00Z\n'
     printf 'resolved [key=cred] [at=1792900000]: token granted\n'
   } > "$state/t.status"
   items=$(scan "$state") || fail "the scan failed on cleared waits"
@@ -101,15 +109,15 @@ test_cleared_wait_quiet() {
 test_raised_once_then_rearmed_by_redeclaration() {
   local dir state items
   dir=$(make_case wait-once); state="$dir/state"
-  printf 'paused [at=1792800000]: release cut | owner=release | recheck=2026-10-24\n' > "$state/t.status"
+  printf 'paused [at=1792800000]: release cut | owner=release | recheck=2026-10-25T00:00Z\n' > "$state/t.status"
   items=$(scan "$state") || fail "the first scan failed"
   [ -n "$items" ] || fail "the first scan raised nothing"
   record_all "$state" "$items"
   items=$(scan "$state") || fail "the second scan failed"
   [ -z "$items" ] || fail "the same overdue wait was raised twice: $items"
-  printf 'paused [at=1793000000]: release cut | owner=release | recheck=2026-10-25\n' >> "$state/t.status"
+  printf 'paused [at=1793000000]: release cut | owner=release | recheck=2026-10-26T00:00Z\n' >> "$state/t.status"
   items=$(scan "$state") || fail "the scan after redeclaring failed"
-  assert_contains "$(reasons "$items")" "recheck 2026-10-25 passed 9h 0m ago" "a redeclared wait whose new recheck also passed was not raised"
+  assert_contains "$(reasons "$items")" "recheck 2026-10-26T00:00Z passed 9h 0m ago" "a redeclared wait whose new recheck also passed was not raised"
   printf 'working [at=1793000100]: resumed\n' >> "$state/t.status"
   scan "$state" >/dev/null || fail "the scan after clearing failed"
   if compgen -G "$state/.wait-flag-*" >/dev/null; then
@@ -121,7 +129,7 @@ test_raised_once_then_rearmed_by_redeclaration() {
 test_overdue_reminder_does_not_stop_after_first_wake() {
   local dir state items
   dir=$(make_case wait-repeat); state="$dir/state"
-  printf 'paused: release | owner=release | recheck=2020-01-01\n' > "$state/t.status"
+  printf 'paused: release | owner=release | recheck=2020-01-02T00:00Z\n' > "$state/t.status"
   items=$(scan "$state")
   record_all "$state" "$items"
   [ -z "$(scan_wait_declarations "$state" "$((NOW + 3599))")" ] || fail "reminder fired too soon"
@@ -134,10 +142,10 @@ test_overdue_reminder_does_not_stop_after_first_wake() {
 test_ci_owner_without_run_id_is_flagged() {
   local dir state items
   dir=$(make_case wait-ci-missing); state="$dir/state"
-  printf 'paused: waiting for checks | owner=GitHub CI | recheck=2030-01-01\n' > "$state/t.status"
+  printf 'paused: waiting for checks | owner=GitHub CI | recheck=2030-01-02T00:00Z\n' > "$state/t.status"
   items=$(scan "$state")
   assert_contains "$(reasons "$items")" "run id" "a CI wait without a run id was not flagged"
-  printf 'paused: CI run 123 | owner=GitHub CI | recheck=2030-01-01\n' > "$state/t.status"
+  printf 'paused: CI run 123 | owner=GitHub CI | recheck=2030-01-02T00:00Z\n' > "$state/t.status"
   [ -z "$(scan "$state")" ] || fail "a CI wait with a run id was flagged"
   pass "a CI wait without a run id is flagged"
 }
@@ -157,7 +165,7 @@ esac
 SCRIPT
   chmod +x "$dir/fakebin/gh-axi"
   for form in 'CI run 123' 'ci_run=123' 'https://github.com/example/repo/actions/runs/123'; do
-    printf 'paused: %s | owner=GitHub CI | recheck=2030-01-01\n' "$form" > "$state/t.status"
+    printf 'paused: %s | owner=GitHub CI | recheck=2030-01-02T00:00Z\n' "$form" > "$state/t.status"
     items=$(PATH="$dir/fakebin:$PATH" CI_STATUS=in_progress scan_wait_ci_completions "$state")
     [ -z "$items" ] || fail "an in-progress run woke firstmate"
     items=$(PATH="$dir/fakebin:$PATH" CI_STATUS=completed scan_wait_ci_completions "$state")
@@ -194,7 +202,7 @@ case "$*" in
 esac
 SCRIPT
   chmod +x "$dir/fakebin/gh-axi"
-  printf 'paused: CI run 123 | owner=GitHub CI | recheck=2030-01-01\n' > "$state/t.status"
+  printf 'paused: CI run 123 | owner=GitHub CI | recheck=2030-01-02T00:00Z\n' > "$state/t.status"
   prime_status_seen "$state" "$state/t.status" || fail "priming status failed"
   rm -f "$state/.last-check"
   out="$dir/watch.out"
@@ -226,7 +234,7 @@ make_remote_ci_case() {
   fm_write_meta "$dir/state/remote-ci.meta" "window=remote:remote-ci" "endpoint_task_id=remote-ci" "kind=ship" "mode=local-only" \
     "remote_host=stub" "remote_route=lab" "worktree=/remote-only/worktree" "project=/remote-only/project"
   fm_write_herdr_meta "$host/state/remote-ci.meta" 'fm-remote:w1:p1' 'kind=ship' 'harness=pi' "worktree=$host/worktree" "project=$host/projects/repo"
-  printf 'paused: CI run 456 | owner=GitHub CI | recheck=2099-01-01\n' > "$dir/state/remote-ci.status"
+  printf 'paused: CI run 456 | owner=GitHub CI | recheck=2099-01-02T00:00Z\n' > "$dir/state/remote-ci.status"
   prime_status_seen "$dir/state" "$dir/state/remote-ci.status" || fail "priming remote status failed"
 
   cat > "$dir/fakebin/ssh" <<'SCRIPT'
@@ -419,7 +427,7 @@ test_no_mistakes_wait_is_not_silenced_by_a_distant_recheck() {
   dir=$(make_case wait-agent-bound); state="$dir/state"
   printf 'paused [at=1793000000]: no-mistakes drive waits for its next gate or CI verdict | owner=no-mistakes | recheck=2026-10-26T12:14Z\n' > "$state/a.status"
   printf 'paused [at=1793000000]: no-mistakes resolving rebase conflict | owner=no-mistakes pipeline | recheck=2026-10-26T12:32Z\n' > "$state/b.status"
-  printf 'paused [at=1793000000]: my test run | owner=me | recheck=2026-10-27\n' > "$state/c.status"
+  printf 'paused [at=1793000000]: my test run | owner=me | recheck=2026-10-28T00:00Z\n' > "$state/c.status"
   items=$(scan "$state") || fail "the first-sight scan failed"
   [ -z "$items" ] || fail "an agent-side wait was raised on first sight: $items"
   items=$(scan_wait_declarations "$state" "$((NOW + 1199))") || fail "the scan before the bound failed"
@@ -452,9 +460,9 @@ test_ci_wait_naming_its_run_keeps_its_declared_recheck() {
 test_redeclared_agent_wait_does_not_inherit_old_first_sight() {
   local dir state items
   dir=$(make_case wait-agent-redeclared); state="$dir/state"
-  printf 'paused [at=1793000000]: nm run | owner=no-mistakes | recheck=2026-10-27\n' > "$state/t.status"
+  printf 'paused [at=1793000000]: nm run | owner=no-mistakes | recheck=2026-10-28T00:00Z\n' > "$state/t.status"
   scan "$state" >/dev/null || fail "the first-sight scan failed"
-  printf 'paused [at=1793001000]: nm run, second round | owner=no-mistakes | recheck=2026-10-27\n' >> "$state/t.status"
+  printf 'paused [at=1793001000]: nm run, second round | owner=no-mistakes | recheck=2026-10-28T00:00Z\n' >> "$state/t.status"
   scan_wait_declarations "$state" "$((NOW + 1000))" >/dev/null || fail "the redeclared scan failed"
   items=$(scan_wait_declarations "$state" "$((NOW + 1200))") || fail "the scan at the old bound failed"
   [ -z "$items" ] || fail "a fresh paused line inherited the bound of the line it replaced: $items"
@@ -498,7 +506,7 @@ SCRIPT
 cat '$dir/axi-status.toon'
 SCRIPT
   chmod +x "$dir/fakebin/herdr" "$dir/fakebin/no-mistakes"
-  printf 'paused [at=1793000000]: no-mistakes drive waits for its next gate or CI verdict | owner=no-mistakes | recheck=2099-01-01\n' > "$state/t.status"
+  printf 'paused [at=1793000000]: no-mistakes drive waits for its next gate or CI verdict | owner=no-mistakes | recheck=2099-01-02T00:00Z\n' > "$state/t.status"
   prime_status_seen "$state" "$state/t.status" || fail "priming status failed"
   seed_first_seen "$state" t 1300
   rm -f "$state/.last-check"
@@ -551,6 +559,8 @@ EOF
   assert_contains "$body" "parked at review waiting on the agent" "the worker steer did not name the parked gate"
   pass "a wait on no-mistakes whose run is parked at a gate reaches firstmate and the worker at the bound"
 }
+
+test_bare_future_date_is_not_silently_deferred
 
 test_accepted_shape_quiet_before_recheck
 test_refused_shape_flagged
