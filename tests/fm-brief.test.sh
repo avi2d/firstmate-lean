@@ -1288,6 +1288,68 @@ test_workers_never_rerun_ci_a_pull_request_run_covers() {
   pass "fm-brief: workers report a flaky CI failure and never start CI a pull-request run covers"
 }
 
+# Contract: with config/main-at-merge a worker takes in its base branch only at
+# merge time or on a conflict. A no-mistakes run skips its rebase step, whose
+# merge strategy writes "Merge remote-tracking branch 'origin/main' into HEAD"
+# on every run whose base moved, and no worker merges, rebases, pulls, or
+# updates the branch from its base by hand.
+test_main_at_merge_keeps_the_base_out_of_the_branch_until_merge() {
+  local home id brief
+  home="$TMP_ROOT/main-at-merge-on"
+  mkdir -p "$home/data" "$home/config"
+  : > "$home/config/main-at-merge"
+  scaffold_local_tests_variants "$home"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" mam-nm-base some-proj --mode no-mistakes --base-branch release/1.2 >/dev/null 2>&1 \
+    || fail "no-mistakes --base-branch ship scaffold exited non-zero"
+  for id in lt-nm lt-manual lt-direct mam-nm-base; do
+    brief="$home/data/$id/brief.md"
+    assert_grep "out of your branch until merge time: no \`git merge\`, \`git rebase\`, or \`git pull\` of it, and no update-branch request on the forge" \
+      "$brief" "$id: a worker may still take in its base branch before merge"
+  done
+  assert_grep "Pass \`--skip rebase\` on every \`no-mistakes axi run\` that starts a run" "$home/data/lt-nm/brief.md" \
+    "the no-mistakes run still merges the base branch into the worker's branch"
+  assert_grep "while the pipeline still watches the PR, it merges the default branch in and revalidates by itself" \
+    "$home/data/lt-nm/brief.md" "a no-mistakes worker may still resolve a conflict by hand while the pipeline repairs it"
+  assert_grep "Pass \`--skip rebase,pr,ci\` on every \`no-mistakes axi run\`" "$home/data/lt-manual/brief.md" \
+    "the pr=manual run still merges the base branch into the worker's branch"
+  assert_grep "drive a new run with the same \`--skip rebase,pr,ci\`" "$home/data/lt-manual/brief.md" \
+    "the pr=manual rerun after a failed check drops the rebase skip"
+  assert_grep "The one exception is a merge conflict the PR shows: merge the default branch into your branch, resolve the conflict, and push." \
+    "$home/data/lt-direct/brief.md" "a direct-PR worker has no way to resolve a conflict"
+  assert_grep "so the pipeline reviews against, opens its PR against" "$home/data/mam-nm-base/brief.md" \
+    "a base-branch run still says the pipeline rebases onto that branch"
+  assert_grep "Leave the base branch \`release/1.2\` out of your branch until merge time" "$home/data/mam-nm-base/brief.md" \
+    "a base-branch rule names the default branch instead of the task's base"
+  assert_grep "Pass \`--skip push,pr,ci\` on every \`no-mistakes axi run\` for this task, and skip nothing else" \
+    "$home/data/lt-gerrit/brief.md" "the flag changed the gerrit skip list, which starts no CI run"
+  for id in lt-gerrit lt-local lt-scout; do
+    assert_no_grep "until merge time" "$home/data/$id/brief.md" "$id: the rule reached a brief whose pushes start no CI run"
+  done
+  : > "$home/config/no-local-tests"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" mam-lt-nm some-proj --mode no-mistakes >/dev/null 2>&1 \
+    || fail "no-mistakes ship scaffold with both flags exited non-zero"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" mam-lt-manual some-proj --mode no-mistakes --pr manual >/dev/null 2>&1 \
+    || fail "pr=manual ship scaffold with both flags exited non-zero"
+  assert_grep "Pass \`--skip rebase,test\` on every \`no-mistakes axi run\` that starts a run" "$home/data/mam-lt-nm/brief.md" \
+    "with no-local-tests the run drops one of the rebase and test skips"
+  assert_grep "Pass \`--skip rebase,test,pr,ci\` on every \`no-mistakes axi run\`" "$home/data/mam-lt-manual/brief.md" \
+    "with no-local-tests the pr=manual run drops one of the rebase and test skips"
+  pass "fm-brief: config/main-at-merge skips the pipeline rebase and keeps the base out of the branch until merge or a conflict"
+}
+
+test_absent_main_at_merge_keeps_the_pipeline_rebase() {
+  local home id
+  home="$TMP_ROOT/main-at-merge-off"
+  mkdir -p "$home/data"
+  scaffold_local_tests_variants "$home"
+  for id in lt-nm lt-manual lt-gerrit lt-direct lt-local lt-scout; do
+    assert_no_grep "until merge time" "$home/data/$id/brief.md" "$id: an absent flag still keeps the base out of the branch"
+    assert_no_grep "rebase," "$home/data/$id/brief.md" "$id: an absent flag still skips the rebase step"
+    assert_no_grep "skip rebase" "$home/data/$id/brief.md" "$id: an absent flag still skips the rebase step"
+  done
+  pass "fm-brief: without config/main-at-merge the pipeline rebase step still runs"
+}
+
 test_inbox_guidance_explains_marked_body_terminator() {
   local home brief kind id
   home="$TMP_ROOT/inbox-guidance"
@@ -1757,6 +1819,8 @@ test_no_local_tests_rejects_a_brief_that_drops_the_throwaway_check_allowance
 test_no_local_tests_rejects_a_brief_that_allows_a_package_json_test_script
 test_absent_no_local_tests_keeps_the_test_step_running
 test_workers_never_rerun_ci_a_pull_request_run_covers
+test_main_at_merge_keeps_the_base_out_of_the_branch_until_merge
+test_absent_main_at_merge_keeps_the_pipeline_rebase
 test_inbox_guidance_explains_marked_body_terminator
 test_home_brief_include_is_appended_last
 test_base_branch_is_rendered_and_bounded
@@ -1768,4 +1832,5 @@ test_branch_prefix_value_is_validated
 test_branch_prefix_command_is_shell_safe
 test_crewmate_scaffolds_forbid_pool_administration
 test_ship_and_scout_name_the_per_task_scratch_root
+
 

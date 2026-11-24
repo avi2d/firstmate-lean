@@ -679,6 +679,19 @@ The flag is read when a brief or a scout promotion is rendered, so a worker alre
 `bin/fm-dod-lib.sh` owns the section and the drive text.
 The flag is a home-local preference.
 
+## Base branch at merge time
+
+The optional local, gitignored `config/main-at-merge` presence flag has a worker take in its base branch only at merge time or on a conflict, because every push that brings the base in starts another full CI run.
+With it present, every no-mistakes drive instruction adds `rebase` to its skip list: `--skip rebase` on an ordinary run, `--skip rebase,pr,ci` under `pr=manual`, and `rebase` before `test` when `config/no-local-tests` is also present.
+The pipeline's rebase step is what writes `Merge remote-tracking branch 'origin/main' into HEAD` under `rebase.strategy: merge`, once on every run whose base moved.
+The no-mistakes, `pr=manual`, and direct-PR briefs also tell the worker never to merge, rebase, or pull the base into its branch and never to ask the forge to update the branch.
+The one exception is a merge conflict the PR shows: a `pr=manual` or direct-PR worker merges the base in and resolves it, and an ordinary no-mistakes run leaves it to the pipeline's CI monitor, which merges the base in and revalidates by itself.
+`bin/fm-pr-merge.sh --update-branch` still brings the base in at merge time when the PR needs it.
+Gerrit and local-only briefs are unchanged, because their pushes start no CI run.
+The flag is read when a brief is rendered, so a worker already under way keeps its brief.
+`bin/fm-dod-lib.sh` owns the drive text.
+The flag is a home-local preference.
+
 ## PR registration scan (config/pr-register-scan)
 
 The optional local, gitignored `config/pr-register-scan` presence flag opts this home into recording, without the supervisor, each PR a task reports.

@@ -514,6 +514,14 @@ fm_local_tests_off() {
   [ -e "$(fm_dod_config_dir)/no-local-tests" ]
 }
 
+fm_main_at_merge() {
+  [ -e "$(fm_dod_config_dir)/main-at-merge" ]
+}
+
+fm_main_at_merge_line() {  # <base-name> <what happens on a merge conflict>
+  printf '%s\n' "Leave $1 out of your branch until merge time: no \`git merge\`, \`git rebase\`, or \`git pull\` of it, and no update-branch request on the forge, because every such push starts another full CI run, and firstmate brings it in at merge time when the PR needs it. $2"
+}
+
 fm_local_tests_section() {
   cat <<'EOF'
 # Local tests
@@ -538,11 +546,22 @@ fm_pr_title_lint_line() {
 # checks itself. Shaped like the gerrit block: skip flags, the shared driving
 # block, then what to do once the run passes. Callers are fm_dod_block only.
 fm_dod_manual_pr_block() {  # <branch> <forge-cli> <draft-check> <contract-suffix> <nm-base> <pr-base>
-  local branch=$1 forge_cli=$2 draft_check=$3 suffix=$4 nm_base=$5 pr_base=$6 skip=pr,ci
+  local branch=$1 forge_cli=$2 draft_check=$3 suffix=$4 nm_base=$5 pr_base=$6 base_name=$7 skip=pr,ci
   local skip_line="Pass \`--skip pr,ci\` on every \`no-mistakes axi run\` for this task, and skip nothing else: \`review\`, \`test\`, \`document\`, \`lint\`, and \`push\` still run, and \`ci\` has no pipeline-opened PR to watch."
-  if fm_local_tests_off; then
+  local rebase_reason="\`rebase\` is skipped so a run never merges $base_name into your branch"
+  if fm_local_tests_off && fm_main_at_merge; then
+    skip=rebase,test,pr,ci
+    skip_line="Pass \`--skip rebase,test,pr,ci\` on every \`no-mistakes axi run\` for this task: \`review\`, \`document\`, \`lint\`, and \`push\` still run, $rebase_reason, \`test\` is skipped because no test runs on this machine, and \`ci\` has no pipeline-opened PR to watch."
+  elif fm_local_tests_off; then
     skip=test,pr,ci
     skip_line="Pass \`--skip test,pr,ci\` on every \`no-mistakes axi run\` for this task: \`review\`, \`document\`, \`lint\`, and \`push\` still run, \`test\` is skipped because no test runs on this machine, and \`ci\` has no pipeline-opened PR to watch."
+  elif fm_main_at_merge; then
+    skip=rebase,pr,ci
+    skip_line="Pass \`--skip rebase,pr,ci\` on every \`no-mistakes axi run\` for this task, and skip nothing else: \`review\`, \`test\`, \`document\`, \`lint\`, and \`push\` still run, $rebase_reason, and \`ci\` has no pipeline-opened PR to watch."
+  fi
+  if fm_main_at_merge; then
+    skip_line="$skip_line
+$(fm_main_at_merge_line "$base_name" "The one exception is a merge conflict the PR shows: merge $base_name into your branch, resolve the conflict, and drive a new run with the same \`--skip $skip\`.")"
   fi
   cat <<EOF
 # Definition of done
@@ -575,11 +594,12 @@ EOF
 fm_dod_block() {  # <mode> <task-id> [branch] [<forge>] [<base>] [<consent>] [<pr>]
   local mode=$1 id=$2 forge=${4:-none} base=${5:-} consent=${6:-} pr=${7:-auto}
   local branch=${3:-fm/$id} pr_base='' nm_base='' base_q contract_forge='' contract_consent='' forge_cli=gh-axi draft_check adapter
-  local nm_skip_line='' gerrit_skip_lines
+  local nm_skip_line='' nm_test_reason gerrit_skip_lines base_name='the default branch' rebase_skip dpr_main_line=''
   gerrit_skip_lines="Pass \`--skip push,pr,ci\` on every \`no-mistakes axi run\` for this task, and skip nothing else: \`review\`, \`test\`, \`document\`, and \`lint\` are the whole point of the run.
 Those three are the only steps that reach a forge, and skipping them is a supported outcome, not a degraded one."
+  nm_test_reason="no test runs on this machine; CI on the branch or pull request is the proof. If the project's CI does not start on pull requests, dispatch it on the branch and name the run id. If the project's own instructions say its tests run on its main branch only, do not dispatch CI on the branch. Its pull-request checks are then the proof, and the main branch runs the tests after the merge."
   if fm_local_tests_off; then
-    nm_skip_line="Pass \`--skip test\` on every \`no-mistakes axi run\` that starts a run for this task: no test runs on this machine; CI on the branch or pull request is the proof. If the project's CI does not start on pull requests, dispatch it on the branch and name the run id. If the project's own instructions say its tests run on its main branch only, do not dispatch CI on the branch. Its pull-request checks are then the proof, and the main branch runs the tests after the merge.
+    nm_skip_line="Pass \`--skip test\` on every \`no-mistakes axi run\` that starts a run for this task: $nm_test_reason
 "
     gerrit_skip_lines="Pass \`--skip test,push,pr,ci\` on every \`no-mistakes axi run\` for this task: \`review\`, \`document\`, and \`lint\` are the whole point of the run, and \`test\` is skipped because no test runs on this machine.
 \`push\`, \`pr\`, and \`ci\` are the only steps that reach a forge, and skipping them is a supported outcome, not a degraded one."
@@ -604,6 +624,21 @@ Those three are the only steps that reach a forge, and skipping them is a suppor
     printf -v base_q '%q' "$base"
     pr_base=", against the base branch \`$base\` (\`--base $base_q\`), not the repository default"
     nm_base="This task's base branch is \`$base\`, not the repository default: pass \`--base-branch $base_q\` on every \`no-mistakes axi run\` that starts a run, so the pipeline rebases onto, opens its PR against, and watches CI for that branch.
+"
+    base_name="the base branch \`$base\`"
+  fi
+  if fm_main_at_merge; then
+    rebase_skip="\`rebase\` is skipped so a run never merges $base_name into your branch."
+    if fm_local_tests_off; then
+      nm_skip_line="Pass \`--skip rebase,test\` on every \`no-mistakes axi run\` that starts a run for this task: $rebase_skip \`test\` is skipped because $nm_test_reason"
+    else
+      nm_skip_line="Pass \`--skip rebase\` on every \`no-mistakes axi run\` that starts a run for this task: $rebase_skip"
+    fi
+    nm_skip_line="$nm_skip_line
+$(fm_main_at_merge_line "$base_name" "A merge conflict is no exception: while the pipeline still watches the PR, it merges $base_name in and revalidates by itself.")
+"
+    [ -z "$nm_base" ] || nm_base=${nm_base/so the pipeline rebases onto, opens/so the pipeline reviews against, opens}
+    dpr_main_line="$(fm_main_at_merge_line "$base_name" "The one exception is a merge conflict the PR shows: merge $base_name into your branch, resolve the conflict, and push.")
 "
   fi
   case "$mode:$forge" in
@@ -689,7 +724,7 @@ Ship branch: $branch
 This task ships **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
 The task is complete only when committed on your branch.
 When it is implemented and committed, push your branch and open a PR with \`$forge_cli\` that is ready for review, not a draft$pr_base.
-$(fm_pr_title_lint_line)
+${dpr_main_line}$(fm_pr_title_lint_line)
 Before you report done, read the PR back from the forge and confirm it is not a draft $draft_check
 A draft cannot be merged, so a done report on one leaves the merge unasked.
 Then append \`done [at=<epoch>]: PR {url}\` to the status file and stop.
@@ -715,7 +750,8 @@ EOF
       if [ "$pr" = manual ]; then
         [ -z "$nm_base" ] || nm_base="This task's base branch is \`$base\`, not the repository default: pass \`--base-branch $base_q\` on every \`no-mistakes axi run\` that starts a run, so the pipeline rebases onto that branch, and open the PR against it with \`--base $base_q\`.
 "
-        fm_dod_manual_pr_block "$branch" "$forge_cli" "$draft_check" "$contract_forge$contract_consent" "$nm_base" "$pr_base"
+        ! fm_main_at_merge || nm_base=${nm_base/so the pipeline rebases onto that branch/so the pipeline reviews against that branch}
+        fm_dod_manual_pr_block "$branch" "$forge_cli" "$draft_check" "$contract_forge$contract_consent" "$nm_base" "$pr_base" "$base_name"
         return
       fi
       cat <<EOF
