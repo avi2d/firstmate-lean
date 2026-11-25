@@ -48,7 +48,7 @@ fm_quota_spawn_gate_note() {
 }
 fm_quota_spawn_gate() {
   local config=$1 harness=$2 model=$3 effort=$4 account=$5 override=$6
-  local profiles count snapshot='' profile provider lane floor row assessment blocked=0 unmeasured=0 result reason reset clauth_snapshot='' floor_note='' skipped=''
+  local profiles count snapshot='' profile provider lane floor row assessment blocked=0 unmeasured=0 result reason reset floor_note='' skipped=''
   FM_QUOTA_GATE_NOTE=
   if [ ! -e "$config" ] && [ ! -L "$config" ]; then
     FM_QUOTA_GATE_NOTE='skipped:no dispatch profile file'
@@ -101,19 +101,9 @@ fm_quota_spawn_gate() {
       row=$(fm_subquo_row "$subquo" "$provider" "$lane") || return 2
     fi
     if [ "$row" = null ] && [ -n "$account" ]; then
-      if [ -z "$clauth_snapshot" ]; then
-        clauth_snapshot=$(fm_clauth_status 2>/dev/null) || {
-          FM_QUOTA_GATE_NOTE='skipped:clauth reading unavailable'
-          printf '%s\n' 'quota gate skipped: clauth could not provide an account reading' >&2
-          return 0
-        }
-      fi
-      row=$(jq -c --arg account "$account" "$FM_CLAUTH_ROW_JQ"'clauth_row(.; $account)' <<< "$clauth_snapshot")
-      if jq -e 'has("unusable")' <<< "$row" >/dev/null; then
-        FM_QUOTA_GATE_NOTE='skipped:clauth account reading unusable'
-        printf 'quota gate skipped: clauth cannot verify account %s\n' "$account" >&2
-        return 0
-      fi
+      FM_QUOTA_GATE_NOTE='skipped:subquo reading unavailable'
+      printf 'quota gate skipped: subquo cannot verify account %s\n' "$account" >&2
+      return 0
     elif [ "$row" = null ]; then
       if [ -z "$snapshot" ]; then
         command -v quota-axi >/dev/null 2>&1 || {
