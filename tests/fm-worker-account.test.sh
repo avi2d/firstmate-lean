@@ -336,7 +336,7 @@ test_named_account_without_subquo_row_must_not_call_clauth() {
   printf '%s\n' '{"default":{"harness":"pi","model":"claude-bridge/claude-opus-5-5","provider":"claude","claude_account":"second"}}' > "$HOME_DIR/config/crew-dispatch.json"
   printf '#!/usr/bin/env bash\nexit 1\n' > "$FAKEBIN/subquo"
   chmod +x "$FAKEBIN/subquo"
-  out=$(spawn_ship "$id" --model claude-bridge/claude-opus-5-5 --claude-account second); rc=$?
+  out=$(spawn_ship "$id" --harness pi --model claude-bridge/claude-opus-5-5 --claude-account second); rc=$?
   expect_code 0 "$rc" "the unavailable quota reading skips the gate: $out"
   assert_absent "$CASE/clauth-calls" "a named account with no subquo row must not call clauth"
   assert_contains "$out" 'quota gate skipped: subquo cannot verify account second' "the skip names the unavailable account reading"

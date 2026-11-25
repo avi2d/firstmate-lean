@@ -2628,7 +2628,7 @@ test_subquo_floor_respects_reset_and_rejects_cross_account_or_stale_evidence() (
   assert_absent "$LOG/clauth.calls" "an invalid named account snapshot must not call clauth"
 
 )
-test_subquo_floor_respects_reset_and_rejects_cross_account_or_stale_evidence
+test_subquo_floor_respects_reset_and_rejects_cross_account_or_stale_evidence || exit 1
 cp "$BASE_RULES" "$RULES"
 
 printf '# all fm-dispatch-resolve tests passed\n'
