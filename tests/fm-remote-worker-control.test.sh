@@ -61,6 +61,10 @@ cat > "$FAKE_ROOT/bin/fm-spawn.sh" <<'SH'
 #!/usr/bin/env bash
 set -eu
 id=$1
+if [ "${FM_TEST_SPAWN_ERROR:-0}" = 1 ]; then
+  printf 'notice: starting\nerror: missing required account\nerror: secondary failure\n' >&2
+  exit 1
+fi
 if [ -f "$FM_HOME/config/crew-dispatch.json" ] && [ ! -f "$FM_HOME/data/$id/dispatch-resolution.json" ]; then exit 8; fi
 kind=ship
 for arg in "$@"; do [ "$arg" != --scout ] || kind=scout; done
@@ -70,6 +74,9 @@ printf 'working: reading brief\n' > "$FM_HOME/state/$id.status"
 SH
 chmod +x "$FAKE_ROOT/bin/fm-spawn.sh"
 printf '# Task\n## Captain\x27s intent\nIndependent request.\n\n## Firstmate spec\nExact constraints.\n' > "$TMP_ROOT/brief"
+out=$(FM_TEST_SPAWN_ERROR=1 FM_ROOT_OVERRIDE="$FAKE_ROOT" FM_HOME="$HOME_DIR" bash "$FAKE_ROOT/bin/fm-remote-worker-control.sh" launch scout-error alpha scout - - fm/ - pi - - herdr < "$TMP_ROOT/brief" 2>&1) && fail "failed spawn reported success"
+printf '%s\n' "$out" | grep -Fx 'error: host-local worker launch failed: error: missing required account' >/dev/null || fail "host launch failure did not name its first error: $out"
+pass "failed remote spawn identifies its first error instead of only a generic failure"
 out=$(FM_ROOT_OVERRIDE="$FAKE_ROOT" FM_HOME="$HOME_DIR" bash "$FAKE_ROOT/bin/fm-remote-worker-control.sh" launch scout-c alpha scout - - fm/ - pi - - herdr < "$TMP_ROOT/brief") || fail "remote launch refused a valid scout"
 assert_grep 'Independent request.' "$HOME_DIR/data/scout-c/brief.md" "remote scaffold dropped intent"
 assert_grep 'Exact constraints.' "$HOME_DIR/data/scout-c/brief.md" "remote scaffold dropped specification"
