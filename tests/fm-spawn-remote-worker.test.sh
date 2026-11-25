@@ -179,6 +179,7 @@ pass "a launch is not sent to a host that refused on load while this machine has
 overloaded_host_picked_local() {
   printf '%s\n' "$1" | grep -F 'machine: this machine picked - testhost refused: load 68.51 of 16' >/dev/null
 }
+REAL_AWK=$(command -v awk)
 BAD_AWK="$TMP_ROOT/bad-awk"
 mkdir -p "$BAD_AWK"
 cat > "$BAD_AWK/awk" <<'SH'
@@ -192,7 +193,7 @@ chmod +x "$BAD_AWK/awk"
 h=$(choose_home wrong-overloaded-pick)
 printf '@heavy-limit 6\n@load-limit 10\n' > "$h/config/project-capacity"
 printf 'kind=ship\n' > "$h/state/holder.meta"
-out=$(PATH="$BAD_AWK:$PATH" FM_TEST_REAL_AWK="$(command -v awk)" FM_TEST_REMOTE_LIMIT_FIELD=' heavy_limit=4' choose_run "$h" wrong-overloaded-pick 8 68.51 4) || fail "the deliberately wrong host pick failed to launch: $out"
+out=$(PATH="$BAD_AWK:$PATH" FM_TEST_REAL_AWK="$REAL_AWK" FM_TEST_REMOTE_LIMIT_FIELD=' heavy_limit=4' choose_run "$h" wrong-overloaded-pick 8 68.51 4) || fail "the deliberately wrong host pick failed to launch: $out"
 [ -e "$h/launch-args" ] || fail "the deliberately wrong comparison did not pick the overloaded host: $out"
 if overloaded_host_picked_local "$out"; then fail "the overload check accepted a deliberately wrong host pick: $out"; fi
 pass "the overload check rejects a deliberately wrong host pick"
