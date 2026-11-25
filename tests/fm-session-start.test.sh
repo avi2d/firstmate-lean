@@ -2241,6 +2241,36 @@ EOF
   pass "--reemit lists counts, open in-flight rows, the ready queue, and one capped line per task while a true startup also lists held and blocked rows"
 }
 
+test_startup_and_reemit_do_not_drop_overdue_chat_records_or_list_closed_ones() {
+  local rec root home fakebin closed output mode
+  rec=$(new_world overdue-chat-records)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  local promise="$ROOT/bin/fm-promise.sh"
+  FM_HOME="$home" "$promise" add answer 'Tie goes to option B' --proof 'read choice.txt; expect B' >/dev/null \
+    || fail "could not add overdue answer"
+  closed=$(FM_HOME="$home" "$promise" add promise 'Earlier chat promise' --proof '/tmp/result') \
+    || fail "could not add promise to close"
+  FM_HOME="$home" "$promise" close "$closed" --proof 'observed the file' || fail "could not close promise"
+
+  for mode in start reemit; do
+    if [ "$mode" = start ]; then
+      output=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+    else
+      output=$(env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
+        FM_HOME="$home" FM_ROOT_OVERRIDE="$root" PATH="$fakebin:$BASE_PATH" "$SESSION_START" --reemit)
+    fi
+    assert_contains "$output" 'OVERDUE PROMISES AND OWNER ANSWERS' "$mode dropped the overdue review"
+    assert_contains "$output" '"text":"Tie goes to option B","proof":"read choice.txt; expect B"' \
+      "$mode dropped the overdue answer or its proof"
+    assert_not_contains "$output" 'Earlier chat promise' "$mode listed a closed promise"
+  done
+  pass "startup and re-emit show overdue answers with proof and leave out closed promises"
+}
+
 test_reemit_manual_backlog_counts_held_and_blocked_lines() {
   local rec root home fakebin reemit
   rec=$(new_world reemit-manual-backlog)
@@ -2763,6 +2793,7 @@ test_reemit_cue_survives_the_hook_output_preview
 test_reemit_context_manifest_names_every_source_without_bodies
 test_startup_and_reemit_share_the_ten_row_queued_bound_and_one_status_line
 test_reemit_fleet_state_lists_open_work_and_one_line_per_task
+test_startup_and_reemit_do_not_drop_overdue_chat_records_or_list_closed_ones
 test_reemit_manual_backlog_counts_held_and_blocked_lines
 test_agents_baseline_stays_at_true_start_and_reemits_on_every_drifted_pi_compact
 test_read_only_pi_compact_refreshes_against_its_own_session_identity
