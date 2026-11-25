@@ -298,56 +298,54 @@ make_backlog_md_home() {
 }
 
 make_priority_board() {
-  make_backlog_md_home "$FM_HOME"
-  "$1/fm-tasks-axi.sh" add demo-1 "Priority zero" --repo demo --priority 0 >/dev/null || fail "could not add priority zero"
-  "$1/fm-tasks-axi.sh" add demo-2 "No priority" --repo demo >/dev/null || fail "could not add an item without priority"
+  local bin=$1 home=$2
+  make_backlog_md_home "$home"
+  FM_HOME="$home" "$bin/fm-tasks-axi.sh" add demo-1 "Priority zero" --repo demo --priority 0 >/dev/null || fail "could not add priority zero"
+  FM_HOME="$home" "$bin/fm-tasks-axi.sh" add demo-2 "No priority" --repo demo >/dev/null || fail "could not add an item without priority"
 }
 
-test_ready_does_not_include_an_item_without_priority() (
-  local bin=$1 out
-  export FM_HOME="$2"
-  make_priority_board "$bin"
-  out=$("$bin/fm-tasks-axi.sh" ready) || fail "$out"
+test_ready_does_not_include_an_item_without_priority() {
+  local bin=$1 home=$2 out
+  make_priority_board "$bin" "$home"
+  out=$(FM_HOME="$home" "$bin/fm-tasks-axi.sh" ready) || fail "$out"
   assert_not_contains "$out" 'demo-2,queued' "ready included an item without priority"
   assert_equals "demo-1" "$(printf '%s\n' "$out" | ready_ids)" "ready dropped priority zero"
   assert_contains "$out" 'ready[1]{' "ready did not update the table count"
-  "$bin/fm-tasks-axi.sh" update demo-2 --priority 4 >/dev/null || fail "could not assign priority"
-  out=$("$bin/fm-tasks-axi.sh" ready) || fail "$out"
+  FM_HOME="$home" "$bin/fm-tasks-axi.sh" update demo-2 --priority 4 >/dev/null || fail "could not assign priority"
+  out=$(FM_HOME="$home" "$bin/fm-tasks-axi.sh" ready) || fail "$out"
   assert_equals "demo-1 demo-2" "$(printf '%s\n' "$out" | ready_ids)" "ready did not immediately include the newly prioritized item"
   pass "ready excludes missing priorities and immediately includes newly prioritized items in priority order"
-)
+}
 
-test_ready_capacity_does_not_count_an_item_without_priority() (
-  local bin=$1 out
-  export FM_HOME="$2"
-  make_priority_board "$bin"
-  out=$("$bin/fm-ready-capacity.sh") || fail "$out"
+test_ready_capacity_does_not_count_an_item_without_priority() {
+  local bin=$1 home=$2 out
+  make_priority_board "$bin" "$home"
+  out=$(FM_HOME="$home" "$bin/fm-ready-capacity.sh") || fail "$out"
   assert_not_contains "$out" 'demo-2' "ready-capacity counted an item without priority"
   assert_equals "demo-1" "$out" "ready-capacity dropped priority zero despite having room"
-  "$bin/fm-tasks-axi.sh" update demo-2 --priority 4 >/dev/null || fail "could not assign priority"
-  out=$("$bin/fm-ready-capacity.sh") || fail "$out"
+  FM_HOME="$home" "$bin/fm-tasks-axi.sh" update demo-2 --priority 4 >/dev/null || fail "could not assign priority"
+  out=$(FM_HOME="$home" "$bin/fm-ready-capacity.sh") || fail "$out"
   assert_equals $'demo-1\ndemo-2' "$out" "ready-capacity did not immediately count the newly prioritized item"
   pass "ready-capacity excludes missing priorities even when there is room"
-)
+}
 
-test_update_none_does_not_leave_priority_in_place() (
-  local bin=$1 out
-  export FM_HOME="$2"
-  make_priority_board "$bin"
-  out=$("$bin/fm-tasks-axi.sh" update demo-1 --priority none --json) || fail "$out"
+test_update_none_does_not_leave_priority_in_place() {
+  local bin=$1 home=$2 out
+  make_priority_board "$bin" "$home"
+  out=$(FM_HOME="$home" "$bin/fm-tasks-axi.sh" update demo-1 --priority none --json) || fail "$out"
   assert_equals "null" "$(printf '%s\n' "$out" | jq -r '.task.priority')" "update none left the old priority in place"
-  out=$("$bin/fm-tasks-axi.sh" show demo-1) || fail "$out"
+  out=$(FM_HOME="$home" "$bin/fm-tasks-axi.sh" show demo-1) || fail "$out"
   assert_contains "$out" '  priority: "-"' "clearing priority did not persist"
   assert_contains "$out" '  state: queued' "clearing priority moved the item"
-  out=$("$bin/fm-tasks-axi.sh" ready) || fail "$out"
+  out=$(FM_HOME="$home" "$bin/fm-tasks-axi.sh" ready) || fail "$out"
   assert_equals "" "$(printf '%s\n' "$out" | ready_ids)" "a cleared item remained dispatchable"
-  out=$("$bin/fm-tasks-axi.sh" update demo-1 --priority none --json) || fail "$out"
+  out=$(FM_HOME="$home" "$bin/fm-tasks-axi.sh" update demo-1 --priority none --json) || fail "$out"
   assert_equals "true" "$(printf '%s\n' "$out" | jq -r '.already')" "clearing again was not a no-op"
-  "$bin/fm-tasks-axi.sh" update demo-1 --priority 0 >/dev/null || fail "could not restore priority zero"
-  out=$("$bin/fm-tasks-axi.sh" ready) || fail "$out"
+  FM_HOME="$home" "$bin/fm-tasks-axi.sh" update demo-1 --priority 0 >/dev/null || fail "could not restore priority zero"
+  out=$(FM_HOME="$home" "$bin/fm-tasks-axi.sh" ready) || fail "$out"
   assert_equals "demo-1" "$(printf '%s\n' "$out" | ready_ids)" "a cleared item was not ready after restoring priority"
   pass "update --priority none removes the saved priority without moving the item"
-)
+}
 
 run_priority_board_twins() {
   local mutant="$TMP_ROOT/priority-mutant" cli name reason out rc
