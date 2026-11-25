@@ -2996,6 +2996,13 @@ heartbeat_scan_finds_actionable() {
   return "$found"
 }
 
+heartbeat_has_overdue_promises() {
+  local overdue
+  overdue=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+    "$SCRIPT_DIR/fm-promise.sh" list --overdue 2>/dev/null) || return 0
+  [ -n "$overdue" ]
+}
+
 # event_wait_or_sleep: the terminal wait of each supervision cycle. For a home
 # with push-capable Herdr panes, it replaces the blind `sleep POLL` with a
 # bounded wait on the backend's native transition stream, so a crew going
@@ -3997,11 +4004,7 @@ EOF
       touch "$STATE/.last-heartbeat"
       wake "$reason"
     fi
-    # Triage: in always-on mode a heartbeat is benign unless the cheap fleet-scan
-    # turns up a captain-relevant status the per-wake path missed. Absorb the
-    # no-change case (advance the schedule and back off exactly as wake() would,
-    # without exiting).
-    if heartbeat_scan_finds_actionable; then
+    if heartbeat_scan_finds_actionable || heartbeat_has_overdue_promises; then
       # Enqueue first, then record every status log surfaced through its end so the
       # next heartbeat does not re-fire it (enqueue-before-suppress preserved);
       # this wake sends firstmate to the whole fleet, so every log is read.

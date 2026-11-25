@@ -924,6 +924,15 @@ DRAIN_LOCK_HELD=false
 printf 'WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through %s --recovery-generation %s\n' \
   "$ACK_THROUGH" "${RECOVERY_MARKER_TOKEN##*:}" >&2
 
+if [ "${FM_WAKE_DRAIN_SKIP_PROMISE_REVIEW:-0}" != 1 ] &&
+  printf '%s\n' "$RAW_ROWS" | awk -F '\t' '$3 == "heartbeat" { found = 1 } END { exit !found }'; then
+  if ! overdue_promises=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+    "$SCRIPT_DIR/fm-promise.sh" list --overdue 2>&1); then
+    printf 'OVERDUE PROMISES AND OWNER ANSWERS: review unavailable: %s\n' "$overdue_promises"
+  elif [ -n "$overdue_promises" ]; then
+    printf 'OVERDUE PROMISES AND OWNER ANSWERS:\n%s\n' "$overdue_promises"
+  fi
+fi
 (print_status_presentation "$RAW_ROWS") || true
 assert_watcher_liveness
 exit 0

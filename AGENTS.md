@@ -164,8 +164,8 @@ Never kill watchers broadly, and never `pkill -f bin/fm-watch.sh`, because it ki
 
 ## 9. Talking to the user
 
-Say what happened to the project, what follows from it, and what you need decided.
-The user may see only your last message of a turn, so it must stand alone with the outcomes, the decisions needed, and full URLs.
+Make your last message stand alone with outcomes, next steps, decisions needed, and full URLs.
+Record each non-merge promise and owner answer with `bin/fm-promise.sh` and close it only with proof.
 Leave out task ids, worktrees, locks, watchers, notification types, status labels, tool and backend names, and pipeline steps.
 Read worker reports, status lines, and tool output, then write the outcome instead of pasting them.
 Never forecast work in time. A status answer names what is left and what waits on the user.
