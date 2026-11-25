@@ -729,7 +729,7 @@ else
       printf '%s\n' "$BRANCH_REPLAY_OUT"
     fi
   fi
-  DRAIN_OUT=$("$SCRIPT_DIR/fm-wake-drain.sh" 2>&1)
+  DRAIN_OUT=$(FM_WAKE_DRAIN_SKIP_PROMISE_REVIEW=1 "$SCRIPT_DIR/fm-wake-drain.sh" 2>&1)
   if [ -n "$DRAIN_OUT" ]; then
     while IFS= read -r drain_line; do
       if [[ $drain_line =~ ^[0-9]+$'\t'[0-9]+$'\t' ]]; then
@@ -861,6 +861,14 @@ fm_session_start_remote_endpoint() {
 # fleet identity is what that cut must never take.
 stage fleet-state
 section "FLEET STATE"
+if ! overdue_promises=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+  "$SCRIPT_DIR/fm-promise.sh" list --overdue 2>&1); then
+  subsection "OVERDUE PROMISES AND OWNER ANSWERS"
+  printf 'review unavailable: %s\n' "$overdue_promises"
+elif [ -n "$overdue_promises" ]; then
+  subsection "OVERDUE PROMISES AND OWNER ANSWERS"
+  printf '%s\n' "$overdue_promises"
+fi
 subsection "Machine worker limits"
 if capacity_out=$("$SCRIPT_DIR/fm-session-start.sh" --heavy-limit 2>&1); then
   printf 'local: %s\n' "$capacity_out"

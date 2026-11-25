@@ -4154,6 +4154,59 @@ test_heartbeat_no_change_absorbed() {
   pass "a heartbeat with no captain-relevant change is absorbed and backs off the cadence"
 }
 
+check_heartbeat_lists_overdue_proof() {
+  local output=$1
+  printf '%s\n' "$output" | awk '/^\{/ { print }' | jq -se '
+    length == 2
+    and any(.[]; .text == "Send the outcome" and .proof == "read outcome.txt; expect sent")
+    and any(.[]; .text == "Choose option B" and .proof == "https://example.test/choice")
+  ' >/dev/null
+}
+
+test_heartbeat_does_not_omit_unclosed_chat_records_or_their_proof() {
+  local dir state out pid drain_out twin_out closed
+  dir=$(make_case heartbeat-overdue); state="$dir/state"; out="$dir/watch.out"
+  local promise="$ROOT/bin/fm-promise.sh"
+  FM_STATE_OVERRIDE="$state" "$promise" add promise 'Send the outcome' \
+    --proof 'read outcome.txt; expect sent' >/dev/null || fail "could not add promise"
+  FM_STATE_OVERRIDE="$state" "$promise" add answer 'Choose option B' \
+    --proof 'https://example.test/choice' --due 2000-01-01T00:00Z >/dev/null || fail "could not add answer"
+  FM_STATE_OVERRIDE="$state" "$promise" add promise 'Future chat promise' \
+    --proof '/tmp/future' --due 2099-01-01T00:00Z >/dev/null || fail "could not add future promise"
+  closed=$(FM_STATE_OVERRIDE="$state" "$promise" add promise 'Closed chat promise' --proof '/tmp/ready') \
+    || fail "could not add promise to close"
+  FM_STATE_OVERRIDE="$state" "$promise" close "$closed" --proof 'file contained ready' \
+    || fail "could not close promise"
+
+  touch "$state/.last-heartbeat"
+  set_mtime "$(( $(date +%s) - 30 ))" "$state/.last-heartbeat"
+  PATH="$dir/fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=1 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 150 || { reap "$pid"; fail "overdue chat record did not wake an otherwise quiet fleet"; }
+  grep -Fx heartbeat "$out" >/dev/null || fail "overdue promises did not produce a heartbeat wake"
+  drain_out=$(FM_STATE_OVERRIDE="$state" "$DRAIN") || fail "could not drain the promise heartbeat"
+  check_heartbeat_lists_overdue_proof "$drain_out" || fail "heartbeat dropped an open overdue record or its check: $drain_out"
+
+  cp -R "$ROOT/bin" "$dir/twin-bin" || fail "could not make the twin drain"
+  cat > "$dir/twin-bin/fm-promise.sh" <<'SHIM'
+#!/usr/bin/env bash
+set -o pipefail
+case "$*" in
+  'list --overdue') "$FM_PROMISE_TWIN_REAL" "$@" | jq -c 'select(.text != "Send the outcome")' ;;
+  *) exec "$FM_PROMISE_TWIN_REAL" "$@" ;;
+esac
+SHIM
+  twin_out=$(FM_PROMISE_TWIN_REAL="$promise" FM_STATE_OVERRIDE="$state" "$dir/twin-bin/fm-wake-drain.sh") \
+    || fail "twin drain could not run"
+  assert_contains "$twin_out" 'Choose option B' "twin removed the entire overdue listing"
+  assert_not_contains "$twin_out" 'Send the outcome' "twin did not omit the intended record"
+  if check_heartbeat_lists_overdue_proof "$twin_out"; then
+    fail "the same heartbeat assertion accepted a drain that omitted an overdue promise"
+  fi
+  pass "heartbeat lists each overdue chat record with proof and rejects a twin that omits one"
+}
+
 test_heartbeat_backstop_surfaces_a_masked_status() {
   local dir state fakebin out sig pid
   dir=$(make_case heartbeat-masked); state="$dir/state"; fakebin="$dir/fakebin"
@@ -5024,6 +5077,7 @@ fm_test_run \
   test_procevent_surface_crash_boundaries \
   test_procevent_marker_failure_exits_and_replays \
   test_heartbeat_no_change_absorbed \
+  test_heartbeat_does_not_omit_unclosed_chat_records_or_their_proof \
   test_heartbeat_backstop_surfaces_unsurfaced_status \
   test_heartbeat_backstop_surfaces_a_masked_status \
   test_beacon_stays_fresh_while_absorbing \
