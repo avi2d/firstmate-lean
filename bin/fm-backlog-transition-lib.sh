@@ -759,8 +759,8 @@ fm_backlog_row_body() {  # <resolved-data-dir> <id>
 fm_backlog_append_message() {  # <data-dir> <id> <sender> <text>
   local data sender=$3 text=$4 stamp entry
   FM_BACKLOG_TRANSITION_ERROR=
-  if ! command -v python3 >/dev/null 2>&1; then
-    FM_BACKLOG_TRANSITION_ERROR="python3 is required to lock the backlog message log"
+  if ! command -v perl >/dev/null 2>&1; then
+    FM_BACKLOG_TRANSITION_ERROR="perl is required to lock the backlog message log"
     return 1
   fi
   if ! data=$(fm_backlog_data_absolute "$1"); then
@@ -786,31 +786,22 @@ fm_backlog_append_message() {  # <data-dir> <id> <sender> <text>
 
 fm_backlog_append_message_locked() {
   local data=$1 authorized_data=$2 id=$3 entry=$4 tmp lock_error status=0
-  # The shell keeps fd 9 open through the rewrite, so Python's exit does not release the lock.
-  lock_error=$(python3 - "${FM_BACKLOG_MESSAGE_LOCK_SECS:-10}" 2>&1 <<'PY'
-import fcntl
-import math
-import sys
-import time
-
-try:
-    seconds = float(sys.argv[1])
-except ValueError:
-    seconds = -1
-if not math.isfinite(seconds) or seconds < 0:
-    sys.exit("FM_BACKLOG_MESSAGE_LOCK_SECS must be a finite non-negative number")
-deadline = time.monotonic() + seconds
-while True:
-    try:
-        fcntl.flock(9, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        break
-    except BlockingIOError:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            sys.exit(75)
-        time.sleep(min(remaining, 0.05))
-PY
-) || {
+  # Not python3: one on PATH may be a shim or stand-in that does not pass on inherited descriptors.
+  # The shell keeps fd 9 open through the rewrite, so perl's exit does not release the lock.
+  lock_error=$(LC_ALL=C perl -MFcntl=:flock -MTime::HiRes=sleep,time -e '
+    sub refuse { print STDERR "$_[0]\n"; exit 1 }
+    my $seconds = $ARGV[0];
+    $seconds =~ /\A(?:\d+(?:\.\d*)?|\.\d+)\z/
+      or refuse("FM_BACKLOG_MESSAGE_LOCK_SECS must be a finite non-negative number");
+    open(my $lock, ">>&=", 9) or refuse("$!");
+    my $deadline = time + $seconds;
+    until (flock($lock, LOCK_EX | LOCK_NB)) {
+      $!{EWOULDBLOCK} or refuse("$!");
+      my $remaining = $deadline - time;
+      exit 75 if $remaining <= 0;
+      sleep($remaining < 0.05 ? $remaining : 0.05);
+    }
+  ' "${FM_BACKLOG_MESSAGE_LOCK_SECS:-10}" 2>&1) || {
     if [ "$?" -eq 75 ]; then
       FM_BACKLOG_TRANSITION_ERROR="the message lock in $data stayed busy"
     else

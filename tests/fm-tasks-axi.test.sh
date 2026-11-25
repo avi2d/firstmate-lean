@@ -387,12 +387,12 @@ backlog_md_lifecycle_steps() {  # <home>, with FM_HOME naming the same home
   printf '%s\n' "$out" | grep -q '^  state: done$' || exit 1
 }
 
-missing_python_append_refusal() {  # <home>, with PATH holding only the shims
+missing_perl_append_refusal() {  # <home>, with PATH holding only the shims
   hash -r
   if fm_backlog_append_message "$1/data" demo-1 firstmate "Must not be appended"; then
     exit 1
   fi
-  assert_contains "$FM_BACKLOG_TRANSITION_ERROR" "python3 is required" "missing Python was reported as contention"
+  assert_contains "$FM_BACKLOG_TRANSITION_ERROR" "perl is required" "missing perl was reported as contention"
 }
 
 message_log_lock_steps() {  # <home>, with FM_HOME naming the same home
@@ -401,13 +401,13 @@ message_log_lock_steps() {  # <home>, with FM_HOME naming the same home
   . "$ROOT/bin/fm-backlog-transition-lib.sh"
   bash "$WRAPPER" add demo-1 "Log the steer" --repo demo >/dev/null || exit 1
   exec 8>>"$home/data/.fm-backlog-messages.lock"
-  python3 -c 'import fcntl; fcntl.flock(8, fcntl.LOCK_EX)' || exit 1
+  perl -MFcntl=:flock -e 'open(my $lock, ">>&=", 8) or exit 1; flock($lock, LOCK_EX) or exit 1' || exit 1
   if FM_BACKLOG_MESSAGE_LOCK_SECS=0 fm_backlog_append_message "$home/data" demo-1 firstmate "Must not be appended"; then
     exit 1
   fi
   assert_contains "$FM_BACKLOG_TRANSITION_ERROR" "stayed busy" "a held lock was not reported as contention"
   exec 8>&-
-  ( PATH="$home/shims" missing_python_append_refusal "$home" ) || exit 1
+  ( PATH="$home/shims" missing_perl_append_refusal "$home" ) || exit 1
   fm_backlog_append_message "$home/data" demo-1 firstmate "First steer" &
   first=$!
   fm_backlog_append_message "$home/data" demo-1 firstmate "Second steer" &
