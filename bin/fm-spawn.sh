@@ -632,6 +632,7 @@ remote_launch_unconfirmed() {
 spawn_remote_worker() {
   local route=$1 project=$2 host=$3 root home session harness backend brief meta tmp out rc target remote_kind remote_harness remote_session worktree remote_project
   local mode_arg yolo_arg base_arg model_arg effort_arg transition=0 started_row=0 contract token forge=none pr=auto standing_forge standing_pr brief_branch remote_spawn_gen remote_account
+  local launch_report
   local -a contract_fields launch_args capabilities
   [ "${#POS[@]}" -eq 2 ] || { echo "error: remote workers require one project argument" >&2; return 1; }
   case "$project" in ''|*[!A-Za-z0-9._-]*|*..*) echo "error: invalid remote project name" >&2; return 1 ;; esac
@@ -649,6 +650,7 @@ spawn_remote_worker() {
   harness=$HARNESS_ARG
   if [ -z "$harness" ]; then harness=$("$SCRIPT_DIR/fm-harness.sh" crew) || return 1; fi
   case "$harness" in pi|pi-signed) ;; *) echo "error: unverified remote worker harness $harness" >&2; return 1 ;; esac
+  fm_backlog_directory_present "$DATA/$ID" "remote task data directory" || { echo "error: $FM_BACKLOG_TRANSITION_ERROR" >&2; return 1; }
   brief="$DATA/$ID/brief.md"
   [ -f "$brief" ] && [ ! -L "$brief" ] || { echo "error: remote worker brief is unavailable" >&2; return 1; }
   if ! fm_brief_task_content_valid "$brief" || fm_brief_task_placeholders_present "$brief"; then
@@ -770,8 +772,14 @@ spawn_remote_worker() {
     [ -z "$CLAUDE_ACCOUNT" ] || printf 'claude_account=%s\n' "$CLAUDE_ACCOUNT"
     printf 'remote_host=%s\nremote_route=%s\nremote_root=%s\nremote_backend=%s\nremote_target=pending\nremote_pending_reason=awaiting-launch-result\n' "$host" "$route" "$root" "$backend"
   } > "$tmp"
-  fm_backlog_atomic_transition publish "$tmp" "$meta" "task record" "$STATE" || { echo "error: cannot publish remote task record: $FM_BACKLOG_TRANSITION_ERROR" >&2; return 1; }
+  launch_report=$(mktemp -d "$DATA/$ID/remote-launch.XXXXXX") || return 1
+  if ! fm_backlog_atomic_transition publish "$tmp" "$meta" "task record" "$STATE"; then
+    rmdir "$launch_report"
+    echo "error: cannot publish remote task record: $FM_BACKLOG_TRANSITION_ERROR" >&2
+    return 1
+  fi
   if [ "$transition" -eq 1 ] && ! fm_backlog_atomic_transition dispatch "$meta" "$DATA" "$ID" "$STATE"; then
+    rmdir "$launch_report"
     fm_backlog_atomic_transition remove "$meta" "task record" "$STATE" || true
     echo "error: cannot start backlog item: $FM_BACKLOG_TRANSITION_ERROR" >&2
     return 1
@@ -779,11 +787,18 @@ spawn_remote_worker() {
   rc=0
   launch_args=("$ID" "$project" "$KIND" "$mode_arg" "$yolo_arg" "$BRANCH_PREFIX" "$base_arg" "$harness" "$model_arg" "$effort_arg" "$backend")
   [ -z "$CLAUDE_ACCOUNT" ] || launch_args+=("$CLAUDE_ACCOUNT")
-  out=$("$SCRIPT_DIR/fm-on.sh" --stdin "$route" fm-remote-worker-control.sh launch "${launch_args[@]}" < "$brief" 2>&1) || rc=$?
+  out=$("$SCRIPT_DIR/fm-on.sh" --stdin "$route" fm-remote-worker-control.sh launch "${launch_args[@]}" < "$brief" 2>"$launch_report/stderr") || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    printf '%s\n' "$rc" > "$launch_report/exit-code" || echo "warning: could not save the remote launch exit code" >&2
+    printf 'error: remote launch of %s returned exit %s; diagnostics: %s\n' "$ID" "$rc" "$launch_report" >&2
+    cat "$launch_report/stderr" >&2
+    [ -z "$out" ] || printf '%s\n' "$out" >&2
+  else
+    rm -f -- "$launch_report/stderr" && rmdir "$launch_report" || echo "warning: could not remove successful launch diagnostics at $launch_report" >&2
+  fi
   if { [ "$rc" -eq 75 ] || [ "$rc" -eq 76 ]; } && grep -Fxq 'launch=rolled-back' <<< "$out" &&
     [ "$(fm_meta_get "$meta" spawn_gen)" = "$remote_spawn_gen" ] &&
     [ "$(fm_meta_get "$meta" remote_target)" = pending ]; then
-    printf '%s\n' "$out" >&2
     if { [ "$started_row" -eq 1 ] || { [ "$rc" -eq 76 ] && [ "$transition" -eq 1 ]; }; } &&
       ! fm_backlog_mutate "$DATA" reopen "$ID"; then
       echo "error: task $ID's backlog item could not return to Queued ($FM_BACKLOG_TRANSITION_ERROR); its pending record is preserved" >&2
@@ -801,7 +816,6 @@ spawn_remote_worker() {
     return "$rc"
   fi
   if [ "$rc" -ne 0 ]; then
-    printf '%s\n' "$out" >&2
     if [ "$(fm_meta_get "$meta" spawn_gen)" = "$remote_spawn_gen" ] &&
       [ "$(fm_meta_get "$meta" remote_target)" = pending ]; then
       remote_launch_unconfirmed "$meta" "$tmp" "launch-exit-$rc" || true

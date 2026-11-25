@@ -79,6 +79,10 @@ A host refusal is relayed with its reason, and nothing local changes.
 
 ## Exit codes across the transport
 
+If the remote launch command exits nonzero, `fm-spawn.sh` prints its stderr, exit code, and a report path on the calling machine.
+Each failed attempt has its own private `data/<id>/remote-launch.XXXXXX/` directory with the original `stderr` and `exit-code` files.
+The exit code belongs to the launch command or its transport, not necessarily the worker process.
+
 | Exit | Meaning | What to do |
 | --- | --- | --- |
 | 0 | The host finished the command | Nothing |
