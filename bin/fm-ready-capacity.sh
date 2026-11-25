@@ -49,8 +49,6 @@ unreadable() {
   exit 2
 }
 
-# The ready queue this home dispatches from. Held and blocked items never
-# appear: tasks-axi ready lists unblocked, unheld queued work only.
 ready_out=$("$SCRIPT_DIR/fm-tasks-axi.sh" ready 2>/dev/null) \
   || unreadable "the ready queue could not be read"
 

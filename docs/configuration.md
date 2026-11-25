@@ -376,8 +376,10 @@ The wrapper finds tickets by their `id` field, not their filename or labels such
 Drafts do not count as ready work.
 Promote a draft to Queued in Backlog.md before dispatching it.
 The digest bounds drafts separately from the ready queue.
-Backlog.md orders ready tasks by priority, from `p0` to `p4`, then unprioritized tasks.
+Backlog.md orders ready tasks by priority, from `p0` to `p4`.
 Within each priority, it uses the ticket's `ordinal`.
+To clear a ticket's priority without editing its front matter, run `bin/fm-tasks-axi.sh update <id> --priority none`.
+The `tasks-axi` backend does not support clearing priority with its current `update` command.
 
 A held ticket uses the `Waiting` column and a `waiting-on:<kind>` label, with an optional `hold_until` date.
 On or after that date, `ready` no longer excludes the ticket for the hold.
@@ -422,7 +424,13 @@ The task record retains the physical path, and remote workers create the link in
 
 When the automatic transition gate applies, dispatch and completion each move the work item in the same run that creates or removes its task record.
 The ordinary successful path therefore keeps the backlog and live task set in sync ([`bin/fm-backlog-transition-lib.sh`](../bin/fm-backlog-transition-lib.sh)).
-Under that gate, dispatch accepts only an unheld, unblocked Queued or In flight item in this home; a missing, Done, held, or dependency-blocked item is refused before any endpoint or local copy is created.
+Under that gate, dispatch accepts only an unheld, unblocked Queued or In flight item in this home.
+Dispatch refuses missing, Done, held, or dependency-blocked items before it creates an endpoint or local copy.
+
+A Queued item needs a priority from `0` to `4` before `bin/fm-spawn.sh` can start it.
+`bin/fm-tasks-axi.sh ready` and the ready-capacity check leave items without priority out.
+To make an otherwise eligible item ready, run `bin/fm-tasks-axi.sh update <id> --priority <0-4>`.
+The item stays Queued and remains visible in `bin/fm-tasks-axi.sh list --state queued` until dispatch.
 
 [`bin/fm-tasks-axi.sh`](../bin/fm-tasks-axi.sh) refuses `add --start` and its `create --start` alias.
 Either would place a row In flight without a task record, status file, or inbox, counting it as live work that nobody is doing.
@@ -1428,7 +1436,9 @@ career P3
 
 The name is the project's registered name, which may contain spaces, and the tier, the last field on the line, is `P0`, `P1`, `P2`, or `P3`.
 Blank lines and lines beginning with `#` are ignored.
-The ready listings in the session-start digest and in `bin/fm-tasks-axi.sh ready` put P0 items first, then P1, P2, and P3, then items whose project has no tier or no project at all, keeping the backlog's order within each group.
+The ready listings in the session-start digest and in `bin/fm-tasks-axi.sh ready` group eligible items by project tier: P0, P1, P2, and P3, then items with no project tier.
+Each group keeps the backlog's order.
+A project tier does not replace the [priority required on the task](#automatic-dispatch-and-completion).
 The digest orders the listing before it bounds it, so a bound never cuts a higher-tier item in favor of a lower one.
 Any other line shape, a tier outside `P0` to `P3`, a project named twice, or an unreadable file is an error.
 `bin/fm-tasks-axi.sh ready` then refuses and names the line, while the digest prints the error under its ready heading and keeps the backlog's order.

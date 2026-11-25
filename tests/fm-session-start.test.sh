@@ -106,6 +106,19 @@ list_help() {
   printf 'help[1]:\n'
   printf '%s\n' '  - Run `tasks-axi show <id> --full` for full notes on a task'
 }
+ready_rows() {
+  if [ -n "${FM_FAKE_TASKS_AXI_READY_ROWS:-}" ]; then
+    printf '%s\n' "$FM_FAKE_TASKS_AXI_READY_ROWS" | sed 's/^/  /'
+  else
+    i=1
+    while [ "$i" -le "$ready_count" ]; do
+      printf '  ready-%s,queued,ship,firstmate,Ready item %s\n' "$i" "$i"
+      i=$((i + 1))
+    done
+  fi
+}
+rows=$(ready_rows)
+ready_count=$(printf '%s\n' "$rows" | wc -l | tr -d ' ')
 case "${1:-}" in
   --version|-v|-V)
     printf '%s\n' '0.2.6'
@@ -125,19 +138,9 @@ case "${1:-}" in
     ;;
   ready)
     require_file "$@"
-    rows=${FM_FAKE_TASKS_AXI_READY_ROWS:-}
-    [ -z "$rows" ] || ready_count=$(printf '%s\n' "$rows" | wc -l | tr -d ' ')
     printf 'count: %s\n' "$ready_count"
     printf 'ready[%s]{id,state,kind,repo,title}:\n' "$ready_count"
-    if [ -n "$rows" ]; then
-      printf '%s\n' "$rows" | sed 's/^/  /'
-    else
-      i=1
-      while [ "$i" -le "$ready_count" ]; do
-        printf '  ready-%s,queued,ship,firstmate,Ready item %s\n' "$i" "$i"
-        i=$((i + 1))
-      done
-    fi
+    printf '%s\n' "$rows"
     printf 'ready_public_followups: 0 delivery-ready obligations\n'
     printf 'help[1]:\n'
     printf '%s\n' '  - Run `tasks-axi start <id>` to dispatch one of these'
@@ -152,6 +155,12 @@ case "${1:-}" in
     esac
     require_file "$@"
     case "$*" in
+      *'--state queued --fields priority'*)
+        printf 'count: %s\ntasks[%s]{id,state,kind,repo,title,priority}:\n' "$ready_count" "$ready_count"
+        printf '%s\n' "$rows" | sed 's/$/,2/'
+        list_help
+        exit 0
+        ;;
       *'--state done'*)
         printf '%s\n' 'startup recovery must never list done rows' >&2
         exit 9

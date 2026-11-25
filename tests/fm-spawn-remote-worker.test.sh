@@ -59,12 +59,17 @@ rm "$HOME_DIR/config/backlog-backend"
 tasks-axi add task-two 'Research alpha' --kind scout --file "$HOME_DIR/data/backlog.md" >/dev/null
 mkdir -p "$HOME_DIR/data/task-two"
 printf '# Task\n## Captain\x27s intent\nResearch.\n\n## Firstmate spec\nReport evidence.\n' > "$HOME_DIR/data/task-two/brief.md"
+out=$(FM_ROOT_OVERRIDE="$FAKE_ROOT" FM_HOME="$HOME_DIR" FM_SPAWN_NO_GUARD=1 bash "$FAKE_ROOT/bin/fm-spawn.sh" task-two "$HOME_DIR/projects/alpha" --scout --harness pi 2>&1) && fail "remote spawn accepted a queued item without priority"
+assert_contains "$out" "backlog item task-two has no priority" "remote spawn did not name the missing priority"
+assert_absent "$HOME_DIR/state/task-two.meta" "remote spawn created a record without priority"
+pass "remote spawn does not send a queued item without priority to the execution host"
+FM_HOME="$HOME_DIR" "$ROOT/bin/fm-tasks-axi.sh" update task-two --priority 0 >/dev/null || fail "could not set remote item priority"
 out=$(FM_ROOT_OVERRIDE="$FAKE_ROOT" FM_HOME="$HOME_DIR" FM_SPAWN_NO_GUARD=1 bash "$FAKE_ROOT/bin/fm-spawn.sh" task-two "$HOME_DIR/projects/alpha" --scout --harness pi 2>&1) || fail "backlog-backed remote launch failed: $out"
 list=$(FM_HOME="$HOME_DIR" "$ROOT/bin/fm-tasks-axi.sh" list --state in_flight)
 printf '%s\n' "$list" | grep -F 'task-two' >/dev/null || fail "remote task did not move to In flight: spawn=$out list=$list"
 pass "remote launch moves its backlog item to In flight"
 printf '%s\n' '- alpha [direct-PR forge=forgejo host=exec-one] - project' > "$HOME_DIR/data/projects.md"
-tasks-axi add ship-one 'Change alpha' --kind ship --file "$HOME_DIR/data/backlog.md" >/dev/null
+tasks-axi add ship-one 'Change alpha' --kind ship --priority 2 --file "$HOME_DIR/data/backlog.md" >/dev/null
 FM_HOME="$HOME_DIR" "$ROOT/bin/fm-brief.sh" ship-one alpha --mode direct-PR --forge forgejo >/dev/null
 awk '$0 == "{TASK}" {print "Change alpha."; next} $0 == "{FIRSTMATE_SPEC}" {print "Use the selected forge."; next} {print}' "$HOME_DIR/data/ship-one/brief.md" > "$TMP_ROOT/ship-brief"
 mv "$TMP_ROOT/ship-brief" "$HOME_DIR/data/ship-one/brief.md"
@@ -73,7 +78,7 @@ assert_grep 'mode=direct-PR' "$HOME_DIR/state/ship-one.meta" "remote ship mode w
 assert_grep 'branch=fm/ship-one' "$HOME_DIR/state/ship-one.meta" "remote ship branch was lost"
 assert_no_grep 'mode=-' "$HOME_DIR/state/test-task.meta" "scout metadata invented a delivery mode"
 pass "remote ship accepts its selected forge contract"
-tasks-axi add full-host 'Research alpha' --kind scout --file "$HOME_DIR/data/backlog.md" >/dev/null
+tasks-axi add full-host 'Research alpha' --kind scout --priority 2 --file "$HOME_DIR/data/backlog.md" >/dev/null
 mkdir -p "$HOME_DIR/data/full-host"
 printf '# Task\n## Captain\x27s intent\nResearch.\n\n## Firstmate spec\nReport evidence.\n' > "$HOME_DIR/data/full-host/brief.md"
 rc=0
@@ -82,7 +87,7 @@ out=$(FM_TEST_ADMIT_DEFER=1 FM_ROOT_OVERRIDE="$FAKE_ROOT" FM_HOME="$HOME_DIR" FM
 [ ! -e "$HOME_DIR/state/full-host.meta" ] || fail "a deferred launch published task metadata"
 FM_HOME="$HOME_DIR" "$ROOT/bin/fm-tasks-axi.sh" list --state queued | grep -F 'full-host' >/dev/null || fail "a deferred launch moved its item out of Queued"
 pass "a full host defers with exit 75 and keeps the item queued instead of reporting a launch"
-tasks-axi add bad-route 'Research alpha' --kind scout --file "$HOME_DIR/data/backlog.md" >/dev/null
+tasks-axi add bad-route 'Research alpha' --kind scout --priority 2 --file "$HOME_DIR/data/backlog.md" >/dev/null
 mkdir -p "$HOME_DIR/data/bad-route"
 printf '# Task\n## Captain\x27s intent\nResearch.\n\n## Firstmate spec\nReport evidence.\n' > "$HOME_DIR/data/bad-route/brief.md"
 out=$(FM_TEST_BAD_TARGET=1 FM_ROOT_OVERRIDE="$FAKE_ROOT" FM_HOME="$HOME_DIR" FM_SPAWN_NO_GUARD=1 bash "$FAKE_ROOT/bin/fm-spawn.sh" bad-route "$HOME_DIR/projects/alpha" --scout --harness pi 2>&1) && fail "remote launch accepted a malformed endpoint"
@@ -90,7 +95,7 @@ assert_grep 'remote_target=pending' "$HOME_DIR/state/bad-route.meta" "ambiguous 
 pass "remote launch preserves an unconfirmed record instead of accepting a malformed endpoint"
 
 new_remote_scout() {  # <task-id>
-  tasks-axi add "$1" 'Research alpha' --kind scout --file "$HOME_DIR/data/backlog.md" >/dev/null
+  tasks-axi add "$1" 'Research alpha' --kind scout --priority 2 --file "$HOME_DIR/data/backlog.md" >/dev/null
   mkdir -p "$HOME_DIR/data/$1"
   printf '# Task\n## Captain\x27s intent\nResearch.\n\n## Firstmate spec\nReport evidence.\n' > "$HOME_DIR/data/$1/brief.md"
 }
@@ -167,7 +172,7 @@ choose_home() {  # <task-id>
   printf '%s\n' '- alpha [direct-PR host=exec-one] - project' > "$h/data/projects.md"
   cp "$HOME_DIR/data/remote-homes.md" "$h/data/remote-homes.md"
   printf '# Task\n## Captain\x27s intent\nResearch.\n\n## Firstmate spec\nReport evidence.\n' > "$h/data/$1/brief.md"
-  tasks-axi add "$1" 'Research alpha' --kind scout --file "$h/data/backlog.md" >/dev/null
+  tasks-axi add "$1" 'Research alpha' --kind scout --priority 2 --file "$h/data/backlog.md" >/dev/null
   printf '%s\n' "$h"
 }
 choose_run() {  # <home> <task-id> <local-load> <remote-load> <remote-free> [remote-defers]

@@ -217,17 +217,16 @@ function describeTasks(tasks, options) {
 function ready(tasks, options) {
   const matching = tasks.filter(task => !options.repo || task.repo === options.repo);
   const queued = matching.filter(task => task.state === 'queued' && !task.blocked);
-  const priority = task => task.priority ?? Number.MAX_SAFE_INTEGER;
-  const dispatchable = queued.filter(task => !task.held).sort((a, b) => priority(a) - priority(b));
+  const dispatchable = queued.filter(task => !task.held && task.priority !== null).sort((a, b) => a.priority - b.priority);
   const held = queued.filter(task => task.held);
   const drafts = matching.filter(task => task.state === 'draft');
   return [
     `count: ${dispatchable.length}`,
-    ...(dispatchable.length ? table('ready', dispatchable, []) : ['ready: 0 unblocked queued tasks']),
+    ...(dispatchable.length ? table('ready', dispatchable, []) : ['ready: 0 unblocked queued tasks with priority']),
     'ready_public_followups: 0 delivery-ready obligations',
     ...(options['include-held'] && held.length ? table('held', held, HOLD) : []),
     ...(drafts.length ? table('drafts', drafts, []) : []),
-    ...help([dispatchable.length ? 'Run `tasks-axi start <id>` to dispatch one of these'
+    ...help([dispatchable.length ? 'Run `bin/fm-spawn.sh` to dispatch one of these'
       : `Run \`tasks-axi list --state queued${options.repo ? ` --repo=${options.repo}` : ''}\` to see all queued work (incl. blocked)`,
     ...(drafts.length ? ['Drafts are not dispatchable; promote them to Queued on the Backlog.md board first'] : [])]),
   ].join('\n');
@@ -237,7 +236,8 @@ function update(book, ticket, options, now, project) {
   const { fields } = ticket;
   const body = requestedBody(options);
   const references = requestedReferences(options);
-  if (options.priority && !isCanonicalPriority(options.priority)) reject('--priority must be an integer from 0 to 4');
+  const clearPriority = options.priority === 'none';
+  if (options.priority && !clearPriority && !isCanonicalPriority(options.priority)) reject('--priority must be an integer from 0 to 4, or none');
   if (options.title && /[\r\n]/.test(options.title)) reject('Title must be a non-empty single line');
   if (options['archive-body'] && body === null) reject('--archive-body needs --body or --body-file');
   if (![options.title, options.repo, options.kind, options.priority].some(Boolean) && body === null && !references.length) {
@@ -245,7 +245,11 @@ function update(book, ticket, options, now, project) {
   }
   const changed = [];
   const patch = [['title', 'title', options.title], ['repo', 'project', options.repo], ['kind', 'type', options.kind],
-    ['priority', 'priority', options.priority == null ? null : `p${options.priority}`]];
+    ['priority', 'priority', !options.priority || clearPriority ? null : `p${options.priority}`]];
+  if (clearPriority && Object.hasOwn(fields, 'priority')) {
+    delete fields.priority;
+    changed.push('priority');
+  }
   for (const [key, field, value] of patch) {
     if (value != null && fields[field] !== value) {
       fields[field] = value;
@@ -382,7 +386,8 @@ function main(root, verb, args) {
   if (!Object.hasOwn(commands, command)) reject(`Unknown command: ${verb}`, unknownHelp);
   if (args.includes('--help') || args.includes('-h')) {
     const { flags, switches } = commands[command];
-    return [usage(command), 'flags:', ...flags.map(flag => `  --${flag} <value>`), ...switches.map(flag => `  --${flag}`)].join('\n');
+    const flagValue = flag => flag !== 'priority' ? '<value>' : command === 'update' ? '<0-4|none>' : '<0-4>';
+    return [usage(command), 'flags:', ...flags.map(flag => `  --${flag} ${flagValue(flag)}`), ...switches.map(flag => `  --${flag}`)].join('\n');
   }
 
   const { positionals, options } = argumentsFor(command, args);

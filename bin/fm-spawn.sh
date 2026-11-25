@@ -693,16 +693,23 @@ spawn_remote_worker() {
   SPAWN_TASK_LOCK_HELD=1
   meta="$STATE/$ID.meta"
   [ ! -e "$meta" ] && [ ! -L "$meta" ] || { echo "error: task $ID already has metadata" >&2; return 1; }
-  if fm_backlog_transition_applies "$CONFIG" "$DATA" "$KIND"; then
-    transition=1
-    if ! fm_backlog_row_probe "$DATA" "$ID" || ! fm_backlog_row_dispatchable "$FM_BACKLOG_ROW_STATE"; then
-      echo "error: task $ID has no dispatchable backlog item" >&2
+  if ! fm_backlog_item_gate "$CONFIG" "$DATA" "$ID" "$KIND"; then
+    echo "error: $FM_BACKLOG_ITEM_ERROR" >&2
+    return 1
+  fi
+  if [ "$FM_BACKLOG_ITEM_TRACKED" = 1 ]; then
+    if ! fm_backlog_row_require_priority "$ID"; then
+      echo "error: $FM_BACKLOG_TRANSITION_ERROR" >&2
       return 1
     fi
-    [ "$FM_BACKLOG_ROW_STATE" != 'queued no no' ] || started_row=1
-  else
-    rc=$?
-    [ "$rc" -ne 2 ] || { echo "error: backlog is inaccessible: $FM_BACKLOG_TRANSITION_ERROR" >&2; return 1; }
+    if ! fm_backlog_backend_manual "$CONFIG"; then
+      transition=1
+      if ! fm_backlog_row_dispatchable "$FM_BACKLOG_ROW_STATE"; then
+        echo "error: task $ID has no dispatchable backlog item" >&2
+        return 1
+      fi
+      [ "$FM_BACKLOG_ROW_STATE" != 'queued no no' ] || started_row=1
+    fi
   fi
   capabilities=(capabilities)
   [ "$WORKER_NAME" = "$ID" ] || capabilities+=(worker-name)
@@ -2637,7 +2644,6 @@ herdr_projection_existing_meta_allows_flat() { # <meta>
 # costs nothing to unwind, while the same refusal after publication would strand
 # a live pane. The authoritative mutation still runs under the meta lock below.
 BACKLOG_TRANSITION=0
-BACKLOG_ROW_STATE=
 BACKLOG_GATE_STATUS=0
 fm_backlog_item_gate "$CONFIG" "$DATA" "$ID" "$KIND" || BACKLOG_GATE_STATUS=$?
 case "$BACKLOG_GATE_STATUS" in
@@ -2655,12 +2661,17 @@ case "$BACKLOG_GATE_STATUS" in
     exit 1
     ;;
 esac
-if [ "$FM_BACKLOG_ITEM_TRACKED" = 1 ] && ! fm_backlog_backend_manual "$CONFIG"; then
-  BACKLOG_TRANSITION=1
-  BACKLOG_ROW_STATE=$FM_BACKLOG_ROW_STATE
-  if ! fm_backlog_row_dispatchable "$BACKLOG_ROW_STATE"; then
-    echo "error: this home's backlog item $ID is not dispatchable in state $BACKLOG_ROW_STATE; refusing before creating its endpoint or local copy" >&2
+if [ "$FM_BACKLOG_ITEM_TRACKED" = 1 ]; then
+  if ! fm_backlog_row_require_priority "$ID"; then
+    echo "error: $FM_BACKLOG_TRANSITION_ERROR" >&2
     exit 1
+  fi
+  if ! fm_backlog_backend_manual "$CONFIG"; then
+    BACKLOG_TRANSITION=1
+    if ! fm_backlog_row_dispatchable "$FM_BACKLOG_ROW_STATE"; then
+      echo "error: this home's backlog item $ID is not dispatchable in state $FM_BACKLOG_ROW_STATE; refusing before creating its endpoint or local copy" >&2
+      exit 1
+    fi
   fi
 fi
 
