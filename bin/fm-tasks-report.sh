@@ -10,10 +10,10 @@ Usage: fm-tasks-report.sh [--help]
 Print the tasks report v1 for orc-dash, one JSON object on one line.
 FM_TASKS_HOMES overrides machine discovery with a colon-separated home list.
 Each home's queued work also appears as a top-level planned array of
-(id, title, project, kind, home, queuedOn, hold, after) rows in tasks-axi
-dispatch order: ready rows first, then held, then blocked. The planned key is
-omitted when no home has queued work. A home whose queue cannot be read
-contributes no rows.
+(id, title, project, kind, home, queuedOn, hold, after) rows.
+The report lists ready rows in dispatch order, then held rows, blocked rows,
+and all other queued rows. The planned key is omitted when no home has queued
+work. A home whose queue cannot be read contributes no rows.
 Exit 0 prints the report, exit 1 names the home or input that stopped it.
 EOF
   exit 0
