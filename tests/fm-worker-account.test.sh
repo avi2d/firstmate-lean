@@ -338,6 +338,7 @@ test_named_account_without_subquo_row_must_not_call_clauth() {
   chmod +x "$FAKEBIN/subquo"
   mkdir -p "$HOME_DIR/data/$id"
   printf '{"task":"%s","status":"ambiguous"}\n' "$id" > "$HOME_DIR/data/$id/dispatch-resolution.json"
+  printf '%s\n' 'status: clear' 'profile: --harness pi --model claude-bridge/claude-opus-5-5 --claude-account second' > "$HOME_DIR/data/$id/dispatch-resolve.out"
   out=$(spawn_ship "$id" --harness pi --model claude-bridge/claude-opus-5-5 --claude-account second --dispatch-override "account quota regression"); rc=$?
   expect_code 0 "$rc" "the unavailable quota reading skips the gate: $out"
   assert_absent "$CASE/clauth-calls" "a named account with no subquo row must not call clauth"
