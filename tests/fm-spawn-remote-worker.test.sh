@@ -36,7 +36,7 @@ case "$*" in
       printf 'error: host-local worker launch failed: error: missing required account\n' >&2
       exit 1
     fi
-    [ "${FM_TEST_LAUNCH_DEFER:-0}" != 1 ] || { printf 'defer: host already holds 6 alpha worker(s) at its declared limit 6\n'; exit 75; }
+    [ "${FM_TEST_LAUNCH_DEFER:-0}" != 1 ] || { printf 'defer: host already holds 6 alpha worker(s) at its declared limit 6\n'; [ "${FM_TEST_NO_RECEIPT:-0}" = 1 ] || printf 'launch=rolled-back\n'; exit 75; }
     printf '%s\n' "$*" > "$FM_HOME/launch-args"
     account=${16:-}
     [ "${FM_TEST_DROP_ACCOUNT:-0}" != 1 ] || account=
@@ -99,6 +99,13 @@ remote_spawn() {  # <task-id> [spawn flags...]
   shift
   FM_ROOT_OVERRIDE="$FAKE_ROOT" FM_HOME="$HOME_DIR" FM_SPAWN_NO_GUARD=1 bash "$FAKE_ROOT/bin/fm-spawn.sh" "$id" "$HOME_DIR/projects/alpha" --scout --harness pi --model claude-bridge/opus "$@" 2>&1
 }
+
+new_remote_scout remote-unconfirmed-defer
+rc=0
+out=$(FM_TEST_LAUNCH_DEFER=1 FM_TEST_NO_RECEIPT=1 remote_spawn remote-unconfirmed-defer --claude-account main) || rc=$?
+[ "$rc" -ne 75 ] && [ "$rc" -ne 0 ] || fail "unconfirmed defer allowed a local fallback: $out"
+assert_grep 'remote_target=pending' "$HOME_DIR/state/remote-unconfirmed-defer.meta" "unconfirmed defer removed the pending record"
+pass "unconfirmed remote defer preserves the pending record instead of starting another worker"
 
 new_remote_scout remote-error
 out=$(FM_TEST_LAUNCH_ERROR=1 remote_spawn remote-error --claude-account main) && fail "failed remote launch reported success"

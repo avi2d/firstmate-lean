@@ -773,7 +773,9 @@ spawn_remote_worker() {
   launch_args=("$ID" "$project" "$KIND" "$mode_arg" "$yolo_arg" "$BRANCH_PREFIX" "$base_arg" "$harness" "$model_arg" "$effort_arg" "$backend")
   [ -z "$CLAUDE_ACCOUNT" ] || launch_args+=("$CLAUDE_ACCOUNT")
   out=$("$SCRIPT_DIR/fm-on.sh" --stdin "$route" fm-remote-worker-control.sh launch "${launch_args[@]}" < "$brief" 2>&1) || rc=$?
-  if [ "$rc" -eq 75 ] || { [ "$rc" -eq 76 ] && grep -Fxq 'launch=rolled-back' <<< "$out"; }; then
+  if { [ "$rc" -eq 75 ] || [ "$rc" -eq 76 ]; } && grep -Fxq 'launch=rolled-back' <<< "$out" &&
+    [ "$(fm_meta_get "$meta" spawn_gen)" = "$remote_spawn_gen" ] &&
+    [ "$(fm_meta_get "$meta" remote_target)" = pending ]; then
     printf '%s\n' "$out" >&2
     if { [ "$started_row" -eq 1 ] || { [ "$rc" -eq 76 ] && [ "$transition" -eq 1 ]; }; } &&
       ! fm_backlog_mutate "$DATA" reopen "$ID"; then
@@ -793,8 +795,12 @@ spawn_remote_worker() {
   fi
   if [ "$rc" -ne 0 ]; then
     printf '%s\n' "$out" >&2
-    remote_launch_unconfirmed "$meta" "$tmp" "launch-exit-$rc" || true
+    if [ "$(fm_meta_get "$meta" spawn_gen)" = "$remote_spawn_gen" ] &&
+      [ "$(fm_meta_get "$meta" remote_target)" = pending ]; then
+      remote_launch_unconfirmed "$meta" "$tmp" "launch-exit-$rc" || true
+    fi
     echo "error: remote launch outcome is unconfirmed; task record and backlog are preserved" >&2
+    [ "$rc" -ne 75 ] || return 1
     return "$rc"
   fi
   target=$(printf '%s\n' "$out" | sed -n 's/^target=//p')

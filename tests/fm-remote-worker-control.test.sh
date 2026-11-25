@@ -61,6 +61,17 @@ cat > "$FAKE_ROOT/bin/fm-spawn.sh" <<'SH'
 #!/usr/bin/env bash
 set -eu
 id=$1
+if [ -n "${FM_TEST_MARKER_CASE:-}" ]; then
+  case "$FM_TEST_MARKER_CASE" in
+    differs) printf 'other-attempt\n' > "$FM_HOME/data/$id/launch-marker" ;;
+    missing) rm "$FM_HOME/data/$id/launch-marker" ;;
+  esac
+  if [ "${FM_TEST_WRONG_CLEANUP:-0}" = 1 ]; then
+    rm -f "$FM_HOME/data/$id/brief.md"
+  fi
+  : > "$FM_REMOTE_SPAWN_PRELAUNCH_RECEIPT"
+  exit 1
+fi
 if [ "${FM_TEST_SPAWN_ERROR:-0}" = 1 ]; then
   printf 'notice: starting\nerror: missing required account\nerror: secondary failure\n' >&2
   exit 1
@@ -77,6 +88,21 @@ printf '# Task\n## Captain\x27s intent\nIndependent request.\n\n## Firstmate spe
 out=$(FM_TEST_SPAWN_ERROR=1 FM_ROOT_OVERRIDE="$FAKE_ROOT" FM_HOME="$HOME_DIR" bash "$FAKE_ROOT/bin/fm-remote-worker-control.sh" launch scout-error alpha scout - - fm/ - pi - - herdr < "$TMP_ROOT/brief" 2>&1) && fail "failed spawn reported success"
 printf '%s\n' "$out" | grep -Fx 'error: host-local worker launch failed: error: missing required account' >/dev/null || fail "host launch failure did not name its first error: $out"
 pass "failed remote spawn identifies its first error instead of only a generic failure"
+marker_cleanup_case() {
+  local marker_case=$1 wrong_cleanup=$2 id="marker-$1-$2" rc=0
+  FM_TEST_MARKER_CASE="$marker_case" FM_TEST_WRONG_CLEANUP="$wrong_cleanup" FM_ROOT_OVERRIDE="$FAKE_ROOT" FM_HOME="$HOME_DIR" \
+    bash "$FAKE_ROOT/bin/fm-remote-worker-control.sh" launch "$id" alpha scout - - fm/ - pi - - herdr < "$TMP_ROOT/brief" > "$TMP_ROOT/$id.out" 2>&1 || rc=$?
+  case "$marker_case" in
+    matches) [ "$rc" -eq 76 ] && [ ! -e "$HOME_DIR/data/$id/brief.md" ] ;;
+    differs|missing) [ "$rc" -eq 1 ] && [ -f "$HOME_DIR/data/$id/brief.md" ] ;;
+  esac
+}
+marker_cleanup_case differs 1 && fail "marker check accepted cleanup that deletes a differently owned brief"
+marker_cleanup_case missing 1 && fail "marker check accepted cleanup that deletes an unmarked brief"
+for marker_case in matches differs missing; do
+  marker_cleanup_case "$marker_case" 0 || fail "cleanup violated ownership for $marker_case"
+done
+pass "failed launch removes only the matching scaffold instead of another or unmarked brief"
 out=$(FM_ROOT_OVERRIDE="$FAKE_ROOT" FM_HOME="$HOME_DIR" bash "$FAKE_ROOT/bin/fm-remote-worker-control.sh" launch scout-c alpha scout - - fm/ - pi - - herdr < "$TMP_ROOT/brief") || fail "remote launch refused a valid scout"
 assert_grep 'Independent request.' "$HOME_DIR/data/scout-c/brief.md" "remote scaffold dropped intent"
 assert_grep 'Exact constraints.' "$HOME_DIR/data/scout-c/brief.md" "remote scaffold dropped specification"
