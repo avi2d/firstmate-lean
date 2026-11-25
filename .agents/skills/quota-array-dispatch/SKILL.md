@@ -84,7 +84,7 @@ A provider-level or `all_models`/`all_products` scope bounds every model you est
 A named-model or named-product scope is an additional bound for that model alone.
 A scope the vendor reports outside those names, such as an Antigravity tier, bounds a candidate only when its profile declares that exact scope as `quota_scope`; never infer the tier from the model name.
 For a candidate with `claude_account`, match its exact account label in subquo.
-If the reading is missing or not current, use that profile's `clauth status --json` windows, not an ambient quota-axi row.
+If the reading is missing or not current, the account is unverified; do not use an ambient quota-axi row.
 Keep the [Claude login checks](../../../docs/configuration.md#claude-accounts-configclaude-accounts), and pass the chosen account to `fm-spawn` as `--claude-account`.
 On the quota-axi fallback, match any other candidate to its `quota[]` row by that established provider, its `accountKey` when the snapshot is schema 6 (a Pi lane's auth provider id such as `openai-codex-work`, or `codex-home` for native Codex including Pi's `codex-native/` adapter, then the `default` row, else unmeasured; never a row picked by position, never rows summed across accounts), and scope; a stale, auth-required, or unmeasurable scope is named in `attention[]` instead of a fabricated number.
 

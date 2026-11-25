@@ -1199,15 +1199,14 @@ Models on other providers refuse `claude_account`.
 ### How resolution reads an account
 
 [Typed dispatch resolution](#typed-dispatch-resolution-env-fm_dispatch_provider-fm_dispatch_model) reads the named Claude account from the [quota snapshot](#quota-snapshot).
-Without a current reading for that account, it reads the named profile from `clauth status --json` instead of the ambient quota-axi `claude` row.
+Without a current subquo reading, the account is unverified rather than measured from the ambient quota-axi `claude` row.
 
 - `all_models` remaining is 100 minus the larger of the 5-hour and 7-day utilization, and a per-model weekly window such as `7d fable` adds `model:fable`.
 - A profile `floor`, such as `{ "scope": "all_models", "min_percent": 30 }`, makes the account ineligible below 30% remaining, and 0% remaining is exhausted.
   A floor can be skipped only when every window holding it below the floor resets within 24 hours and none is exhausted.
-  clauth reports no reset time, so a clauth fallback cannot lift the floor.
-- An account is ineligible if the home does not map it, an `ordinary` login is not active in clauth, or a required clauth fallback cannot vouch for the account.
+- An account is ineligible if the home does not map it, an `ordinary` login is not active in clauth, or the account has no current subquo reading.
   An unverifiable account is never treated as available.
-- Neither subquo nor clauth supplies `spendPriority` for a named Claude account.
+- Subquo does not supply `spendPriority` for a named Claude account.
   Use `"array_order": "preference"` to order named accounts.
 - A chosen account rides on the profile line as `--claude-account <name>`.
 
@@ -1224,7 +1223,7 @@ A relaunch that keeps the same harness and model, or lands on a Pi `claude-bridg
 
 A secondmate whose inherited dispatch file names accounts treats them as ineligible until its own home maps them.
 
-[`bin/fm-worker-account-lib.sh`](../bin/fm-worker-account-lib.sh) owns the map and the launch check, and [`bin/fm-clauth-lib.sh`](../bin/fm-clauth-lib.sh) owns how a clauth reading becomes a quota row.
+[`bin/fm-worker-account-lib.sh`](../bin/fm-worker-account-lib.sh) owns the map and the launch check.
 
 ## Lavish server address (config/lavish-axi-host)
 
@@ -1695,7 +1694,7 @@ Use `codex-home` for native Codex.
 When no lane is named, Firstmate looks for a matching provider's account labeled `default` or with the provider's name, such as `opencode-go`.
 It never picks an account by position or combines headroom across accounts.
 
-If a reading is missing, unreadable, stale, or unavailable, Firstmate falls back to clauth for a named Claude account and quota-axi otherwise.
+If a reading is missing, unreadable, stale, or unavailable, a named Claude account is unverified; Firstmate falls back to quota-axi for other profiles.
 Dispatch prints the source and fallback reason beside each candidate, plus the applicable window names, remaining percentages, and reset times when it uses subquo.
 Subquo does not report `spendPriority`, projected runway, or monthly pace.
 Firstmate still reads those fields from quota-axi when the decision needs them.

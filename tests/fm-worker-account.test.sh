@@ -68,6 +68,7 @@ esac
 SH
   cat > "$fakebin/clauth" <<SH
 #!/usr/bin/env bash
+printf "called\n" >> '$dir/clauth-calls'
 [ "\$*" = 'status --json' ] || exit 2
 [ -f '$dir/clauth-active' ] || exit 1
 printf '{"schema":2,"active_profile":"%s","profiles":[{"name":"main"},{"name":"second"}]}\n' "\$(cat '$dir/clauth-active')"
@@ -327,6 +328,24 @@ test_claude_account_ordinary_requires_clauth_to_report_it_active() {
   pass "an ordinary account launches only while clauth reports that profile active"
 }
 
+test_named_account_without_subquo_row_must_not_call_clauth() {
+  local out rc id=cacct-no-subquo
+  new_case no-subquo pi
+  signed_in_claude_root "$CASE/second"
+  printf '%s\n' "second $CASE/second" > "$HOME_DIR/config/claude-accounts"
+  printf '%s\n' '{"default":{"harness":"pi","model":"claude-bridge/claude-opus-5-5","provider":"claude","claude_account":"second"}}' > "$HOME_DIR/config/crew-dispatch.json"
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$FAKEBIN/subquo"
+  chmod +x "$FAKEBIN/subquo"
+  mkdir -p "$HOME_DIR/data/$id"
+  printf '{"task":"%s","status":"ambiguous"}\n' "$id" > "$HOME_DIR/data/$id/dispatch-resolution.json"
+  printf '%s\n' 'status: clear' 'profile: --harness pi --model claude-bridge/claude-opus-5-5 --claude-account second' > "$HOME_DIR/data/$id/dispatch-resolve.out"
+  out=$(spawn_ship "$id" --harness pi --model claude-bridge/claude-opus-5-5 --claude-account second --dispatch-override "account quota regression"); rc=$?
+  expect_code 0 "$rc" "the unavailable quota reading skips the gate: $out"
+  assert_absent "$CASE/clauth-calls" "a named account with no subquo row must not call clauth"
+  assert_contains "$out" 'quota gate skipped: subquo cannot verify account second' "the skip names the unavailable account reading"
+  pass "a named account with no subquo row must not call clauth"
+}
+
 test_claude_account_refusals() {
   local out rc id=cacct-bad
   new_case account-refusals pi
@@ -369,5 +388,6 @@ test_pi_claude_bridge_without_an_account_refuses_where_accounts_are_declared
 test_pi_claude_bridge_without_an_account_is_unchanged_elsewhere
 test_claude_account_ordinary_requires_clauth_to_report_it_active
 test_claude_account_refusals
+test_named_account_without_subquo_row_must_not_call_clauth
 
 echo "# all fm-worker-account tests passed"
