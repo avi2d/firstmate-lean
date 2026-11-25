@@ -609,7 +609,8 @@ spawn_choose_machine() {  # <route> <host> <project>
     use_remote=1
     why="this machine refused: $lwhy"
   else
-    why="neither machine has room: this machine ($lwhy); $host ($rwhy)"
+    printf 'machine: neither machine has room: this machine (%s); %s (%s); task %s stays queued\n' "$lwhy" "$host" "$rwhy" "$ID" >&2
+    return "$FM_MAC_LOAD_DEFER_EXIT"
   fi
   pick="this machine"
   [ "$use_remote" = 0 ] || pick=$host
@@ -1390,8 +1391,14 @@ if [ "$RELAUNCH" -eq 0 ] && [ "$LOCAL_OVERRIDE" -eq 0 ] && [ "${#POS[@]}" -ge 2 
   if [ -n "$remote_placement" ]; then
     remote_host=$(fm_remote_registry_field "$DATA/remote-homes.md" "$remote_placement" host 2>/dev/null || true)
     [ -n "$remote_host" ] || { echo "error: no execution-home route for $remote_placement" >&2; exit 1; }
-    if [ -d "$PROJECTS/$remote_project" ] && ! spawn_choose_machine "$remote_placement" "$remote_host" "$remote_project"; then
-      remote_placement=
+    if [ -d "$PROJECTS/$remote_project" ]; then
+      machine_rc=0
+      spawn_choose_machine "$remote_placement" "$remote_host" "$remote_project" || machine_rc=$?
+      case "$machine_rc" in
+        0) ;;
+        "$FM_MAC_LOAD_DEFER_EXIT") exit "$machine_rc" ;;
+        *) remote_placement= ;;
+      esac
     fi
   fi
   if [ -n "$remote_placement" ]; then

@@ -185,7 +185,7 @@ mkdir -p "$BAD_AWK"
 cat > "$BAD_AWK/awk" <<'SH'
 #!/usr/bin/env bash
 case " $* " in
-  *' -v a=68.51 -v b=16 '*) exit 0 ;;
+  *' -v a=68.51 -v b=16 '*|*' -v a=10 -v b=10 '*) exit 0 ;;
 esac
 exec "$FM_TEST_REAL_AWK" "$@"
 SH
@@ -206,13 +206,23 @@ overloaded_host_picked_local "$out" || fail "an overloaded host beat the local m
 [ ! -e "$h/launch-args" ] || fail "an overloaded host received a launch: $out"
 pass "an overloaded host does not beat a local machine with room"
 
+both_overloaded_deferred() {
+  [ "$1" -eq 75 ] && printf '%s\n' "$2" | grep -F 'neither machine has room' >/dev/null
+}
+h=$(choose_home wrong-both-overloaded)
+printf '@load-limit 10\n' > "$h/config/project-capacity"
+rc=0
+out=$(PATH="$BAD_AWK:$PATH" FM_TEST_REAL_AWK="$REAL_AWK" choose_run "$h" wrong-both-overloaded 10 16 6) || rc=$?
+printf '%s\n' "$out" | grep -F 'machine: this machine picked' >/dev/null || fail "the deliberately wrong comparison did not proceed locally: $out"
+if both_overloaded_deferred "$rc" "$out"; then fail "the deferral check accepted a deliberately wrong local pick: $out"; fi
+pass "the deferral check rejects a deliberately wrong local pick"
+
 h=$(choose_home both-overloaded)
 git init -q "$h/projects/alpha"
 printf '@load-limit 10\n' > "$h/config/project-capacity"
 rc=0
 out=$(choose_run "$h" both-overloaded 10 16 6) || rc=$?
-[ "$rc" -eq 75 ] || fail "two overloaded machines did not defer with exit 75 (rc=$rc): $out"
-printf '%s\n' "$out" | grep -F 'neither machine has room' >/dev/null || fail "two overloaded machines were not identified: $out"
+both_overloaded_deferred "$rc" "$out" || fail "two overloaded machines did not defer with exit 75 (rc=$rc): $out"
 [ ! -e "$h/launch-args" ] && [ ! -e "$h/state/both-overloaded.meta" ] || fail "two overloaded machines launched a worker: $out"
 FM_HOME="$h" "$ROOT/bin/fm-tasks-axi.sh" list --state queued | grep -F 'both-overloaded' >/dev/null || fail "two overloaded machines removed the task from the queue"
 pass "two machines at their load limits defer rather than launch"
@@ -259,7 +269,7 @@ pass "a launch this machine refuses on load moves to the host that has room inst
 
 h=$(choose_home no-room-anywhere)
 out=$(choose_run "$h" no-room-anywhere 20 26 0 1) || true
-printf '%s\n' "$out" | grep -F 'machine: this machine picked - neither machine has room' >/dev/null || fail "a launch with no room on either machine did not say so: $out"
+printf '%s\n' "$out" | grep -F 'machine: neither machine has room' >/dev/null || fail "a launch with no room on either machine did not say so: $out"
 [ ! -e "$h/launch-args" ] && [ ! -e "$h/state/no-room-anywhere.meta" ] || fail "a launch with no room anywhere reached the host that refused: $out"
 pass "a launch with no room on either machine is not sent to the host that refused"
 
