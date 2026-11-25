@@ -401,7 +401,7 @@ message_log_lock_steps() {  # <home>, with FM_HOME naming the same home
   . "$ROOT/bin/fm-backlog-transition-lib.sh"
   bash "$WRAPPER" add demo-1 "Log the steer" --repo demo >/dev/null || exit 1
   exec 8>>"$home/data/.fm-backlog-messages.lock"
-  perl -MFcntl=:flock -e 'open(my $lock, ">>&=", 8) && flock($lock, LOCK_EX) or exit 1' || exit 1
+  perl -MFcntl=:flock -e 'open(my $lock, ">>&=", 8) or exit 1; flock($lock, LOCK_EX) or exit 1' || exit 1
   if FM_BACKLOG_MESSAGE_LOCK_SECS=0 fm_backlog_append_message "$home/data" demo-1 firstmate "Must not be appended"; then
     exit 1
   fi
