@@ -578,6 +578,10 @@ spawn_choose_machine() {  # <route> <host> <project>
     rheavy_limit=$(printf '%s\n' "$out" | sed -n 's/.* heavy_limit=\([0-9]*\).*/\1/p')
     if [ -n "$rload" ] && [ -n "$rlimit" ] && [ -n "$rfree" ]; then
       rmeasured=1
+      if [ "$rfree" -le 0 ] || ! awk -v a="$rload" -v b="$rlimit" 'BEGIN { exit !(a < b) }'; then
+        rok=0
+        rwhy="load $rload of $rlimit, $rfree heavy slot(s) free"
+      fi
     fi
   else
     rwhy=$(printf '%s\n' "$out" | head -n 1)

@@ -176,11 +176,32 @@ printf '%s\n' "$out" | grep -F 'machine: this machine picked' >/dev/null || fail
 [ ! -e "$h/launch-args" ] || fail "a launch was sent to a host that refused on load: $out"
 pass "a launch is not sent to a host that refused on load while this machine has room"
 
+overloaded_host_picked_local() {
+  printf '%s\n' "$1" | grep -F 'machine: this machine picked - testhost refused: load 68.51 of 16' >/dev/null
+}
+BAD_AWK="$TMP_ROOT/bad-awk"
+mkdir -p "$BAD_AWK"
+cat > "$BAD_AWK/awk" <<'SH'
+#!/usr/bin/env bash
+case " $* " in
+  *' -v a=68.51 -v b=16 '*) exit 0 ;;
+esac
+exec "$FM_TEST_REAL_AWK" "$@"
+SH
+chmod +x "$BAD_AWK/awk"
+h=$(choose_home wrong-overloaded-pick)
+printf '@heavy-limit 6\n@load-limit 10\n' > "$h/config/project-capacity"
+printf 'kind=ship\n' > "$h/state/holder.meta"
+out=$(PATH="$BAD_AWK:$PATH" FM_TEST_REAL_AWK="$(command -v awk)" FM_TEST_REMOTE_LIMIT_FIELD=' heavy_limit=4' choose_run "$h" wrong-overloaded-pick 8 68.51 4) || fail "the deliberately wrong host pick failed to launch: $out"
+[ -e "$h/launch-args" ] || fail "the deliberately wrong comparison did not pick the overloaded host: $out"
+if overloaded_host_picked_local "$out"; then fail "the overload check accepted a deliberately wrong host pick: $out"; fi
+pass "the overload check rejects a deliberately wrong host pick"
+
 h=$(choose_home overloaded-host)
 printf '@heavy-limit 6\n@load-limit 10\n' > "$h/config/project-capacity"
 printf 'kind=ship\n' > "$h/state/holder.meta"
 out=$(FM_TEST_REMOTE_LIMIT_FIELD=' heavy_limit=4' choose_run "$h" overloaded-host 8 68.51 4) || true
-printf '%s\n' "$out" | grep -F 'machine: this machine picked - testhost refused: load 68.51 of 16' >/dev/null || fail "an overloaded host beat the local machine on free slots: $out"
+overloaded_host_picked_local "$out" || fail "an overloaded host beat the local machine on free slots: $out"
 [ ! -e "$h/launch-args" ] || fail "an overloaded host received a launch: $out"
 pass "an overloaded host does not beat a local machine with room"
 
