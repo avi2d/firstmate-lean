@@ -316,13 +316,17 @@ fm_host_room() {  # <first-state> <own-id> <config-dir>
     return 1
   fi
   FM_HOST_ROOM_FREE=$((FM_MAC_HEAVY_LIMIT - FM_MAC_HEAVY_COUNT))
+  FM_HOST_ROOM_HEAVY_LIMIT=$FM_MAC_HEAVY_LIMIT
   FM_HOST_ROOM_LOAD_LIMIT=$FM_MAC_LOAD_LIMIT
   if fm_linux_load_gate_active "$3"; then
     if ! fm_linux_load_config "$3" || ! fm_linux_heavy_count "$1" "$2" "$3"; then
       FM_HOST_ROOM_ERROR=$FM_LINUX_LOAD_ERROR
       return 1
     fi
-    [ "$((FM_LINUX_HEAVY_LIMIT - FM_LINUX_HEAVY_COUNT))" -ge "$FM_HOST_ROOM_FREE" ] || FM_HOST_ROOM_FREE=$((FM_LINUX_HEAVY_LIMIT - FM_LINUX_HEAVY_COUNT))
+    if [ "$(((FM_LINUX_HEAVY_LIMIT - FM_LINUX_HEAVY_COUNT) * FM_HOST_ROOM_HEAVY_LIMIT))" -lt "$((FM_HOST_ROOM_FREE * FM_LINUX_HEAVY_LIMIT))" ]; then
+      FM_HOST_ROOM_FREE=$((FM_LINUX_HEAVY_LIMIT - FM_LINUX_HEAVY_COUNT))
+      FM_HOST_ROOM_HEAVY_LIMIT=$FM_LINUX_HEAVY_LIMIT
+    fi
     [ "$FM_LINUX_LOAD_LIMIT" -ge "$FM_HOST_ROOM_LOAD_LIMIT" ] || FM_HOST_ROOM_LOAD_LIMIT=$FM_LINUX_LOAD_LIMIT
   fi
   FM_HOST_ROOM_LOAD=$(fm_mac_loadavg_5min) || { FM_HOST_ROOM_ERROR='the five-minute load average cannot be read'; return 1; }

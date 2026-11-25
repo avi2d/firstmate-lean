@@ -29,7 +29,7 @@ case "$*" in
     printf 'claude_account=%s\n' "$6" ;;
   *' admit '*)
     if [ "${FM_TEST_ADMIT_DEFER:-0}" = 1 ]; then printf 'defer: host already holds 6 alpha worker(s) at its declared limit 6\n'; exit 75; fi
-    printf 'admit project=alpha holders=0 load=%s load_limit=16 heavy_free=%s\n' "${FM_TEST_REMOTE_LOAD:-1.0}" "${FM_TEST_REMOTE_FREE:-6}" ;;
+    printf 'admit project=alpha holders=0 load=%s load_limit=16 heavy_free=%s%s\n' "${FM_TEST_REMOTE_LOAD:-1.0}" "${FM_TEST_REMOTE_FREE:-6}" "${FM_TEST_REMOTE_LIMIT_FIELD- heavy_limit=100}" ;;
   *' launch '*)
     cat >/dev/null
     [ "${FM_TEST_LAUNCH_DEFER:-0}" != 1 ] || { printf 'defer: host already holds 6 alpha worker(s) at its declared limit 6\n'; exit 75; }
@@ -166,10 +166,32 @@ printf '%s\n' "$out" | grep -F 'machine: this machine picked' >/dev/null || fail
 pass "a launch is not sent to a host that refused on load while this machine has room"
 
 h=$(choose_home more-room-there)
+printf '@heavy-limit 6\n' > "$h/config/project-capacity"
+printf 'kind=ship\n' > "$h/state/holder.meta"
 out=$(choose_run "$h" more-room-there 2.8 1.0 99) || fail "a launch to the host with more room failed: $out"
 printf '%s\n' "$out" | grep -F 'machine: testhost picked' >/dev/null || fail "the host with more room was not picked: $out"
 assert_grep 'remote_host=testhost' "$h/state/more-room-there.meta" "the launch with more room did not land on that host"
 pass "a launch with more room on the host route is not kept on this machine"
+
+h=$(choose_home relative-room-there)
+printf '@heavy-limit 6\n' > "$h/config/project-capacity"
+printf 'kind=ship\n' > "$h/state/holder.meta"
+out=$(FM_TEST_REMOTE_LIMIT_FIELD=' heavy_limit=4' choose_run "$h" relative-room-there 9.97 1.0 4) || fail "host with more relative room refused: $out"
+printf '%s\n' "$out" | grep -F 'machine: testhost picked - heavy slots free 5/6 here and 4/4 on testhost' >/dev/null || fail "absolute free slots overrode the host's greater relative room: $out"
+pass "five free slots of six do not beat four of four on the host"
+
+h=$(choose_home relative-load-there)
+printf '@heavy-limit 6\n@load-limit 10\n' > "$h/config/project-capacity"
+out=$(FM_TEST_REMOTE_LIMIT_FIELD=' heavy_limit=4' choose_run "$h" relative-load-there 2.8 4.47 4) || fail "host with lower relative load refused: $out"
+printf '%s\n' "$out" | grep -F 'machine: testhost picked' >/dev/null || fail "rounding hid the host's lower relative load: $out"
+pass "equal free shares use the unrounded load shares"
+
+h=$(choose_home legacy-room-here)
+printf '@heavy-limit 6\n' > "$h/config/project-capacity"
+printf 'kind=ship\n' > "$h/state/holder.meta"
+out=$(FM_TEST_REMOTE_LIMIT_FIELD='' choose_run "$h" legacy-room-here 2.8 1.0 4) || true
+printf '%s\n' "$out" | grep -F 'machine: this machine picked - heavy slots free 5 here and 4 on testhost (host limit unavailable)' >/dev/null || fail "a host without a heavy limit did not use the absolute comparison: $out"
+pass "a host without a heavy limit falls back to absolute free slots"
 
 h=$(choose_home more-room-here)
 out=$(choose_run "$h" more-room-here 2.8 1.0 0) || true
@@ -190,6 +212,8 @@ printf '%s\n' "$out" | grep -F 'machine: this machine picked - neither machine h
 pass "a launch with no room on either machine is not sent to the host that refused"
 
 h=$(choose_home launch-deferred)
+printf '@heavy-limit 6\n' > "$h/config/project-capacity"
+printf 'kind=ship\n' > "$h/state/holder.meta"
 rc=0
 out=$(choose_run "$h" launch-deferred 2.8 1.0 99 0 1) || rc=$?
 printf '%s\n' "$out" | grep -F 'machine: testhost picked' >/dev/null || fail "the host with room was not chosen before its launch deferred: $out"

@@ -355,7 +355,7 @@ worker_admit() {  # <id> <project>
   admit_heavy_gates "$id" || return $?
   room_config=$(fm_project_capacity_config_dir "$TARGET_HOME" "$config") || die "the root home that declares host limits cannot be resolved"
   fm_host_room "$TARGET_HOME/state" "$id" "$room_config" || die "host room cannot be read ($FM_HOST_ROOM_ERROR)"
-  printf 'admit project=%s holders=%s load=%s load_limit=%s heavy_free=%s\n' "$project" "${holders}${limit:+/$limit}" "$loadavg" "$FM_HOST_ROOM_LOAD_LIMIT" "$FM_HOST_ROOM_FREE"
+  printf 'admit project=%s holders=%s load=%s load_limit=%s heavy_free=%s heavy_limit=%s\n' "$project" "${holders}${limit:+/$limit}" "$loadavg" "$FM_HOST_ROOM_LOAD_LIMIT" "$FM_HOST_ROOM_FREE" "$FM_HOST_ROOM_HEAVY_LIMIT"
 }
 
 route() {
