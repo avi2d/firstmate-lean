@@ -207,12 +207,14 @@ overloaded_host_picked_local "$out" || fail "an overloaded host beat the local m
 pass "an overloaded host does not beat a local machine with room"
 
 h=$(choose_home both-overloaded)
+git init -q "$h/projects/alpha"
 printf '@load-limit 10\n' > "$h/config/project-capacity"
 rc=0
 out=$(choose_run "$h" both-overloaded 10 16 6) || rc=$?
 [ "$rc" -eq 75 ] || fail "two overloaded machines did not defer with exit 75 (rc=$rc): $out"
 printf '%s\n' "$out" | grep -F 'neither machine has room' >/dev/null || fail "two overloaded machines were not identified: $out"
 [ ! -e "$h/launch-args" ] && [ ! -e "$h/state/both-overloaded.meta" ] || fail "two overloaded machines launched a worker: $out"
+FM_HOME="$h" "$ROOT/bin/fm-tasks-axi.sh" list --state queued | grep -F 'both-overloaded' >/dev/null || fail "two overloaded machines removed the task from the queue"
 pass "two machines at their load limits defer rather than launch"
 
 h=$(choose_home more-room-there)
