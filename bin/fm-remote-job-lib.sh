@@ -228,6 +228,20 @@ fm_remote_job_build_child_path() { # <remote-root>
   printf '%s\n' "$FM_REMOTE_JOB_CHILD_PATH"
 }
 
+# An interactive login gets XDG_RUNTIME_DIR from the session; a job child starts
+# under env -i, and without it per-user daemons such as pueue look for their
+# socket somewhere nothing listens. Tests point FM_REMOTE_RUNTIME_BASE at a
+# fixture; production always uses /run/user.
+fm_remote_job_runtime_dir() { # prints this account's Linux runtime directory when it is safe to hand on
+  local uid dir
+  [ "$(fm_remote_job_platform)" = linux ] || return 1
+  uid=$(id -u 2>/dev/null) || return 1
+  case "$uid" in ''|*[!0-9]*) return 1 ;; esac
+  dir="${FM_REMOTE_RUNTIME_BASE:-/run/user}/$uid"
+  [ -d "$dir" ] && [ ! -L "$dir" ] && [ -O "$dir" ] || return 1
+  printf '%s\n' "$dir"
+}
+
 fm_remote_job_operator_tool() { # <tool>; resolves only outside the checkout bin
   local tool=$1 resolved
   resolved=$(PATH="$FM_REMOTE_JOB_OPERATOR_PATH" command -v "$tool" 2>/dev/null || true)

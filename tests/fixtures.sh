@@ -320,6 +320,57 @@ SH
   printf '%s\n' "$fakebin"
 }
 
+# fm_test_make_relaunch_fakebin <case-dir>
+# The fake pane holds no agent, so --relaunch reuses it for the replacement.
+# FM_FAKE_DIR names where it reads cwd and writes keys and launch.
+fm_test_make_relaunch_fakebin() {
+  local fb="$1/fakebin"
+  mkdir -p "$fb"
+  cat > "$fb/herdr" <<'SH'
+#!/usr/bin/env bash
+set -u
+D=$FM_FAKE_DIR
+case "${1:-} ${2:-}" in
+  'status --json')
+    printf '%s\n' '{"client":{"version":"0.9.5","protocol":22},"server":{"running":true}}' ;;
+  'pane get')
+    printf '{"result":{"pane":{"pane_id":"%s","foreground_cwd":"%s"}}}\n' "${3:-}" "$(cat "$D/cwd")" ;;
+  'agent get')
+    printf '%s\n' '{"error":{"code":"agent_not_found"}}' ;;
+  'pane process-info')
+    printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":4242,"foreground_processes":[]}}}\n' "${4:-}" ;;
+  'pane run')
+    printf '%s\n' "${4# }" >> "$D/keys" ;;
+  'pane send-text')
+    payload=${4# }
+    case "$payload" in
+      ". '"*"'")
+        staged=${payload#". '"}
+        staged=${staged%"'"}
+        [ ! -f "$staged" ] || cat -- "$staged" > "$D/launch"
+        ;;
+    esac ;;
+  'workspace list') printf '%s\n' '{"result":{"workspaces":[]}}' ;;
+  'tab list') printf '%s\n' '{"result":{"tabs":[]}}' ;;
+esac
+exit 0
+SH
+  cat > "$fb/ps" <<'SH'
+#!/usr/bin/env bash
+case "$*" in
+  '-axo pid=,ppid=,comm=') printf '4242 1 bash\n' ;;
+  '-p 4242 -o args=') printf 'bash\n' ;;
+  *) exec /bin/ps "$@" ;;
+esac
+SH
+  cat > "$fb/sleep" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+  chmod +x "$fb/herdr" "$fb/ps" "$fb/sleep"
+  fm_fake_exit0 "$fb" pi
+}
+
 fm_test_run_spawn() {
   local home=$1 pane=$2 fakebin=$3
   shift 3
