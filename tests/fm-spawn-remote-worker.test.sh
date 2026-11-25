@@ -176,6 +176,23 @@ printf '%s\n' "$out" | grep -F 'machine: this machine picked' >/dev/null || fail
 [ ! -e "$h/launch-args" ] || fail "a launch was sent to a host that refused on load: $out"
 pass "a launch is not sent to a host that refused on load while this machine has room"
 
+h=$(choose_home overloaded-host)
+printf '@heavy-limit 6\n@load-limit 10\n' > "$h/config/project-capacity"
+printf 'kind=ship\n' > "$h/state/holder.meta"
+out=$(FM_TEST_REMOTE_LIMIT_FIELD=' heavy_limit=4' choose_run "$h" overloaded-host 8 68.51 4) || true
+printf '%s\n' "$out" | grep -F 'machine: this machine picked - testhost refused: load 68.51 of 16' >/dev/null || fail "an overloaded host beat the local machine on free slots: $out"
+[ ! -e "$h/launch-args" ] || fail "an overloaded host received a launch: $out"
+pass "an overloaded host does not beat a local machine with room"
+
+h=$(choose_home both-overloaded)
+printf '@load-limit 10\n' > "$h/config/project-capacity"
+rc=0
+out=$(choose_run "$h" both-overloaded 10 16 6) || rc=$?
+[ "$rc" -eq 75 ] || fail "two overloaded machines did not defer with exit 75 (rc=$rc): $out"
+printf '%s\n' "$out" | grep -F 'neither machine has room' >/dev/null || fail "two overloaded machines were not identified: $out"
+[ ! -e "$h/launch-args" ] && [ ! -e "$h/state/both-overloaded.meta" ] || fail "two overloaded machines launched a worker: $out"
+pass "two machines at their load limits defer rather than launch"
+
 h=$(choose_home more-room-there)
 printf '@heavy-limit 6\n' > "$h/config/project-capacity"
 printf 'kind=ship\n' > "$h/state/holder.meta"
