@@ -404,7 +404,7 @@ remote_launch_finish() {
 launch() (
   local id=$1 project=$2 kind=$3 mode=$4 yolo=$5 prefix=$6 base=$7 harness=$8 model=$9
   shift 9
-  local effort=$1 backend=$2 account=${3:-} temp session out rc contract token forge=none shape='' pr=auto data_existed=0
+  local effort=$1 backend=$2 account=${3:-} temp session out rc first_error contract token forge=none shape='' pr=auto data_existed=0
   local worker_name task_data meta journal path spawn_attempted=0 dispatch_file=''
   local -a brief_args spawn_args contract_fields
   validate_home
@@ -473,7 +473,10 @@ launch() (
     "$SCRIPT_DIR/fm-spawn.sh" "${spawn_args[@]}" 2>&1) || rc=$?
   if [ "$rc" -ne 0 ]; then
     printf '%s\n' "$out" >&2
-    [ "$rc" -eq 75 ] || printf 'error: host-local worker launch failed\n' >&2
+    if [ "$rc" -ne 75 ]; then
+      first_error=$(printf '%s\n' "$out" | awk '/^error:/ { print; exit }')
+      printf 'error: host-local worker launch failed%s\n' "${first_error:+: $first_error}" >&2
+    fi
     exit "$rc"
   fi
   route "$id"
