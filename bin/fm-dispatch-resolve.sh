@@ -622,10 +622,7 @@ ACCOUNTS='{}'
 CLAUTH_STATUS='null'
 if jq -e '.accounts | length > 0' <<< "$NEEDS" >/dev/null; then
   ACCOUNTS=$(fm_claude_accounts_json "$CONFIG" 2>"$RESP_HEADERS") || die "$(sed 's/^error: //' "$RESP_HEADERS")"
-  if jq -e --argjson accounts "$ACCOUNTS" --argjson subquo "$SUBQUO" "$(fm_subquo_row_jq)"'
-      any(.accounts[]; . as $a | $accounts[$a] == "ordinary" or
-        ($accounts | has($a)) and subquo_missing($subquo; subquo_row($subquo; "claude"; $a)) != null)
-    ' <<< "$NEEDS" >/dev/null; then
+  if jq -e --argjson accounts "$ACCOUNTS" 'any(.accounts[]; $accounts[.] == "ordinary")' <<< "$NEEDS" >/dev/null; then
     if CLAUTH_STATUS=$(fm_clauth_status 2>"$RESP_HEADERS"); then
       CLAUTH_STATUS=$(jq -c . <<<"$CLAUTH_STATUS")
     else
@@ -637,7 +634,7 @@ fi
 # ---- resolution: declared gates + quota evidence + argmax, all in jq ------------
 RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg none_criterion "$DEFAULT_WHEN" --argjson sq "$SQ" \
   --argjson accounts "$ACCOUNTS" --argjson clauth "$CLAUTH_STATUS" --argjson subquo "$SUBQUO" --arg legacy_error "$LEGACY_ERROR" \
-  --slurpfile resp "$RESP_FILE" --slurpfile rules "$RULES" --slurpfile quota "$QUOTA" "$FM_QUOTA_ROW_JQ$FM_CLAUTH_ROW_JQ$(fm_subquo_row_jq)$(fm_quota_assessment_jq)"'
+  --slurpfile resp "$RESP_FILE" --slurpfile rules "$RULES" --slurpfile quota "$QUOTA" "$FM_QUOTA_ROW_JQ$(fm_subquo_row_jq)$(fm_quota_assessment_jq)"'
   ($resp[0]) as $r | ($rules[0]) as $cfg | ($quota[0]) as $q | ($r.answers.rule) as $a |
   def profiles($v): if ($v | type) == "array" then $v elif ($v | type) == "object" then [$v] else [] end;
   def prov($p; $lane):
@@ -673,8 +670,7 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg non
       subquo_row($subquo; "claude"; $account) as $saved |
       subquo_missing($subquo; $saved) as $missing |
       if $missing then
-        (if $clauth.unavailable then {unusable: "\($clauth.unavailable), so account \($account) is unverified"}
-         else clauth_row($clauth; $account) end) + {source: "clauth", fallback: $missing}
+        {unusable: "\($missing), so account \($account) is unverified"}
       else
         $saved + {namedClaude: true}
         | if any(.windows[]; .scope == "all" and .id == "five-hour") and any(.windows[]; .scope == "all" and .id == "weekly") then .
@@ -726,12 +722,12 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg non
       elif any($rows[]; .status != "known") then
         ($rows | map(select(.status != "known")) | first) as $bad |
         {profile: $c, provider: $p, bounds: $bounds, scope: $bad.scope, eligible: true, unranked: true, unknown: true, reason: "quota row \($bad.scope) unknown: not rankable"}
-      elif $row.clauth or $row.namedClaude then
+      elif $row.namedClaude then
         ($rows | min_by(.effectivePercentRemaining)) as $limiting |
         {profile: $c, provider: $p, bounds: $bounds, scope: $limiting.scope, pct: $limiting.effectivePercentRemaining, runway: $limiting.runway.status, eligible: true}
         + (if $row.uncertainty then {unranked: true} else {} end)
         + (if $cfg.array_order == "preference" then {reason: (["ok", ($row.uncertainty // empty)] | join(": "))}
-           else {unranked: true, reason: ("\($row.source // "clauth") measures windows, not spendPriority: not rankable" + (if $row.uncertainty then ": " + $row.uncertainty else "" end))} end)
+           else {unranked: true, reason: ("\($row.source) measures windows, not spendPriority: not rankable" + (if $row.uncertainty then ": " + $row.uncertainty else "" end))} end)
       elif $row.source == "subquo" and $cfg.array_order == "preference" then
         ($rows | min_by(.effectivePercentRemaining)) as $limiting |
         {profile: $c, provider: $p, bounds: $bounds, scope: $limiting.scope, pct: $limiting.effectivePercentRemaining,
