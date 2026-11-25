@@ -54,6 +54,11 @@ Firstmate puts the result in the worker's inbox when the run finishes.
 If the doorbell is deferred or fails, the watcher retries it and names the task in a wake if the retries run out.
 Update both homes to use this notification.
 
+When both machines admit a start, `fm-spawn.sh` picks the machine with the greater share of free heavy slots.
+If those shares are equal, it picks the lower load as a share of its load limit.
+If the host does not report its heavy limit, it compares absolute free slots instead.
+A machine at or above its load limit does not admit a start.
+
 A host at capacity answers a launch with exit 75.
 The item then stays queued and is dispatched again at the next queue review.
 

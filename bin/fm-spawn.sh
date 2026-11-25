@@ -551,13 +551,15 @@ fi
 
 # Mirrors admit_heavy_gates: a machine that reports room is one its admit accepts.
 spawn_choose_machine() {  # <route> <host> <project>
-  local route=$1 host=$2 project=$3 room_config out rc rload rlimit rfree why pick
-  local lok=0 rok=0 rmeasured=0 use_remote=0
-  local lfree=0 lfrac=1 rfrac=1 lwhy='' rwhy=''
+  local route=$1 host=$2 project=$3 room_config out rc rload rlimit rfree rheavy_limit why pick
+  local lok=0 rok=0 rmeasured=0 use_remote=0 remote_room=0 equal_room=0
+  local lfree=0 lheavy_limit=0 lload=0 llimit=1 lwhy='' rwhy='' figures
   room_config=$(fm_project_capacity_config_dir "$FM_HOME" "$CONFIG") || return 1
   if fm_host_room "$STATE" "$ID" "$room_config"; then
     lfree=$FM_HOST_ROOM_FREE
-    lfrac=$(awk -v a="$FM_HOST_ROOM_LOAD" -v b="$FM_HOST_ROOM_LOAD_LIMIT" 'BEGIN { printf "%.2f", a / b }')
+    lheavy_limit=$FM_HOST_ROOM_HEAVY_LIMIT
+    lload=$FM_HOST_ROOM_LOAD
+    llimit=$FM_HOST_ROOM_LOAD_LIMIT
     if [ "$lfree" -gt 0 ] && awk -v a="$FM_HOST_ROOM_LOAD" -v b="$FM_HOST_ROOM_LOAD_LIMIT" 'BEGIN { exit !(a < b) }'; then
       lok=1
     else
@@ -573,21 +575,28 @@ spawn_choose_machine() {  # <route> <host> <project>
     rload=$(printf '%s\n' "$out" | sed -n 's/.* load=\([^ ]*\).*/\1/p')
     rlimit=$(printf '%s\n' "$out" | sed -n 's/.* load_limit=\([^ ]*\).*/\1/p')
     rfree=$(printf '%s\n' "$out" | sed -n 's/.* heavy_free=\([0-9]*\).*/\1/p')
+    rheavy_limit=$(printf '%s\n' "$out" | sed -n 's/.* heavy_limit=\([0-9]*\).*/\1/p')
     if [ -n "$rload" ] && [ -n "$rlimit" ] && [ -n "$rfree" ]; then
       rmeasured=1
-      rfrac=$(awk -v a="$rload" -v b="$rlimit" 'BEGIN { printf "%.2f", a / b }')
     fi
   else
     rwhy=$(printf '%s\n' "$out" | head -n 1)
     rwhy=${rwhy:-no answer from $host}
   fi
   if [ "$lok" = 1 ] && [ "$rok" = 1 ] && [ "$rmeasured" = 1 ]; then
-    if [ "$rfree" -gt "$lfree" ] || { [ "$rfree" -eq "$lfree" ] && awk -v r="$rfrac" -v l="$lfrac" 'BEGIN { exit !(r < l) }'; }; then
-      use_remote=1
-      why="$host has more room: $rfree free heavy slot(s), load at $rfrac of its limit, against $lfree and $lfrac here"
+    if [ -n "$rheavy_limit" ] && [ "$rheavy_limit" -gt 0 ]; then
+      [ "$((rfree * lheavy_limit))" -le "$((lfree * rheavy_limit))" ] || remote_room=1
+      [ "$((rfree * lheavy_limit))" -ne "$((lfree * rheavy_limit))" ] || equal_room=1
+      figures="heavy slots free $lfree/$lheavy_limit here and $rfree/$rheavy_limit on $host"
     else
-      why="this machine has more room: $lfree free heavy slot(s), load at $lfrac of its limit, against $rfree and $rfrac on $host"
+      [ "$rfree" -le "$lfree" ] || remote_room=1
+      [ "$rfree" -ne "$lfree" ] || equal_room=1
+      figures="heavy slots free $lfree here and $rfree on $host (host limit unavailable)"
     fi
+    if [ "$remote_room" = 1 ] || { [ "$equal_room" = 1 ] && awk -v r="$rload" -v rl="$rlimit" -v l="$lload" -v ll="$llimit" 'BEGIN { exit !(r * ll < l * rl) }'; }; then
+      use_remote=1
+    fi
+    why="$figures; load $lload/$llimit here and $rload/$rlimit on $host"
   elif [ "$lok" = 1 ] && [ "$rok" = 1 ]; then
     why="$host reported no room figures"
   elif [ "$lok" = 1 ]; then
