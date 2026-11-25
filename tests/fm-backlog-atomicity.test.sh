@@ -106,7 +106,7 @@ home_of() { printf '%s/home\n' "$1"; }
 backlog_of() { printf '%s/home/data/backlog.md\n' "$1"; }
 
 add_item() {  # <case-dir> <id> [kind]
-  tasks-axi add "$2" "item for $2" --kind "${3:-ship}" --file "$(backlog_of "$1")" >/dev/null
+  tasks-axi add "$2" "item for $2" --kind "${3:-ship}" --priority 2 --file "$(backlog_of "$1")" >/dev/null
 }
 
 start_item() {  # <case-dir> <id>
@@ -128,7 +128,7 @@ case "\${1:-}" in
   update) printf '%s\n' '--archive-body' ;;
   mv) printf '%s\n' '[<id>...]' ;;
   show)
-    printf 'task:\n  state: queued\n  held: no\n  blocked: no\n'
+    printf 'task:\n  state: queued\n  priority: 2\n  held: no\n  blocked: no\n'
     ;;
   start)
     printf '%s\n' "\$*" > "$case_dir/env-backend-start"
@@ -919,7 +919,7 @@ test_dispatch_refuses_a_blocked_row_before_creating_resources() {
   blocker=atomic-dispatch-blocker-b16
   case_dir=$(make_home dispatch-blocked "$id" "$blocker")
   add_item "$case_dir" "$blocker"
-  tasks-axi add "$id" "item for $id" --kind ship --blocked-by "$blocker" \
+  tasks-axi add "$id" "item for $id" --kind ship --priority 2 --blocked-by "$blocker" \
     --file "$(backlog_of "$case_dir")" >/dev/null
   mark_endpoint_and_copy_requests "$case_dir"
 
@@ -963,6 +963,41 @@ test_dispatch_refuses_a_held_in_flight_row_before_relaunch() {
   pass "dispatch refuses held In-flight rows before relaunch"
 }
 
+test_spawn_does_not_start_a_queued_item_without_priority() (
+  local case_dir=$1 id=$2 out rc=0
+  tasks-axi add "$id" "item for $id" --kind ship --file "$(backlog_of "$case_dir")" >/dev/null || fail "could not add item"
+  mark_endpoint_and_copy_requests "$case_dir"
+  out=$(run_ship_spawn "$case_dir" "$id") || rc=$?
+  [ "$rc" -ne 0 ] || fail "spawn started an item without priority"
+  assert_contains "$out" "backlog item $id has no priority" "spawn did not name the missing priority"
+  assert_contains "$out" "bin/fm-tasks-axi.sh update $id --priority <0-4>" "spawn did not name the command to set priority"
+  assert_absent "$case_dir/task-endpoint-created" "spawn created an endpoint without priority"
+  assert_absent "$case_dir/local-copy-requested" "spawn requested a local copy without priority"
+  assert_absent "$(home_of "$case_dir")/state/$id.meta" "spawn published a record without priority"
+  assert_equals "queued" "$(row_state "$case_dir" "$id")" "spawn moved an item without priority"
+  FM_HOME="$(home_of "$case_dir")" "$ROOT/bin/fm-tasks-axi.sh" update "$id" --priority 0 >/dev/null || fail "could not set priority"
+  out=$(run_ship_spawn "$case_dir" "$id") || fail "setting priority did not make the item dispatchable: $out"
+  assert_equals "in_flight" "$(row_state "$case_dir" "$id")" "spawn did not start the newly prioritized item"
+  pass "spawn refuses a queued item without priority and starts it after priority is set"
+)
+
+run_spawn_priority_twins() {
+  local id=atomic-dispatch-priority case_dir mutant lib out rc=0
+  case_dir=$(make_home priority-mutant "$id")
+  mutant="$case_dir/mutant"
+  mkdir -p "$mutant" || fail "could not create the mutant code root"
+  cp -R "$ROOT/bin" "$mutant/bin" || fail "could not copy the spawn mutant"
+  lib="$mutant/bin/fm-backlog-transition-lib.sh"
+  sed 's/^fm_backlog_row_require_priority() {$/fm_backlog_row_require_priority() { return 0;/' "$lib" > "$lib.mutant"
+  mv "$lib.mutant" "$lib"
+  out=$(SPAWN="$mutant/bin/fm-spawn.sh" test_spawn_does_not_start_a_queued_item_without_priority "$case_dir" "$id" 2>&1) || rc=$?
+  expect_code 1 "$rc" "negative control for missing spawn priority: $out"
+  assert_contains "$out" "not ok - spawn started an item without priority" "negative control failed for the wrong reason"
+  pass "negative control caught spawn starting an item without priority"
+  case_dir=$(make_home priority-guard "$id")
+  test_spawn_does_not_start_a_queued_item_without_priority "$case_dir" "$id"
+}
+
 test_dispatch_reads_the_row_from_the_backlog_root() {
   local case_dir id out
   id=atomic-dispatch-root-b2
@@ -987,7 +1022,7 @@ test_recovery_uses_the_parent_of_a_trailing_slash_data_record() {
   pin_markdown_backend "$case_dir"
   backlog="$relocated/backlog.md"
   printf '%s\n' '# Backlog' '' '## In flight' '' '## Queued' '' '## Done' > "$backlog"
-  tasks-axi add "$id" "item for $id" --kind ship --file "$backlog" >/dev/null
+  tasks-axi add "$id" "item for $id" --kind ship --priority 2 --file "$backlog" >/dev/null
   tasks-axi start "$id" --file "$backlog" >/dev/null
   marker="$(home_of "$case_dir")/state/$id.backlog-close"
   printf 'id=%s\ndata=%s/\nspawn_gen=spawn-relocated-recovery\narg=--note\narg=local%%20main\n' "$id" "$relocated" > "$marker"
@@ -1011,7 +1046,7 @@ test_completion_targets_a_nested_relative_data_directory() {
   mv "$(home_of "$case_dir")/data" "$data"
   data_resolved=$(cd "$data" && pwd -P)
   backlog="$data/backlog.md"
-  tasks-axi add "$id" "item for $id" --kind ship --file "$backlog" >/dev/null
+  tasks-axi add "$id" "item for $id" --kind ship --priority 2 --file "$backlog" >/dev/null
   tasks-axi start "$id" --file "$backlog" >/dev/null
   write_task_meta "$case_dir" "$id" ship local-only "spawn_gen=spawn-relative-data"
 
@@ -1040,7 +1075,7 @@ test_immediate_child_absolute_data_dispatches_and_completes() {
   mv "$(home_of "$case_dir")/data" "$data"
   data_resolved=$(cd "$data" && pwd -P)
   backlog="$data/backlog.md"
-  tasks-axi add "$id" "item for $id" --kind ship --file "$backlog" >/dev/null
+  tasks-axi add "$id" "item for $id" --kind ship --priority 2 --file "$backlog" >/dev/null
 
   out=$(FM_DATA_OVERRIDE="$data" run_ship_spawn "$case_dir" "$id") \
     || fail "immediate-child-data spawn failed: $out"
@@ -1065,7 +1100,7 @@ test_bare_relative_data_dispatches_and_completes() {
   data="$case_dir/records"
   mv "$(home_of "$case_dir")/data" "$data"
   backlog="$data/backlog.md"
-  tasks-axi add "$id" "item for $id" --kind ship --file "$backlog" >/dev/null
+  tasks-axi add "$id" "item for $id" --kind ship --priority 2 --file "$backlog" >/dev/null
 
   out=$(cd "$case_dir" && FM_DATA_OVERRIDE=records run_ship_spawn "$case_dir" "$id") \
     || fail "bare-relative-data spawn failed: $out"
@@ -1579,7 +1614,7 @@ test_completion_records_a_relative_report_for_relocated_data() {
   pin_markdown_backend "$case_dir/relocated"
   mv "$(home_of "$case_dir")/data" "$relocated"
   backlog="$relocated/backlog.md"
-  tasks-axi add "$id" "item for $id" --kind scout --file "$backlog" >/dev/null
+  tasks-axi add "$id" "item for $id" --kind scout --priority 2 --file "$backlog" >/dev/null
   tasks-axi start "$id" --file "$backlog" >/dev/null
   write_task_meta "$case_dir" "$id" scout '' "spawn_gen=spawn-relocated-scout"
   mkdir -p "$relocated/$id"
@@ -1607,7 +1642,7 @@ test_space_containing_scout_report_marker_replays() {
   pin_markdown_backend "$case_dir/crew space"
   mv "$(home_of "$case_dir")/data" "$data"
   backlog="$data/backlog.md"
-  tasks-axi add "$id" "item for $id" --kind scout --file "$backlog" >/dev/null
+  tasks-axi add "$id" "item for $id" --kind scout --priority 2 --file "$backlog" >/dev/null
   tasks-axi start "$id" --file "$backlog" >/dev/null
   write_task_meta "$case_dir" "$id" scout '' "spawn_gen=spawn-space-report"
   mkdir -p "$data/$id"
@@ -1646,7 +1681,7 @@ test_trailing_newline_data_path_fails_closed() {
   cp "$data/$id/brief.md" "$home/data/$id/brief.md"
   ln -s "$data" "$case_dir/data-alias"
   backlog_alias="$case_dir/data-alias/backlog.md"
-  tasks-axi add "$id" "item for $id" --kind ship --file "$backlog_alias" >/dev/null
+  tasks-axi add "$id" "item for $id" --kind ship --priority 2 --file "$backlog_alias" >/dev/null
 
   out=$(FM_DATA_OVERRIDE="$data" run_ship_spawn "$case_dir" "$id") || rc=$?
   [ "$rc" -ne 0 ] || fail "trailing-newline data path bypassed dispatch transition"
@@ -1676,7 +1711,7 @@ test_control_character_data_path_is_refused_before_cleanup() {
   data="$case_dir/crew"$'\t'"data"
   mv "$(home_of "$case_dir")/data" "$data"
   backlog="$data/backlog.md"
-  tasks-axi add "$id" "item for $id" --kind ship --file "$backlog" >/dev/null
+  tasks-axi add "$id" "item for $id" --kind ship --priority 2 --file "$backlog" >/dev/null
 
   out=$(FM_DATA_OVERRIDE="$data" run_ship_spawn "$case_dir" "$id") || rc=$?
   [ "$rc" -ne 0 ] || fail "control-character data path passed dispatch preflight"
@@ -2922,7 +2957,7 @@ test_manual_backend_home_dispatches_and_completes_without_touching_the_backlog()
   assert_absent "$(home_of "$case_dir")/state/$id.meta" \
     "refused manual-backend dispatch still left a record behind"
 
-  tasks-axi add "$id" "item for $id" --kind ship --file "$data/backlog.md" >/dev/null
+  tasks-axi add "$id" "item for $id" --kind ship --priority 2 --file "$data/backlog.md" >/dev/null
   out=$(FM_DATA_OVERRIDE="$data" run_ship_spawn "$case_dir" "$id") \
     || fail "manual-backend spawn failed: $out"
   assert_contains "$out" "spawned $id" "manual-backend spawn did not report success"
@@ -2950,6 +2985,7 @@ test_dispatch_refuses_a_pending_authoritative_close
 test_dispatch_refuses_a_held_row_before_creating_resources
 test_dispatch_refuses_a_blocked_row_before_creating_resources
 test_dispatch_refuses_a_held_in_flight_row_before_relaunch
+run_spawn_priority_twins
 test_dispatch_reads_the_row_from_the_backlog_root
 test_recovery_uses_the_parent_of_a_trailing_slash_data_record
 test_completion_targets_a_nested_relative_data_directory

@@ -134,7 +134,7 @@ SH
 chmod +x "$FAKE/ssh"
 printf '%s\n' '- alpha [direct-PR host=exec-one] - project' > "$PARENT/data/projects.md"
 printf '%s\n' "- exec-one - execution (host: testhost; root: $REMOTE_ROOT; home: $REMOTE_HOME; session: fm-lab-test; scope: workers; projects: alpha; added 2026-01-01)" > "$PARENT/data/remote-homes.md"
-tasks-axi add e2e-scout 'Research alpha' --kind scout --file "$PARENT/data/backlog.md" >/dev/null
+tasks-axi add e2e-scout 'Research alpha' --kind scout --priority 2 --file "$PARENT/data/backlog.md" >/dev/null
 mkdir -p "$PARENT/data/e2e-scout"
 printf "# Task\n## Captain's intent\nResearch the project.\n\n## Firstmate spec\nReport evidence.\n" > "$PARENT/data/e2e-scout/brief.md"
 out=$(FM_HOME="$PARENT" FM_SPAWN_NO_GUARD=1 FM_SSH_BIN="$FAKE/ssh" FM_REMOTE_JOB_STATE_ROOT="$JOB_STATE" FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux "$ROOT/bin/fm-spawn.sh" e2e-scout "$PARENT/projects/alpha" --scout --harness pi 2>&1) || fail "remote local-transport launch failed: $out"
@@ -194,7 +194,7 @@ ACCOUNT_DIR="$TMP_ROOT/claude-accounts/main"
 mkdir -p "$ACCOUNT_DIR"
 printf 'main %s\n' "$ACCOUNT_DIR" > "$REMOTE_HOME/config/claude-accounts"
 remote_account_spawn() {  # <task-id> <account>
-  tasks-axi add "$1" 'Research alpha' --kind scout --file "$PARENT/data/backlog.md" >/dev/null
+  tasks-axi add "$1" 'Research alpha' --kind scout --priority 2 --file "$PARENT/data/backlog.md" >/dev/null
   mkdir -p "$PARENT/data/$1"
   printf "# Task\n## Captain's intent\nResearch the project.\n\n## Firstmate spec\nReport evidence.\n" > "$PARENT/data/$1/brief.md"
   git -C "$REMOTE_HOME/projects/alpha" worktree add -q --detach "$TMP_ROOT/slot-$1"
@@ -220,7 +220,7 @@ pass "remote launch on an account the host does not map refuses naming it instea
 
 remote_scout_spawn() {  # <task-id>
   if ! FM_HOME="$PARENT" "$ROOT/bin/fm-tasks-axi.sh" show "$1" >/dev/null 2>&1; then
-    tasks-axi add "$1" 'Research alpha' --kind scout --file "$PARENT/data/backlog.md" >/dev/null
+    tasks-axi add "$1" 'Research alpha' --kind scout --priority 2 --file "$PARENT/data/backlog.md" >/dev/null
     mkdir -p "$PARENT/data/$1"
     printf "# Task\n## Captain's intent\nResearch the project.\n\n## Firstmate spec\nReport evidence.\n" > "$PARENT/data/$1/brief.md"
   fi

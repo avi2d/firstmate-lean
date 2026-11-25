@@ -63,6 +63,7 @@ FM_BACKLOG_TRANSITION_SKIP=
 FM_BACKLOG_TRANSITION_ERROR=
 FM_BACKLOG_ROW_RESULT=
 FM_BACKLOG_ROW_STATE=
+FM_BACKLOG_ROW_PRIORITY=
 FM_BACKLOG_ROW_ERROR=
 # Set by fm_backlog_row_probe on a found row: the tasks-axi hold kind, empty when
 # the row is not held.
@@ -501,6 +502,7 @@ fm_backlog_row_list() {  # <resolved-data-dir> [flag...]
 
 fm_backlog_row_probe() {  # <data-dir> <id>
   local data authorized_data=$1 id=$2 out state held blocked hold_kind command_status source_status
+  FM_BACKLOG_ROW_PRIORITY=
   if ! data=$(fm_backlog_data_absolute "$1"); then
     FM_BACKLOG_ROW_RESULT=error
     FM_BACKLOG_ROW_STATE=
@@ -545,6 +547,9 @@ fm_backlog_row_probe() {  # <data-dir> <id>
   fi
   FM_BACKLOG_ROW_RESULT=found
   FM_BACKLOG_ROW_STATE="$state ${held:-no} ${blocked:-no}"
+  if [ "$state" = queued ]; then
+    FM_BACKLOG_ROW_PRIORITY=$(printf '%s\n' "$out" | sed -n 's/^  priority: \([0-4]\)$/\1/p' | head -1)
+  fi
   case "$hold_kind" in
     ''|'"-"'|-) FM_BACKLOG_ROW_HOLD_KIND= ;;
     *) FM_BACKLOG_ROW_HOLD_KIND=$hold_kind ;;
@@ -1065,6 +1070,16 @@ fm_backlog_meta_spawn_gen_optional() {  # <meta> <state>
   }
   [ "$count" -ne 0 ] || return 0
   fm_backlog_meta_spawn_gen "$meta" "$state"
+}
+
+fm_backlog_row_require_priority() {
+  case "$FM_BACKLOG_ROW_STATE" in
+    queued\ *) ;;
+    *) return 0 ;;
+  esac
+  [ -n "$FM_BACKLOG_ROW_PRIORITY" ] && return 0
+  FM_BACKLOG_TRANSITION_ERROR="backlog item $1 has no priority. Set one with: bin/fm-tasks-axi.sh update $1 --priority <0-4>"
+  return 1
 }
 
 fm_backlog_row_dispatchable() {

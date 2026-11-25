@@ -31,6 +31,8 @@ This command addresses the current home's backlog and refuses --file.
 Relative --to and --*-file values are resolved against the caller's
 directory. --report is stored verbatim.
 show (including view) and list decode stored hold reasons.
+ready lists dispatchable queued work with priority 0-4.
+Use update <id> --priority none to clear priority on the Backlog.md backend.
 
 Data directory: FM_DATA_OVERRIDE, else $FM_HOME/data, else code-root data/.
 EOF
@@ -132,9 +134,13 @@ case "${1:-}" in
     exit $?
     ;;
   ready)
-    if [ -n "$FM_PROJECT_TIERS" ]; then
-      set -o pipefail
-      "${BACKLOG[@]}" ${ARGS[@]+"${ARGS[@]}"} | fm_project_tiers_order_ready
+    if [ "${BACKLOG[0]}" = tasks-axi ]; then
+      if [ -n "$FM_PROJECT_TIERS" ]; then
+        set -o pipefail
+        fm_tasks_axi_ready_with_priority "${ARGS[@]:1}" | fm_project_tiers_order_ready
+      else
+        fm_tasks_axi_ready_with_priority "${ARGS[@]:1}"
+      fi
       exit $?
     fi
     ;;

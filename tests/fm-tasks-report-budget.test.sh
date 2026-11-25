@@ -55,7 +55,7 @@ make_home() {  # <name> <ready> <held> <blocked> <live>
         queuedOn: $queued_on, hold: {kind: $kind, reason: "reason \($i)"}, after: []}}' >>"$EXPECTED_PLANNED"
     if [ "$i" -le "$ready" ]; then
       id="repo-$i-1"
-      FM_HOME="$home" "$TASKS_AXI" add "$id" "Ready $i" --kind ship --repo "repo-$i" >/dev/null || fail "fixture add $id"
+      FM_HOME="$home" "$TASKS_AXI" add "$id" "Ready $i" --kind ship --repo "repo-$i" --priority 2 >/dev/null || fail "fixture add $id"
       jq -nc --arg id "$id" --arg i "$i" --arg home "$name" --arg queued_on "$QUEUED_ON" \
         '{group: 1, row: {id: $id, title: "Ready \($i)", project: "repo-\($i)", kind: "ship", home: $home,
           queuedOn: $queued_on, hold: null, after: []}}' >>"$EXPECTED_PLANNED"

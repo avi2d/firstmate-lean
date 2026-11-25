@@ -397,10 +397,13 @@ print_backlog_summary_groups() {
 backlog_digest_query() {
   local path=$1
   shift
-  if [ -n "$path" ]; then
-    tasks-axi "$@" --file "$path"
-  else
+  if [ -z "$path" ]; then
     FM_DATA_OVERRIDE="$DATA" FM_CONFIG_OVERRIDE="$CONFIG" bash "$SCRIPT_DIR/fm-tasks-axi.sh" "$@"
+  elif [ "$1" = ready ]; then
+    shift
+    fm_tasks_axi_ready_with_priority "$@" --file "$path"
+  else
+    tasks-axi "$@" --file "$path"
   fi
 }
 

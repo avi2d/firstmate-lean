@@ -256,14 +256,15 @@ ready_ids() {  # reads tasks-axi ready output on stdin
 test_wrapper_ready_orders_by_project_tier() {
   local dir out status
   dir=$(make_split ready-tiers)
-  wrapper_from_code "$dir" add career-1 "career" --repo career >/dev/null
-  wrapper_from_code "$dir" add mystery-1 "untiered" --repo mystery >/dev/null
-  wrapper_from_code "$dir" add tui-dash-1 "first tui" --repo tui-dash >/dev/null
-  wrapper_from_code "$dir" add checks-1 "checks" --repo checks >/dev/null
-  wrapper_from_code "$dir" add website-1 "website" --repo website >/dev/null
-  wrapper_from_code "$dir" add tui-dash-2 "second tui" --repo tui-dash >/dev/null
-  wrapper_from_code "$dir" add ru-compliance-1 "ru" --repo ru-compliance >/dev/null
-  wrapper_from_code "$dir" add none-1 "no project" >/dev/null
+  wrapper_from_code "$dir" add career-1 "career" --repo career --priority 2 >/dev/null
+  wrapper_from_code "$dir" add mystery-1 "untiered" --repo mystery --priority 2 >/dev/null
+  wrapper_from_code "$dir" add tui-dash-1 "first tui" --repo tui-dash --priority 2 >/dev/null
+  wrapper_from_code "$dir" add checks-1 "checks" --repo checks --priority 2 >/dev/null
+  wrapper_from_code "$dir" add website-1 "website" --repo website --priority 2 >/dev/null
+  wrapper_from_code "$dir" add tui-dash-2 "second tui" --repo tui-dash --priority 2 >/dev/null
+  wrapper_from_code "$dir" add ru-compliance-1 "ru" --repo ru-compliance --priority 2 >/dev/null
+  wrapper_from_code "$dir" add none-1 "no project" --priority 2 >/dev/null
+  wrapper_from_code "$dir" add website-2 "project tier alone" --repo website >/dev/null
 
   out=$(wrapper_from_code "$dir" ready | ready_ids)
   assert_equals "career-1 mystery-1 tui-dash-1 checks-1 website-1 tui-dash-2 ru-compliance-1 none-1" "$out" \
@@ -294,6 +295,77 @@ make_backlog_md_home() {
   mkdir -p "$1/data/backlog/tasks" "$1/config" "$1/state"
   printf '%s\n' 'filesystem_only: true' 'statuses: [Queued, Waiting, In Flight, Done]' 'task_prefix: task' > "$1/data/backlog/config.yml"
   printf '%s\n' backlog-md > "$1/config/backlog-backend"
+}
+
+make_priority_board() {
+  local bin=$1 home=$2
+  make_backlog_md_home "$home"
+  FM_HOME="$home" "$bin/fm-tasks-axi.sh" add demo-1 "Priority zero" --repo demo --priority 0 >/dev/null || fail "could not add priority zero"
+  FM_HOME="$home" "$bin/fm-tasks-axi.sh" add demo-2 "No priority" --repo demo >/dev/null || fail "could not add an item without priority"
+}
+
+test_ready_does_not_include_an_item_without_priority() {
+  local bin=$1 home=$2 out
+  make_priority_board "$bin" "$home"
+  out=$(FM_HOME="$home" "$bin/fm-tasks-axi.sh" ready) || fail "$out"
+  assert_not_contains "$out" 'demo-2,queued' "ready included an item without priority"
+  assert_equals "demo-1" "$(printf '%s\n' "$out" | ready_ids)" "ready dropped priority zero"
+  assert_contains "$out" 'ready[1]{' "ready did not update the table count"
+  FM_HOME="$home" "$bin/fm-tasks-axi.sh" update demo-2 --priority 4 >/dev/null || fail "could not assign priority"
+  out=$(FM_HOME="$home" "$bin/fm-tasks-axi.sh" ready) || fail "$out"
+  assert_equals "demo-1 demo-2" "$(printf '%s\n' "$out" | ready_ids)" "ready did not immediately include the newly prioritized item"
+  pass "ready excludes missing priorities and immediately includes newly prioritized items in priority order"
+}
+
+test_ready_capacity_does_not_count_an_item_without_priority() {
+  local bin=$1 home=$2 out
+  make_priority_board "$bin" "$home"
+  out=$(FM_HOME="$home" "$bin/fm-ready-capacity.sh") || fail "$out"
+  assert_not_contains "$out" 'demo-2' "ready-capacity counted an item without priority"
+  assert_equals "demo-1" "$out" "ready-capacity dropped priority zero despite having room"
+  FM_HOME="$home" "$bin/fm-tasks-axi.sh" update demo-2 --priority 4 >/dev/null || fail "could not assign priority"
+  out=$(FM_HOME="$home" "$bin/fm-ready-capacity.sh") || fail "$out"
+  assert_equals $'demo-1\ndemo-2' "$out" "ready-capacity did not immediately count the newly prioritized item"
+  pass "ready-capacity excludes missing priorities even when there is room"
+}
+
+test_update_none_does_not_leave_priority_in_place() {
+  local bin=$1 home=$2 out
+  make_priority_board "$bin" "$home"
+  out=$(FM_HOME="$home" "$bin/fm-tasks-axi.sh" update demo-1 --priority none --json) || fail "$out"
+  assert_equals "null" "$(printf '%s\n' "$out" | jq -r '.task.priority')" "update none left the old priority in place"
+  out=$(FM_HOME="$home" "$bin/fm-tasks-axi.sh" show demo-1) || fail "$out"
+  assert_contains "$out" '  priority: "-"' "clearing priority did not persist"
+  assert_contains "$out" '  state: queued' "clearing priority moved the item"
+  out=$(FM_HOME="$home" "$bin/fm-tasks-axi.sh" ready) || fail "$out"
+  assert_equals "" "$(printf '%s\n' "$out" | ready_ids)" "a cleared item remained dispatchable"
+  out=$(FM_HOME="$home" "$bin/fm-tasks-axi.sh" update demo-1 --priority none --json) || fail "$out"
+  assert_equals "true" "$(printf '%s\n' "$out" | jq -r '.already')" "clearing again was not a no-op"
+  FM_HOME="$home" "$bin/fm-tasks-axi.sh" update demo-1 --priority 0 >/dev/null || fail "could not restore priority zero"
+  out=$(FM_HOME="$home" "$bin/fm-tasks-axi.sh" ready) || fail "$out"
+  assert_equals "demo-1" "$(printf '%s\n' "$out" | ready_ids)" "a cleared item was not ready after restoring priority"
+  pass "update --priority none removes the saved priority without moving the item"
+}
+
+run_priority_board_twins() {
+  local mutant="$TMP_ROOT/priority-mutant" cli name reason out rc
+  cp -R "$ROOT/bin" "$mutant" || fail "could not copy the priority mutant"
+  cli="$mutant/fm-backlog-md/cli.cjs"
+  sed -e 's/ && task.priority !== null//' -e '/^    delete fields.priority;$/d' "$cli" > "$cli.mutant"
+  mv "$cli.mutant" "$cli"
+  for name in ready ready_capacity update_none; do
+    case "$name" in
+      ready) name=test_ready_does_not_include_an_item_without_priority; reason="ready included an item without priority" ;;
+      ready_capacity) name=test_ready_capacity_does_not_count_an_item_without_priority; reason="ready-capacity counted an item without priority" ;;
+      update_none) name=test_update_none_does_not_leave_priority_in_place; reason="update none left the old priority in place" ;;
+    esac
+    rc=0
+    out=$("$name" "$mutant" "$TMP_ROOT/bad-$name" 2>&1) || rc=$?
+    expect_code 1 "$rc" "negative control for $name: $out"
+    assert_contains "$out" "not ok - $reason" "negative control failed for the wrong reason"
+    pass "negative control caught: $reason"
+    "$name" "$ROOT/bin" "$TMP_ROOT/good-$name"
+  done
 }
 
 write_backlog_md_ticket() {
@@ -628,6 +700,7 @@ fi
 test_backlog_md_mint_counts_drafts_and_archive_without_reusing_ids
 test_numbered_ticket_does_not_ship_on_legacy_slug_or_number_only
 test_backlog_md_keeps_drafts_visible_without_making_them_dispatchable
+run_priority_board_twins
 test_backlog_md_lifecycle_preserves_a_running_slug_id
 test_numbered_followup_replay_does_not_allocate_another_id_after_archiving backlog-md
 test_adapter_followups_over_157_tasks_do_not_read_each_task

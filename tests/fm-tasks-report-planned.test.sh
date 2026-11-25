@@ -31,7 +31,8 @@ HOME_B="$TMP_ROOT/fm-home-b"
 make_queue_home "$HOME_A"
 make_queue_home "$HOME_B"
 
-FM_HOME="$HOME_A" "$TASKS_AXI" add checks-1 "Ready one" --kind ship --repo checks >/dev/null
+FM_HOME="$HOME_A" "$TASKS_AXI" add plan-unprioritized-1 "No priority" --kind ship >/dev/null
+FM_HOME="$HOME_A" "$TASKS_AXI" add checks-1 "Ready one" --kind ship --repo checks --priority 2 >/dev/null
 FM_HOME="$HOME_A" "$TASKS_AXI" add plan-held-1 "Held one" --kind scout >/dev/null
 FM_HOME="$HOME_A" "$TASKS_AXI" hold plan-held-1 --reason "captain pick pending" --kind captain >/dev/null
 FM_HOME="$HOME_A" "$TASKS_AXI" add plan-load-1 "Load one" --kind ship >/dev/null
@@ -44,7 +45,7 @@ FM_TASKS_HOMES="$HOME_A:$HOME_B" bash "$REPORT" >"$OUT" 2>"$TMP_ROOT/stderr.log"
 
 jq -e '(. | keys | sort) == ["generatedAt","orchestrator","overhead","planned","schedules","schemaVersion","tasks"]' "$OUT" >/dev/null || fail "planned key joins the top-level field set"
 jq -e '(.planned | map(keys | sort) | unique) == [["after","hold","home","id","kind","project","queuedOn","title"]]' "$OUT" >/dev/null || fail "planned row field set"
-jq -e '[.planned[].id] == ["checks-1","plan-held-1","plan-load-1","plan-blocked-1"]' "$OUT" >/dev/null || fail "planned rows read ready, held, then blocked"
+jq -e '[.planned[].id] == ["checks-1","plan-held-1","plan-load-1","plan-blocked-1","plan-unprioritized-1"]' "$OUT" >/dev/null || fail "planned report omitted or misplaced the unprioritized queued row"
 
 jq -e --arg queued_on "$QUEUED_ON" '.planned[0] == {id: "checks-1", title: "Ready one", project: "checks", kind: "ship", home: "fm-home-a", queuedOn: $queued_on, hold: null, after: []}' "$OUT" >/dev/null || fail "ready row carries queue fields with no hold and no blockers"
 

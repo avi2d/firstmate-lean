@@ -261,6 +261,61 @@ fm_tasks_axi_backend_available() {
   fm_tasks_axi_compatible
 }
 
+fm_tasks_axi_ready_with_priority() {
+  local ready queued arg
+  local list_args=()
+  ready=$(tasks-axi ready "$@") || { printf '%s\n' "$ready"; return 2; }
+  case "$ready" in
+    *$'\nready['*) ;;
+    *) printf '%s\n' "$ready"; return 0 ;;
+  esac
+  for arg in "$@"; do
+    [ "$arg" = --include-held ] || list_args+=("$arg")
+  done
+  # Only list exposes priority. Keep the ready order and its other groups.
+  queued=$(tasks-axi list --state queued --fields priority ${list_args[@]+"${list_args[@]}"}) \
+    || { printf '%s\n' "$queued"; return 2; }
+  LC_ALL=C awk '
+    function id(row) {
+      sub(/^[[:space:]]+/, "", row)
+      sub(/,.*/, "", row)
+      return row
+    }
+    function print_ready(    i) {
+      print "count: " n + 0
+      if (n) {
+        printf "ready[%d]%s\n", n, columns
+        for (i = 1; i <= n; i++) print kept[i]
+      } else {
+        print "ready: 0 unblocked queued tasks with priority"
+      }
+    }
+    FILENAME != "-" {
+      if ($0 ~ /^tasks\[[0-9]+\]\{id,.*[,]priority\}:$/) { task_rows = 1; next }
+      if ($0 !~ /^[[:space:]]/) task_rows = 0
+      if (task_rows && $0 ~ /,[0-4]$/) prioritized[id($0)] = 1
+      next
+    }
+    /^count: / { next }
+    /^ready\[[0-9]+\]\{id,/ {
+      columns = substr($0, index($0, "{"))
+      ready_rows = 1
+      next
+    }
+    ready_rows && /^[[:space:]]/ {
+      if (id($0) in prioritized) kept[++n] = $0
+      next
+    }
+    ready_rows { print_ready(); ready_rows = 0 }
+    {
+      sub(/Run `tasks-axi start <id>` to dispatch one of these/, n ? "Run `bin/fm-spawn.sh` to dispatch one of these" :
+        "Set a priority with `bin/fm-tasks-axi.sh update <id> --priority <0-4>`")
+      print
+    }
+    END { if (ready_rows) print_ready() }
+  ' <(printf '%s\n' "$queued") - <<< "$ready"
+}
+
 fm_tasks_axi_done_in() { # <backlog-or-archive> <key>
   [ -f "$1" ] || return 1
   awk -v key="$2" '
