@@ -347,7 +347,39 @@ test_ci_completion_retries_a_failed_doorbell_without_duplicate_records() {
   pass "CI completion retries a failed doorbell without duplicating its record"
 }
 
+make_descriptor_dropping_python3() { # <fakebin>
+  local real
+  real=$(command -v python3) || real=/nonexistent/python3
+  printf '#!/usr/bin/env bash\nexec 3>&- 4>&- 5>&- 6>&- 7>&- 8>&- 9>&-\nexec %q "$@"\n' "$real" >"$1/python3"
+  chmod +x "$1/python3"
+}
+
+test_delivered_send_does_not_drop_its_backlog_message_under_a_descriptor_dropping_python3() {
+  local dir home err rc show
+  dir=$(setup_case backlog-message)
+  home="$dir/home"
+  mkdir -p "$home/data"
+  fm_test_tasks_toml "$home/.tasks.toml"
+  printf '## In flight\n\n## Queued\n\n## Done\n' >"$home/data/backlog.md"
+  FM_HOME="$home" "$ROOT/bin/fm-tasks-axi.sh" add demo-1 "Log the steer" --repo demo >/dev/null ||
+    fail "could not file the backlog item"
+  fm_write_herdr_meta "$home/state/demo-1.meta" "sess:w1:p1" "kind=ship" "harness=pi"
+  make_descriptor_dropping_python3 "$dir/fakebin"
+  err="$dir/send.err"
+  run_send "$dir" "$err" -- demo-1 "please rebase onto main"
+  rc=$?
+  expect_code 0 "$rc" "the send should deliver"
+  [ -f "$home/state/demo-1.inbox/001.msg" ] || fail "the steer was not delivered"
+  show=$(FM_HOME="$home" "$ROOT/bin/fm-tasks-axi.sh" show demo-1 --full) || fail "could not read the backlog item"
+  assert_contains "$show" "firstmate: please rebase onto main" \
+    "the delivered send dropped its backlog message: $(cat "$err")"
+  assert_not_contains "$(cat "$err")" "could not be added to backlog item" \
+    "the send warned that its backlog message was dropped"
+  pass "fm-send: a delivered steer is logged on its backlog item when python3 forwards no inherited descriptors"
+}
+
 test_ci_completion_retries_a_failed_doorbell_without_duplicate_records
+test_delivered_send_does_not_drop_its_backlog_message_under_a_descriptor_dropping_python3
 test_text_steer_rides_inbox
 test_deep_home_doorbell_stays_short
 test_multiline_steer_is_legal
