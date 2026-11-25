@@ -379,17 +379,17 @@ claude_account_check() {  # <harness> <model|-> <account>
 }
 
 remote_launch_finish() {
-  local rc=$1 temp=$2 task_data=$3 meta=$4 journal=$5 spawn_attempted=$6 data_existed=$7
-  shift 7
+  local rc=$1 temp=$2 task_data=$3 meta=$4 journal=$5 spawn_attempted=$6 data_existed=$7 marker=$8
+  shift 8
   if [ "$rc" -gt 0 ] && [ "$rc" -lt 124 ] &&
     { [ "$spawn_attempted" = 0 ] || [ "$rc" -eq 75 ] || [ -f "$temp/prelaunch-failure" ]; } &&
-    [ ! -e "$meta" ] && [ ! -L "$meta" ] && [ ! -e "$journal" ] && [ ! -L "$journal" ]; then
-    if rm -f -- "$task_data/brief.md" "$task_data/launch-brief.md" "$@"; then
+    [ ! -e "$meta" ] && [ ! -L "$meta" ] && [ ! -e "$journal" ] && [ ! -L "$journal" ] &&
+    [ -n "$marker" ] && [ -f "$task_data/launch-marker" ] && [ ! -L "$task_data/launch-marker" ] &&
+    [ "$(cat "$task_data/launch-marker")" = "$marker" ]; then
+    if rm -f -- "$task_data/brief.md" "$task_data/launch-brief.md" "$task_data/launch-marker" "$@"; then
       [ "$data_existed" = 1 ] || rmdir -- "$task_data" 2>/dev/null || true
-      if [ "$rc" -ne 75 ]; then
-        printf 'launch=rolled-back\n'
-        rc=76
-      fi
+      printf 'launch=rolled-back\n'
+      [ "$rc" -eq 75 ] || rc=76
     else
       printf 'error: could not remove files from the failed launch\n' >&2
       rc=1
@@ -405,7 +405,7 @@ launch() (
   local id=$1 project=$2 kind=$3 mode=$4 yolo=$5 prefix=$6 base=$7 harness=$8 model=$9
   shift 9
   local effort=$1 backend=$2 account=${3:-} temp session out rc first_error contract token forge=none shape='' pr=auto data_existed=0
-  local worker_name task_data meta journal path spawn_attempted=0 dispatch_file=''
+  local worker_name task_data meta journal path spawn_attempted=0 dispatch_file='' marker=''
   local -a brief_args spawn_args contract_fields
   validate_home
   case "$id" in ''|.|-*|*[!A-Za-z0-9._-]*|*..*) die "invalid task or project id" ;; esac
@@ -423,7 +423,7 @@ launch() (
   case "$backend" in herdr|rex) ;; *) die "unsupported remote backend" ;; esac
   case "$kind:$mode:$yolo" in scout:-:-|ship:no-mistakes:on|ship:no-mistakes:off|ship:direct-PR:on|ship:direct-PR:off|ship:local-only:on|ship:local-only:off) ;; *) die "invalid task delivery contract" ;; esac
   temp=$(mktemp -d "${TMPDIR:-/tmp}/fm-remote-worker.XXXXXX") || die "cannot create launch scratch"
-  trap 'remote_launch_finish "$?" "$temp" "$task_data" "$meta" "$journal" "$spawn_attempted" "$data_existed" ${dispatch_file:+"$dispatch_file"}' EXIT
+  trap 'remote_launch_finish "$?" "$temp" "$task_data" "$meta" "$journal" "$spawn_attempted" "$data_existed" "$marker" ${dispatch_file:+"$dispatch_file"}' EXIT
   [ -d "$TARGET_HOME/projects/$project" ] && [ ! -L "$TARGET_HOME/projects/$project" ] || die "project is unavailable in execution home"
   head -c 1048577 > "$temp/input"
   [ "$(wc -c < "$temp/input")" -le 1048576 ] || die "brief exceeds size limit"
@@ -456,6 +456,16 @@ launch() (
   [ "$model" = - ] || spawn_args+=(--model "$model")
   [ "$effort" = - ] || spawn_args+=(--effort "$effort")
   [ -z "$account" ] || spawn_args+=(--claude-account "$account")
+  mkdir -p "$task_data" || die "cannot create task data directory"
+  marker=${temp##*/}
+  if ! (set -C; printf '%s\n' "$marker" > "$task_data/launch-marker") 2>/dev/null; then
+    marker=
+    die "task launch marker already exists"
+  fi
+  if [ -e "$task_data/brief.md" ] || [ -L "$task_data/brief.md" ]; then
+    marker=
+    die "task brief already exists"
+  fi
   FM_HOME="$TARGET_HOME" FM_BRIEF_HERDR_ROOT="${SCRIPT_DIR%/bin}" FM_BRIEF_WORKER_NAME="$worker_name" "$SCRIPT_DIR/fm-brief.sh" "${brief_args[@]}" >&2 || die "host-local scaffold failed"
   awk -v intent="$temp/intent" -v spec="$temp/spec" '
     $0 == "{TASK}" { while ((getline line < intent) > 0) print line; close(intent); next }
