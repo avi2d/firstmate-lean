@@ -440,7 +440,7 @@ It does not apply in an execution home, whose supervising home owns the item, or
 
 Each text message `bin/fm-send.sh` delivers is appended to the `## Messages` section of the task's item, with the UTC time and the sender.
 The sender is `user` when `--resolve-key` answers a decision and `firstmate` otherwise.
-The message log requires `python3` to lock the read and append on macOS and Linux.
+The message log requires `perl` to lock the read and append on macOS and Linux.
 A failed append is reported after delivery and never undoes it, so do not resend the message.
 If the backlog cannot be read, the message is still sent with a warning.
 
