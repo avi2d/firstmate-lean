@@ -33,8 +33,9 @@ case "$*" in
   *' launch '*)
     cat >/dev/null
     if [ "${FM_TEST_LAUNCH_ERROR:-0}" = 1 ]; then
-      printf 'error: host-local worker launch failed: error: missing required account\n' >&2
-      exit 1
+      printf 'host progress on stdout\n'
+      printf 'error: missing required account\nerror: host-local worker launch failed\n\n' >&2
+      exit 42
     fi
     [ "${FM_TEST_LAUNCH_DEFER:-0}" != 1 ] || { printf 'defer: host already holds 6 alpha worker(s) at its declared limit 6\n'; [ "${FM_TEST_NO_RECEIPT:-0}" = 1 ] || printf 'launch=rolled-back\n'; exit 75; }
     printf '%s\n' "$*" > "$FM_HOME/launch-args"
@@ -113,9 +114,18 @@ assert_grep 'remote_target=pending' "$HOME_DIR/state/remote-unconfirmed-defer.me
 pass "unconfirmed remote defer preserves the pending record instead of starting another worker"
 
 new_remote_scout remote-error
-out=$(FM_TEST_LAUNCH_ERROR=1 remote_spawn remote-error --claude-account main) && fail "failed remote launch reported success"
-printf '%s\n' "$out" | grep -F 'error: host-local worker launch failed: error: missing required account' >/dev/null || fail "remote cause did not reach the local caller: $out"
-pass "local spawn reports the remote launch cause instead of hiding it"
+rc=0
+out=$(FM_TEST_LAUNCH_ERROR=1 remote_spawn remote-error --claude-account main) || rc=$?
+[ "$rc" -eq 42 ] || fail "host exit 42 became $rc"
+assert_contains "$out" 'error: missing required account' "the caller lost the host diagnostic"
+logs=("$HOME_DIR/data/remote-error"/remote-launch.*)
+[ "${#logs[@]}" -eq 1 ] && [ -d "${logs[0]}" ] || fail "no unique launch report"
+assert_contains "$out" "exit 42" "the caller lost the host exit code"
+assert_contains "$out" "${logs[0]}" "the caller cannot locate the saved diagnostics"
+[ "$(cat "${logs[0]}/exit-code")" = 42 ] || fail "the saved host exit code changed"
+printf 'error: missing required account\nerror: host-local worker launch failed\n\n' |
+  cmp - "${logs[0]}/stderr" || fail "saved stderr lost bytes or included stdout"
+pass "a failed remote launch does not lose stderr or its exit code after the caller exits"
 
 new_remote_scout acct-ok
 out=$(remote_spawn acct-ok --claude-account main) || fail "remote launch refused a Claude account: $out"
