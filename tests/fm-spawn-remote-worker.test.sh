@@ -32,6 +32,10 @@ case "$*" in
     printf 'admit project=alpha holders=0 load=%s load_limit=16 heavy_free=%s\n' "${FM_TEST_REMOTE_LOAD:-1.0}" "${FM_TEST_REMOTE_FREE:-6}" ;;
   *' launch '*)
     cat >/dev/null
+    if [ "${FM_TEST_LAUNCH_ERROR:-0}" = 1 ]; then
+      printf 'error: host-local worker launch failed: error: missing required account\n' >&2
+      exit 1
+    fi
     [ "${FM_TEST_LAUNCH_DEFER:-0}" != 1 ] || { printf 'defer: host already holds 6 alpha worker(s) at its declared limit 6\n'; exit 75; }
     printf '%s\n' "$*" > "$FM_HOME/launch-args"
     account=${16:-}
@@ -96,6 +100,11 @@ remote_spawn() {  # <task-id> [spawn flags...]
   FM_ROOT_OVERRIDE="$FAKE_ROOT" FM_HOME="$HOME_DIR" FM_SPAWN_NO_GUARD=1 bash "$FAKE_ROOT/bin/fm-spawn.sh" "$id" "$HOME_DIR/projects/alpha" --scout --harness pi --model claude-bridge/opus "$@" 2>&1
 }
 
+new_remote_scout remote-error
+out=$(FM_TEST_LAUNCH_ERROR=1 remote_spawn remote-error --claude-account main) && fail "failed remote launch reported success"
+printf '%s\n' "$out" | grep -F 'error: host-local worker launch failed: error: missing required account' >/dev/null || fail "remote cause did not reach the local caller: $out"
+pass "local spawn reports the remote launch cause instead of hiding it"
+
 new_remote_scout acct-ok
 out=$(remote_spawn acct-ok --claude-account main) || fail "remote launch refused a Claude account: $out"
 assert_grep 'claude_account=main' "$HOME_DIR/state/acct-ok.meta" "remote task record did not record the Claude account"
@@ -105,10 +114,12 @@ assert_grep 'claude-account-check pi claude-bridge/opus main' "$HOME_DIR/account
 pass "remote launch forwards --claude-account to the host and records it instead of refusing the flag"
 
 new_remote_scout acct-none
-out=$(remote_spawn acct-none) || fail "remote launch without an account failed: $out"
-[ "$(wc -w < "$HOME_DIR/launch-args")" -eq 15 ] || fail "a launch without an account sent an account argument: $(cat "$HOME_DIR/launch-args")"
-assert_no_grep 'claude_account=' "$HOME_DIR/state/acct-none.meta" "a launch without an account recorded one"
-pass "remote launch without an account sends the older launch shape instead of an empty account"
+rm -f "$HOME_DIR/launch-args" "$HOME_DIR/account-check-args"
+out=$(remote_spawn acct-none) && fail "a bridge model without an account was accepted"
+printf '%s\n' "$out" | grep -F -- '--claude-account' >/dev/null || fail "missing account was not reported: $out"
+[ ! -e "$HOME_DIR/launch-args" ] && [ ! -e "$HOME_DIR/account-check-args" ] || fail "a missing account reached the remote host"
+[ ! -e "$HOME_DIR/state/acct-none.meta" ] || fail "a missing account published task metadata"
+pass "a bridge model without an account is rejected before contacting the host"
 
 new_remote_scout acct-missing
 out=$(remote_spawn acct-missing --claude-account second) && fail "remote launch accepted an account the host does not map: $out"

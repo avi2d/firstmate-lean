@@ -276,7 +276,7 @@ test_pi_claude_bridge_without_an_account_refuses_where_accounts_are_declared() {
   printf '%s\n' '# clauth profile -> login' "main $CASE/main" "second $CASE/second" > "$HOME_DIR/config/claude-accounts"
   out=$(spawn_ship "$id" --harness pi --model claude-bridge/claude-opus-5-5 --effort high); rc=$?
   expect_code 1 "$rc" "a Pi claude-bridge ship with no account must refuse where accounts are declared: $out"
-  assert_refused_before_launch "$id" "$out" "--model claude-bridge/claude-opus-5-5 needs --claude-account <name> (declared: main second)"
+  assert_refused_before_launch "$id" "$out" "--model claude-bridge/claude-opus-5-5 requires --claude-account"
   WT="$CASE/wt-$id-scout"
   git -C "$PROJ" worktree add --quiet -b "wt-$id-scout" "$WT" >/dev/null 2>&1 || fail "could not create a copy for the scout"
   fm_test_spawn_brief "$HOME_DIR" "$id-scout"
@@ -284,7 +284,7 @@ test_pi_claude_bridge_without_an_account_refuses_where_accounts_are_declared() {
   out=$(FM_FAKE_LAUNCH_LOG="$CASE/launch.log" FM_TEST_CLAUDE_CONFIG_DIR="$CASE/ambient-claude" \
     fm_test_run_spawn "$HOME_DIR" "$WT" "$FAKEBIN" "$id-scout" "$PROJ" --scout --harness pi --model claude-bridge/claude-opus-5-5); rc=$?
   expect_code 1 "$rc" "a Pi claude-bridge scout with no account must refuse where accounts are declared: $out"
-  assert_refused_before_launch "$id-scout" "$out" "needs --claude-account <name>"
+  assert_refused_before_launch "$id-scout" "$out" "requires --claude-account"
   out=$(spawn_ship "$id-named" --harness pi --model claude-bridge/claude-opus-5-5 --effort high --claude-account main); rc=$?
   expect_code 0 "$rc" "the same spawn naming an account should launch: $out"
   run_pane
@@ -296,14 +296,16 @@ test_pi_claude_bridge_without_an_account_is_unchanged_elsewhere() {
   local out rc id=cacct-bridge-kept
   new_case pi-bridge-no-map pi
   out=$(spawn_ship "$id-nomap" --harness pi --model claude-bridge/claude-opus-5-5); rc=$?
-  expect_code 0 "$rc" "with no config/claude-accounts a Pi claude-bridge spawn should launch as before: $out"
+  expect_code 1 "$rc" "a bridge spawn without an account must refuse even without an account map: $out"
+  assert_refused_before_launch "$id-nomap" "$out" "requires --claude-account"
   printf '%s\n' '# no accounts yet' > "$HOME_DIR/config/claude-accounts"
   out=$(spawn_ship "$id-empty" --harness pi --model claude-bridge/claude-opus-5-5); rc=$?
-  expect_code 0 "$rc" "a map declaring no account should leave a Pi claude-bridge spawn as before: $out"
+  expect_code 1 "$rc" "a bridge spawn without an account must refuse with an empty account map: $out"
+  assert_refused_before_launch "$id-empty" "$out" "requires --claude-account"
   printf '%s\n' "main $CASE/main" > "$HOME_DIR/config/claude-accounts"
   out=$(spawn_ship "$id-other" --harness pi --model openai-codex/gpt-6-luna); rc=$?
   expect_code 0 "$rc" "a Pi model on another provider needs no Claude account: $out"
-  pass "a Pi claude-bridge spawn with no account is unchanged without declared accounts and off the bridge"
+  pass "a bridge spawn without an account refuses even without declared accounts while other providers remain available"
 }
 
 test_claude_account_ordinary_requires_clauth_to_report_it_active() {
