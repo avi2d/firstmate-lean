@@ -1356,7 +1356,9 @@ The hooks directory is read-only, so a hook manager run inside a fleet pane (lef
 
 When orc is installed, every ship and scout launch runs `orc heavy path` on the machine that hosts the worker and puts the folder it prints first on the worker's PATH, so the worker's test, build, and browser tools wait their turn in that machine's heavy queue.
 A worker on an execution home gets that host's own folder, because the launch runs there.
-When orc is missing, `orc heavy path` fails or runs past `FM_HEAVY_PATH_TIMEOUT` seconds, 20 by default, or the worker is sandboxed or in the cloud, the worker launches with its PATH unchanged and the spawn prints one note saying why.
+When orc is missing, or the worker is sandboxed or in the cloud, the worker launches with its PATH unchanged and the spawn prints one note saying why.
+When `orc heavy path` fails, prints no folder, or runs past `FM_HEAVY_PATH_TIMEOUT` seconds, 20 by default, a local launch does the same.
+On an execution home, the spawn or relaunch stops instead and prints orc's own error, so a remote worker never starts without the stand-ins.
 Secondmates are not changed.
 `bin/fm-capacity.sh` adds the machine's running and queued heavy calls to its report, read fresh from `orc heavy check --json` each time and never stored.
 

@@ -887,6 +887,7 @@ worker_capture_output() { # <fifo> <destination>
 worker_run_job() { # <account-home> <job-dir>
   local account_home=$1 job=$2 root home command command_path git_bin rc deadline remaining
   local stdout_pipe stderr_pipe stdout_reader stderr_reader preemptible=0
+  local runtime_dir
   local -a argv child_env
   root=$(worker_read_text "$job" root 8192) || { worker_publish_result "$job" 126; return; }
   home=$(worker_read_text "$job" home 8192) || { worker_publish_result "$job" 126; return; }
@@ -959,6 +960,9 @@ worker_run_job() { # <account-home> <job-dir>
     "FM_ROOT_OVERRIDE=$root"
     FM_REMOTE_JOB_ACTIVE=1
   )
+  if runtime_dir=$(fm_remote_job_runtime_dir); then
+    child_env+=("XDG_RUNTIME_DIR=$runtime_dir")
+  fi
   if [ -n "${FM_REMOTE_JOB_STATE_ROOT:-}" ]; then
     child_env+=("FM_REMOTE_JOB_STATE_ROOT=$FM_REMOTE_JOB_STATE_ROOT")
   fi

@@ -82,6 +82,7 @@ cat > "$REMOTE_ROOT/bin/fm-probe-job.sh" <<'SH'
 #!/bin/bash
 set -u
 printf 'home=%s\nroot=%s\nactive=%s\npath=%s\n' "$FM_HOME" "$FM_ROOT_OVERRIDE" "${FM_REMOTE_JOB_ACTIVE:-}" "$PATH"
+printf 'runtime=%s\n' "${XDG_RUNTIME_DIR-<unset>}"
 printf 'args:'
 printf ' <%s>' "$@"
 printf '\n'
@@ -344,6 +345,33 @@ MISE_EXPECTED=$(printf '%s\n' "$MISE_INSTALLS"/*/*/bin)
 # This assertion detects the defect on bash 3.2 and 5.2, where compgen -G returns unsorted glob matches, but reads green on bash 5.3+ because glob sorting moved into the glob library so both mechanisms agree there.
 rm -rf -- "$ACCOUNT_HOME/.local/share/mise"
 pass "operator PATH orders discovered tool installs deterministically"
+
+# The test shell may carry its own XDG_RUNTIME_DIR, and the detached Linux worker never does.
+probe_runtime_dir_through_lane() { # <runtime-base>
+  fm_remote_job_stage "$ACCOUNT_HOME" "$REMOTE_ROOT" "$REMOTE_HOME" fm-probe-job.sh </dev/null >/dev/null \
+    || fail "$FM_REMOTE_JOB_ERROR"
+  env -u XDG_RUNTIME_DIR HOME="$ACCOUNT_HOME" FM_REMOTE_RUNTIME_BASE="$1" \
+    "$BASH" "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" --lane "$FM_REMOTE_JOB_ID" \
+    || fail "the runtime-directory lane failed"
+  fm_remote_job_wait "$ACCOUNT_HOME" "$FM_REMOTE_JOB_ID" || fail "$FM_REMOTE_JOB_ERROR"
+  grep '^runtime=' "$FM_REMOTE_JOB_STDOUT"
+  fm_remote_job_reap "$ACCOUNT_HOME" "$FM_REMOTE_JOB_ID" || fail "the runtime-directory probe could not be reaped"
+}
+
+RUNTIME_BASE="$TMP_ROOT/runtime-base"
+ACCOUNT_RUNTIME="$RUNTIME_BASE/$(id -u)"
+mkdir -p "$ACCOUNT_RUNTIME"
+chmod 700 "$ACCOUNT_RUNTIME"
+SEEN_RUNTIME=$(probe_runtime_dir_through_lane "$RUNTIME_BASE")
+assert_equals "runtime=$ACCOUNT_RUNTIME" "$SEEN_RUNTIME" \
+  "a job child must get the account runtime directory, where per-user daemons such as pueue keep their socket"
+pass "a job child gets the account runtime directory instead of an environment where pueue cannot find its socket"
+
+rm -rf -- "$ACCOUNT_RUNTIME"
+SEEN_RUNTIME=$(probe_runtime_dir_through_lane "$RUNTIME_BASE")
+assert_equals "runtime=<unset>" "$SEEN_RUNTIME" \
+  "a job child must not be pointed at a runtime directory the account does not have"
+pass "a job child gets no XDG_RUNTIME_DIR instead of a missing directory when the account has none"
 
 HOME="$ACCOUNT_HOME" PATH="$RUNTIME_BIN:/usr/bin:/bin:/usr/sbin:/sbin" FM_FAKE_PERL_LOG="$FAKE_PERL_LOG" \
   FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_REMOTE_JOB_STATE_ROOT="$STATE_ROOT" \

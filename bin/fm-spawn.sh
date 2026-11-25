@@ -1609,29 +1609,44 @@ shell_quote() {
   printf "'"
 }
 
+# Exit 0 prints the folder, 1 means launch without it, and 2 means the launch must stop.
 spawn_heavy_queue_path() {
-  local dir skip=
+  local dir skip='' err_file orc_error='' rc=0 timeout=${FM_HEAVY_PATH_TIMEOUT:-20}
   # A sandboxed worker cannot reach pueue, so a stand-in it calls would fail
   # instead of running the tool.
   if [ -n "${FM_SANDBOX_PROFILE:-}" ]; then
     skip="the worker is sandboxed"
   elif ! command -v orc >/dev/null 2>&1; then
     skip="orc is not installed"
-  elif ! dir=$(fm_run_timed "${FM_HEAVY_PATH_TIMEOUT:-20}" orc heavy path </dev/null 2>/dev/null); then
-    skip="\`orc heavy path\` failed"
   else
-    case "$dir" in
-      /*) ;;
-      *) dir= ;;
-    esac
-    case "$dir" in *:*|*$'\n'*) dir= ;; esac
-    if [ -n "$dir" ] && [ -d "$dir" ]; then
-      printf '%s\n' "$dir"
-      return 0
+    err_file=$(mktemp "${TMPDIR:-/tmp}/fm-heavy-path.XXXXXX") || err_file=/dev/null
+    dir=$(fm_run_timed "$timeout" orc heavy path </dev/null 2>"$err_file") || rc=$?
+    if [ "$err_file" != /dev/null ]; then
+      orc_error=$(LC_ALL=C sed $'s/\033\\[[0-9;]*m//g' "$err_file" | LC_ALL=C tr -d '\000-\010\013-\037')
+      rm -f -- "$err_file"
     fi
-    skip="\`orc heavy path\` printed no folder"
+    if [ "$rc" -eq 124 ]; then
+      skip="\`orc heavy path\` ran past $timeout seconds"
+    elif [ "$rc" -ne 0 ]; then
+      skip="\`orc heavy path\` failed with exit $rc"
+    else
+      case "$dir" in
+        /*) ;;
+        *) dir= ;;
+      esac
+      case "$dir" in *:*|*$'\n'*) dir= ;; esac
+      if [ -n "$dir" ] && [ -d "$dir" ]; then
+        printf '%s\n' "$dir"
+        return 0
+      fi
+      skip="\`orc heavy path\` printed no folder"
+    fi
+    if [ "${FM_REMOTE_JOB_ACTIVE:-}" = 1 ]; then
+      echo "error: $ID was not launched because the heavy-queue stand-ins could not be put first on its PATH: $skip${orc_error:+$'\n'$orc_error}" >&2
+      return 2
+    fi
   fi
-  echo "note: $ID launches without the heavy queue on its PATH: $skip" >&2
+  echo "note: $ID launches without the heavy queue on its PATH: $skip${orc_error:+$'\n'$orc_error}" >&2
   return 1
 }
 
@@ -3674,9 +3689,13 @@ if [ -n "$SPAWN_TRACEPARENT" ]; then
   fi
 fi
 if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
-  if HEAVY_QUEUE_DIR=$(spawn_heavy_queue_path); then
-    LAUNCH="export PATH=$(shell_quote "$HEAVY_QUEUE_DIR")\":\$PATH\"; $LAUNCH"
-  fi
+  HEAVY_QUEUE_STATUS=0
+  HEAVY_QUEUE_DIR=$(spawn_heavy_queue_path) || HEAVY_QUEUE_STATUS=$?
+  case "$HEAVY_QUEUE_STATUS" in
+    0) LAUNCH="export PATH=$(shell_quote "$HEAVY_QUEUE_DIR")\":\$PATH\"; $LAUNCH" ;;
+    1) ;;
+    *) exit 1 ;;
+  esac
 fi
 if [ "$LAUNCH_ENV_ENABLED" = 1 ]; then
   LAUNCH_ENV_PREFIX='/usr/bin/env -i'
