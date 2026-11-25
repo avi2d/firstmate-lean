@@ -415,6 +415,11 @@ fi
   echo "error: --claude-account requires a non-empty value" >&2
   exit 1
 }
+case "$MODEL" in
+  claude-bridge/?*)
+    [ -n "$CLAUDE_ACCOUNT" ] || { echo "error: --model $MODEL requires --claude-account" >&2; exit 1; }
+    ;;
+esac
 [ "$QUOTA_OVERRIDE_SET" -eq 0 ] || [ -n "$QUOTA_OVERRIDE_REASON" ] || {
   echo "error: --quota-override-reason requires a non-empty value" >&2
   exit 1
