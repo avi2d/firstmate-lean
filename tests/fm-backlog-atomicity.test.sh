@@ -966,6 +966,7 @@ test_dispatch_refuses_a_held_in_flight_row_before_relaunch() {
 test_spawn_does_not_start_a_queued_item_without_priority() (
   local case_dir=$1 id=$2 out rc=0
   tasks-axi add "$id" "item for $id" --kind ship --file "$(backlog_of "$case_dir")" >/dev/null || fail "could not add item"
+  mark_endpoint_and_copy_requests "$case_dir"
   out=$(run_ship_spawn "$case_dir" "$id") || rc=$?
   [ "$rc" -ne 0 ] || fail "spawn started an item without priority"
   assert_contains "$out" "backlog item $id has no priority" "spawn did not name the missing priority"
@@ -984,11 +985,12 @@ run_spawn_priority_twins() {
   local id=atomic-dispatch-priority case_dir mutant lib out rc=0
   case_dir=$(make_home priority-mutant "$id")
   mutant="$case_dir/mutant"
-  cp -R "$ROOT/bin" "$mutant" || fail "could not copy the spawn mutant"
-  lib="$mutant/fm-backlog-transition-lib.sh"
+  mkdir -p "$mutant" || fail "could not create the mutant code root"
+  cp -R "$ROOT/bin" "$mutant/bin" || fail "could not copy the spawn mutant"
+  lib="$mutant/bin/fm-backlog-transition-lib.sh"
   sed 's/^fm_backlog_row_require_priority() {$/fm_backlog_row_require_priority() { return 0;/' "$lib" > "$lib.mutant"
   mv "$lib.mutant" "$lib"
-  out=$(SPAWN="$mutant/fm-spawn.sh" test_spawn_does_not_start_a_queued_item_without_priority "$case_dir" "$id" 2>&1) || rc=$?
+  out=$(SPAWN="$mutant/bin/fm-spawn.sh" test_spawn_does_not_start_a_queued_item_without_priority "$case_dir" "$id" 2>&1) || rc=$?
   expect_code 1 "$rc" "negative control for missing spawn priority: $out"
   assert_contains "$out" "not ok - spawn started an item without priority" "negative control failed for the wrong reason"
   pass "negative control caught spawn starting an item without priority"
