@@ -493,7 +493,6 @@ if [ "$SCOUT_BRIEF" -eq 1 ] && [ "$CRITERIA" = '{}' ]; then
   LAT_MS=0
 else
   command -v curl >/dev/null 2>&1 || emit_error "curl not installed"
-  never_send_check
   T0=$(fm_timing_now_ms)
   while :; do
   REQUEST=$(jq -n --rawfile brief "$TASK_TEXT" --arg project "$PROJECT" --arg model "$DISPATCH_MODEL" \
@@ -523,6 +522,7 @@ else
   else
     BODY=$REQUEST
   fi
+  never_send_check
   ATTEMPT=1
   while :; do
     if [ -n "$KEY_PRIVATE" ]; then
