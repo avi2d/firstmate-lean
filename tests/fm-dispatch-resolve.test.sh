@@ -163,6 +163,12 @@ fi
 if [ "${FAKE_CURL_FAIL:-0}" = 1 ]; then
   exit 7
 fi
+if [ "${FAKE_CURL_CLIENT_ERROR_ONCE:-0}" = 1 ] && [ ! -e "$FAKE_CURL_LOG/client-error-done" ]; then
+  : > "$FAKE_CURL_LOG/client-error-done"
+  printf 'Unknown model' > "$out"
+  printf '%s' '400'
+  exit 0
+fi
 if [ "${FAKE_CURL_FLAKY_ONCE:-0}" = 1 ] && [ ! -e "$FAKE_CURL_LOG/flaky-done" ]; then
   : > "$FAKE_CURL_LOG/flaky-done"
   printf 'upstream unavailable' > "$out"
@@ -707,6 +713,14 @@ write_openrouter_response() {
 }
 reset_log
 write_openrouter_response rule_4 0.9
+FM_DISPATCH_FALLBACK_PROVIDER=openrouter FM_DISPATCH_FALLBACK_MODEL=typesafe/jev-1.13 \
+  OPENROUTER_API_KEY=$OR_KEY FAKE_CURL_RESPONSE=$OR_RESPONSE FAKE_CURL_CLIENT_ERROR_ONCE=1 run code out err "$BRIEF"
+assert_contains "$out" '  status: clear' 'unknown primary model falls through to configured OpenRouter'
+assert_contains "$(cat "$LOG/argv")" 'https://api.typesafe.ai/v1/systemone' 'primary endpoint receives the first request'
+assert_contains "$(cat "$LOG/argv")" 'https://openrouter.ai/api/alpha/decisions' 'fallback endpoint receives the second request'
+assert_equals 'typesafe/jev-1.13' "$(jq -r .model "$LOG/body")" 'fallback uses its configured model'
+pass 'unknown primary model falls through to the configured backend'
+reset_log
 rm -f "$HOME_DIR/config/bws-typesafe-secret-id"
 OPENROUTER_API_KEY=$OR_KEY run code out err "$BRIEF"
 assert_equals '' "$out" "an OpenRouter key alone does not select the provider"
