@@ -1623,6 +1623,10 @@ OpenRouter, `systemone`, and OpenAI each require their explicit `FM_DISPATCH_PRO
 `systemone` also requires `FM_DISPATCH_BASE_URL`, an `http://` or `https://` base such as a local llama.cpp server or a hosted System One-compatible service, and posts to `<base>/v1/systemone`; a missing or scheme-less base URL is an actionable configuration error.
 With no provider setting and a valid base, the original typesafe.ai behavior is unchanged: `jev-latest` is used when the typesafe key is available from Bitwarden, `FM_DISPATCH_MODEL` is ignored, and the resolver is off when no secret id file exists.
 Explicit `FM_DISPATCH_PROVIDER=typesafe` also uses `jev-latest` when no model is set.
+Set `FM_DISPATCH_FALLBACK_PROVIDER` and `FM_DISPATCH_FALLBACK_MODEL` to configure a second backend for a failed HTTP request.
+After the primary backend's retries, the resolver reports the fallback and sends the same task to that backend.
+The fallback uses the same credential and base URL settings as a primary backend.
+Without a fallback provider, a failed request returns an error.
 The OpenRouter and OpenAI keys must be non-empty in the environment or `.env`, with the environment taking precedence; the OpenRouter key alone may instead come from the credential source the home declares for `openrouter`.
 `systemone` is the exception: an absent `FM_DISPATCH_API_KEY` means the request carries no `Authorization` header.
 The typesafe key is never read from the environment, `.env`, or a credential source declaration.

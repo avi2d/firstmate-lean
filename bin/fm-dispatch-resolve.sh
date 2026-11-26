@@ -129,8 +129,11 @@ Capability probe: --supports-credential-source <source> prints "supported"
   this host, without reading a declaration or retrieving a credential.
 
 Environment:
-  FM_DISPATCH_PROVIDER, FM_DISPATCH_MODEL, OPENROUTER_API_KEY, OPENAI_API_KEY,
-    and FM_DISPATCH_API_KEY are read from the environment or $FM_HOME/.env.
+  FM_DISPATCH_PROVIDER, FM_DISPATCH_MODEL, FM_DISPATCH_FALLBACK_PROVIDER,
+    FM_DISPATCH_FALLBACK_MODEL, OPENROUTER_API_KEY, OPENAI_API_KEY, and
+    FM_DISPATCH_API_KEY are read from the environment or $FM_HOME/.env.
+  The optional fallback provider and model select a second backend after a
+    request error; configure its credentials the same way as the primary.
   OPENROUTER_API_KEY falls back to the source config/dispatch-credential-sources.json
     declares for openrouter (bin/fm-credential-source-lib.sh owns the schema).
   FM_DISPATCH_BASE_URL is required for the systemone provider; the systemone
@@ -256,6 +259,11 @@ DISPATCH_PROVIDER=${FM_DISPATCH_PROVIDER:-}
 [ -n "$DISPATCH_PROVIDER" ] || DISPATCH_PROVIDER=$(fm_env_get FM_DISPATCH_PROVIDER "$FM_HOME/.env")
 DISPATCH_MODEL=${FM_DISPATCH_MODEL:-}
 [ -n "$DISPATCH_MODEL" ] || DISPATCH_MODEL=$(fm_env_get FM_DISPATCH_MODEL "$FM_HOME/.env")
+FALLBACK_PROVIDER=${FM_DISPATCH_FALLBACK_PROVIDER:-}
+[ -n "$FALLBACK_PROVIDER" ] || FALLBACK_PROVIDER=$(fm_env_get FM_DISPATCH_FALLBACK_PROVIDER "$FM_HOME/.env")
+FALLBACK_MODEL=${FM_DISPATCH_FALLBACK_MODEL:-}
+[ -n "$FALLBACK_MODEL" ] || FALLBACK_MODEL=$(fm_env_get FM_DISPATCH_FALLBACK_MODEL "$FM_HOME/.env")
+select_dispatch_provider() {
 case "$DISPATCH_PROVIDER" in
   '')
     DISPATCH_PROVIDER=typesafe
@@ -301,6 +309,8 @@ case "$DISPATCH_PROVIDER" in
   openai) ENDPOINT=$OA_BASE/v1/decisions TIMEOUT=$OA_TIMEOUT KEY_PRIVATE=$OPENAI_API_KEY_PRIVATE ;;
 esac
 export -n KEY_PRIVATE 2>/dev/null || true
+}
+select_dispatch_provider
 
 # ---- inputs --------------------------------------------------------------------
 [ -n "$BRIEF" ] || die "brief file required (see --help)"
@@ -483,6 +493,9 @@ if [ "$SCOUT_BRIEF" -eq 1 ] && [ "$CRITERIA" = '{}' ]; then
   LAT_MS=0
 else
   command -v curl >/dev/null 2>&1 || emit_error "curl not installed"
+  never_send_check
+  T0=$(fm_timing_now_ms)
+  while :; do
   REQUEST=$(jq -n --rawfile brief "$TASK_TEXT" --arg project "$PROJECT" --arg model "$DISPATCH_MODEL" \
     --arg none_criterion "$DEFAULT_WHEN" --arg size_hint "$SIZE_HINT" --argjson criteria "$CRITERIA" '
     {
@@ -510,8 +523,6 @@ else
   else
     BODY=$REQUEST
   fi
-  never_send_check
-  T0=$(fm_timing_now_ms)
   ATTEMPT=1
   while :; do
     if [ -n "$KEY_PRIVATE" ]; then
@@ -533,7 +544,14 @@ else
   T1=$(fm_timing_now_ms)
   LAT_MS=$(( T1 - T0 ))
   UPSTREAM_MS=$(grep -i '^x-envoy-upstream-service-time:' "$RESP_HEADERS" 2>/dev/null | tail -n 1 | tr -d '\r' | sed 's/^[^:]*:[[:space:]]*//;s/[[:space:]]*$//')
-  [ "$HTTP" = 200 ] || emit_error "http $HTTP after ${LAT_MS} ms${UPSTREAM_MS:+ (upstream ${UPSTREAM_MS} ms)}: $(head -c 200 "$RESP_FILE" 2>/dev/null | tr '\n' ' ')"
+  [ "$HTTP" != 200 ] || break
+  [ -n "$FALLBACK_PROVIDER" ] || emit_error "http $HTTP after ${LAT_MS} ms${UPSTREAM_MS:+ (upstream ${UPSTREAM_MS} ms)}: $(head -c 200 "$RESP_FILE" 2>/dev/null | tr '\n' ' ')"
+  DISPATCH_PROVIDER=$FALLBACK_PROVIDER
+  DISPATCH_MODEL=$FALLBACK_MODEL
+  FALLBACK_PROVIDER=
+  select_dispatch_provider
+  printf 'dispatch-resolve: falling back to %s after http %s\n' "$DISPATCH_PROVIDER" "$HTTP" >&2
+  done
 fi
   # Map an OpenAI answer back to the System One shape the shared validation
   # below checks. A refusal, a missing or duplicated rule answer, or duplicated
