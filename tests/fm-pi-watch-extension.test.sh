@@ -773,7 +773,10 @@ writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
 const mod = await import(pathToFileURL(process.env.PLUGIN).href);
 mod.default(pi);
 await tool.execute("initial-arm", {}, undefined, undefined, {});
-await new Promise((resolve) => setTimeout(resolve, 1200));
+for (let i = 0; i < 250 && prompts.length === 0; i += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 20));
+}
+if (prompts.length === 0) failNow("the extension never delivered the actionable wake");
 const rows = existsSync(process.env.FM_ARM_LOG)
   ? readFileSync(process.env.FM_ARM_LOG, "utf8").trim().split("\n")
   : [];
