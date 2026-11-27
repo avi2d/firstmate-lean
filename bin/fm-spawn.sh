@@ -1337,6 +1337,24 @@ fi
 if [ "$RELAUNCH" -ne 1 ]; then
   fm_lease_forbid_branch "new-task spawn (fm-spawn)"
 fi
+# Ownership is decided before any lock, record, or endpoint exists, so a refused
+# spawn leaves this home exactly as it was.
+SPAWN_PROJECT_PATH=
+SPAWN_PROJECT_NAME=
+if [ "$RELAUNCH" -eq 0 ] && [ "${#POS[@]}" -ge 2 ]; then
+  case ${POS[1]} in
+    projects/*) SPAWN_PROJECT_PATH="$PROJECTS/${POS[1]#projects/}" ;;
+    /*) SPAWN_PROJECT_PATH=${POS[1]} ;;
+    *)
+      SPAWN_PROJECT_PATH=${POS[1]}
+      [ ! -d "$PROJECTS/$SPAWN_PROJECT_PATH" ] || SPAWN_PROJECT_PATH="$PROJECTS/$SPAWN_PROJECT_PATH"
+      ;;
+  esac
+  SPAWN_PROJECT_NAME=$(python3 "$SCRIPT_DIR/fm-project-name.py" "$DATA/projects.md" "$SPAWN_PROJECT_PATH") || exit 1
+  # shellcheck source=bin/fm-project-owner-lib.sh
+  . "$SCRIPT_DIR/fm-project-owner-lib.sh"
+  fm_project_owner_check "spawn of $ID" "$SPAWN_PROJECT_NAME" "$FM_HOME" || exit 1
+fi
 if [ "$RELAUNCH" -eq 1 ]; then
   SPAWN_CONTROL_LOCK="$STATE/.control-$ID.lock"
   control_owner=$(cat "$SPAWN_CONTROL_LOCK/pid" 2>/dev/null || true)
@@ -1405,15 +1423,7 @@ if [ "$RELAUNCH" -eq 0 ]; then
   SPAWN_TASK_SET_LOCK_HELD=1
 fi
 if [ "$RELAUNCH" -eq 0 ] && [ "$LOCAL_OVERRIDE" -eq 0 ] && [ "${#POS[@]}" -ge 2 ]; then
-  case ${POS[1]} in
-    projects/*) remote_project_path="$PROJECTS/${POS[1]#projects/}" ;;
-    /*) remote_project_path=${POS[1]} ;;
-    *)
-      remote_project_path=${POS[1]}
-      [ ! -d "$PROJECTS/$remote_project_path" ] || remote_project_path="$PROJECTS/$remote_project_path"
-      ;;
-  esac
-  remote_project=$(python3 "$SCRIPT_DIR/fm-project-name.py" "$DATA/projects.md" "$remote_project_path") || exit 1
+  remote_project=$SPAWN_PROJECT_NAME
   remote_placement=$("$SCRIPT_DIR/fm-project-mode.sh" --placement "$remote_project") || exit 1
   if [ -n "$remote_placement" ]; then
     remote_host=$(fm_remote_registry_field "$DATA/remote-homes.md" "$remote_placement" host 2>/dev/null || true)

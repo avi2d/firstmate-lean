@@ -162,6 +162,8 @@ PRIMARY_HARNESS=$("$SCRIPT_DIR/fm-harness.sh" 2>/dev/null || printf unknown)
 . "$SCRIPT_DIR/fm-hold-reason-lib.sh"
 # shellcheck source=bin/fm-project-tiers-lib.sh
 . "$SCRIPT_DIR/fm-project-tiers-lib.sh"
+# shellcheck source=bin/fm-project-owner-lib.sh
+. "$SCRIPT_DIR/fm-project-owner-lib.sh"
 . "${SCRIPT_DIR%/bin}/bin/fm-backlog-transition-lib.sh"
 . "${SCRIPT_DIR%/bin}/bin/fm-remote-registry-lib.sh"
 
@@ -407,6 +409,48 @@ backlog_digest_query() {
   fi
 }
 
+# An unreadable ownership record is reported by the other-homes block, so the
+# listing here passes through unfiltered rather than vanishing.
+ready_owned_by_this_home() {
+  if fm_project_owners_read 2>/dev/null && fm_project_owners_foreign "$FM_HOME" && [ -n "$FM_PROJECT_OWNERS_FOREIGN" ]; then
+    fm_project_owners_filter_ready
+  else
+    cat
+  fi
+}
+
+# One line per other home and the projects it owns, from the machine's
+# ownership record; nothing when the record is absent or names only this home.
+print_other_homes() {
+  local entry home names homes=$'
+' line
+  if ! fm_project_owners_read; then
+    subsection "Other Firstmate homes"
+    printf 'ownership record unreadable: %s - spawn and backlog add refuse every project until it is fixed
+' "$FM_PROJECT_OWNERS_ERROR"
+    return 0
+  fi
+  fm_project_owners_foreign "$FM_HOME"
+  [ -n "$FM_PROJECT_OWNERS_FOREIGN" ] || return 0
+  subsection "Other Firstmate homes ($FM_PROJECT_OWNERS_FILE; hand their work over with bin/fm-handoff.sh, never spawn or file it here)"
+  while IFS= read -r entry; do
+    [ -n "$entry" ] || continue
+    home=${entry#*$'\034'}
+    case "$homes" in *$'\n'"$home"$'\n'*) continue ;; esac
+    homes="$homes$home"$'\n'
+    names=
+    while IFS= read -r line; do
+      [ -n "$line" ] && [ "${line#*$'\034'}" = "$home" ] || continue
+      names="${names:+$names, }${line%%$'\034'*}"
+    done <<EOF
+$FM_PROJECT_OWNERS_FOREIGN
+EOF
+    printf '%s: %s\n' "$home" "$names"
+  done <<EOF
+$FM_PROJECT_OWNERS_FOREIGN
+EOF
+}
+
 print_backlog_backend_compact() {
   local path=$1 backend=tasks-axi in_flight_fields=$BACKLOG_FIELDS in_flight held blocked ready drafts err
   [ -n "$path" ] || backend=Backlog.md
@@ -431,9 +475,9 @@ print_backlog_backend_compact() {
         printf '(higher project tier first, per %s)\n' "$FM_PROJECT_TIERS_FILE"
         ready=$(printf '%s\n' "$ready" | fm_project_tiers_order_ready)
       fi
-      print_ready_queued_bounded "$ready"
+      print_ready_queued_bounded "$(printf '%s\n' "$ready" | ready_owned_by_this_home)"
     else
-      print_ready_queued_bounded "$(printf '%s\n' "$ready" | sed '/^drafts\[/,$d')"
+      print_ready_queued_bounded "$(printf '%s\n' "$ready" | sed '/^drafts\[/,$d' | ready_owned_by_this_home)"
       drafts=$(printf '%s\n' "$ready" | strip_axi_help | sed -n '/^drafts\[/,$p')
       if [ -n "$drafts" ]; then
         printf '\ndrafts (not dispatchable):\n'
@@ -895,6 +939,7 @@ if [ "$READ_ONLY" -eq 0 ] && [ -f "$DATA/remote-homes.md" ] && [ ! -L "$DATA/rem
     fi
   done < "$DATA/remote-homes.md"
 fi
+print_other_homes
 print_backlog_compact "$DATA/backlog.md" "data/backlog.md"
 
 subsection "Work under way (state/*.meta; one line per task with its latest status line, an event rather than current state)"

@@ -15,6 +15,8 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 . "$SCRIPT_DIR/fm-hold-reason-lib.sh"
 # shellcheck source=bin/fm-project-tiers-lib.sh disable=SC1091
 . "$SCRIPT_DIR/fm-project-tiers-lib.sh"
+# shellcheck source=bin/fm-project-owner-lib.sh disable=SC1091
+. "$SCRIPT_DIR/fm-project-owner-lib.sh"
 
 usage() {
   cat <<'EOF'
@@ -92,6 +94,63 @@ for arg in "$@"; do
   esac
 done
 
+# Every project an add names: its --repo and --prefix values, and the project
+# part of an explicit <project>-<number> ID.
+add_projects() {  # <add args...>
+  local arg value_next=0 positional_seen=0 mint=0
+  for arg in "$@"; do
+    [ "$arg" = --mint ] && mint=1
+  done
+  for arg in "$@"; do
+    if [ "$value_next" != 0 ]; then
+      [ "$value_next" = project ] && printf '%s\n' "$arg"
+      value_next=0
+      continue
+    fi
+    case "$arg" in
+      --repo=* | --prefix=*) printf '%s\n' "${arg#*=}" ;;
+      --repo | --prefix) value_next=project ;;
+      --mint | --queue | --json | -h | --help) ;;
+      --*=*) ;;
+      --*) value_next=skip ;;
+      *)
+        if [ "$mint" = 0 ] && [ "$positional_seen" = 0 ]; then
+          case "$arg" in
+            *-[0-9]*) printf '%s\n' "${arg%-*}" ;;
+          esac
+        fi
+        positional_seen=1
+        ;;
+    esac
+  done
+}
+
+if [[ ${1:-} = add || ${1:-} = create ]]; then
+  while IFS= read -r add_project; do
+    [ -n "$add_project" ] && [ "$add_project" != - ] || continue
+    fm_project_owner_check "backlog add" "$add_project" "$FM_HOME" || exit 2
+  done <<EOF
+$(add_projects ${ARGS[@]+"${ARGS[@]:1}"})
+EOF
+fi
+
+ready_owned_filter() {
+  if [ "$OWNERS_FILTER" = 1 ]; then
+    fm_project_owners_filter_ready
+  else
+    cat
+  fi
+}
+
+OWNERS_FILTER=0
+if [ "${1:-}" = ready ]; then
+  if ! fm_project_owners_read; then
+    fail "fix or remove $FM_PROJECT_OWNERS_FILE to list ready work ($FM_PROJECT_OWNERS_ERROR)"
+  fi
+  fm_project_owners_foreign "$FM_HOME"
+  [ -z "$FM_PROJECT_OWNERS_FOREIGN" ] || OWNERS_FILTER=1
+fi
+
 FM_PROJECT_TIERS=
 if [ "$(fm_backlog_backend_value "$CONFIG")" = backlog-md ]; then
   command -v python3 >/dev/null 2>&1 || fail "Backlog.md requires python3 for its write lock"
@@ -134,15 +193,17 @@ case "${1:-}" in
     exit $?
     ;;
   ready)
+    set -o pipefail
     if [ "${BACKLOG[0]}" = tasks-axi ]; then
       if [ -n "$FM_PROJECT_TIERS" ]; then
-        set -o pipefail
-        fm_tasks_axi_ready_with_priority "${ARGS[@]:1}" | fm_project_tiers_order_ready
+        fm_tasks_axi_ready_with_priority "${ARGS[@]:1}" | fm_project_tiers_order_ready | ready_owned_filter
       else
-        fm_tasks_axi_ready_with_priority "${ARGS[@]:1}"
+        fm_tasks_axi_ready_with_priority "${ARGS[@]:1}" | ready_owned_filter
       fi
       exit $?
     fi
+    "${BACKLOG[@]}" ${ARGS[@]+"${ARGS[@]}"} | ready_owned_filter
+    exit $?
     ;;
 esac
 exec "${BACKLOG[@]}" ${ARGS[@]+"${ARGS[@]}"}
