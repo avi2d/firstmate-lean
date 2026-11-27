@@ -191,6 +191,7 @@ IFS= read -r -d '' CREWMATE_PAUSE_INSTRUCTIONS <<EOF || true
    Before ending your turn with your own background shell or monitor still running, or before waiting on your own pipeline run or a long foreground command, append \`$PAUSED_VERB [at=<epoch>]: {job and completion condition} | owner=<who> | recheck=<YYYY-MM-DDTHH:MMZ>\` to the status file.
    Name what you are waiting for and what will let you resume; do not repeat the declaration on every poll.
    End every \`$PAUSED_VERB\` or \`blocked\` line with \` | owner=<who> | recheck=<YYYY-MM-DDTHH:MMZ>\`: owner names who or what clears the wait (you, firstmate, the captain, a CI run, an outside service), and recheck is a full UTC time within 20 minutes, after which a wait still standing is overdue.
+A bare recheck date is read as the end of that UTC day, so use the full UTC form to name the intended time.
    Firstmate flags a wait missing either field, and raises one still standing once its recheck has passed.
    When the owner is no-mistakes, the pipeline or you, Firstmate raises the wait $AGENT_RECHECK_TEXT after it first sees the line, whatever recheck you wrote, checks no-mistakes for your branch, and sends you what it found; append a fresh \`$PAUSED_VERB\` line if the wait still stands.
    Do not declare active implementation or reasoning as a wait.

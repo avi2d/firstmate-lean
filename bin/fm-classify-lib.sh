@@ -1352,7 +1352,10 @@ EOF
 
 wait_recheck_due_epoch() {  # <recheck> -> epoch the wait falls due; nonzero when unreadable
   case "$1" in
-    [0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9]) printf '0' ;;
+    [0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9])
+      local midnight
+      midnight=$(fm_utc_iso_to_epoch "${1}T00:00Z") || return 1
+      printf '%s' "$(( midnight + 86400 ))" ;;
     *) fm_utc_iso_to_epoch "$1" ;;
   esac
 }
