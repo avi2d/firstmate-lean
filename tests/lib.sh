@@ -26,6 +26,9 @@ if [ -n "${FM_TEST_LIB_SOURCED:-}" ]; then
 fi
 FM_TEST_LIB_SOURCED=1
 
+# The machine's real ownership record would refuse fixture projects it names.
+export FM_PROJECT_OWNERS_FILE=/dev/null/fm-test-no-project-owners
+
 # Pin the fixture umask. Firstmate's state-root and process-event contracts
 # refuse group- or world-writable state directories, and a permissive ambient
 # umask (e.g. 0002) makes every `mkdir state` fixture fail that contract before

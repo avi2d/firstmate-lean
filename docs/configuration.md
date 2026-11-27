@@ -13,6 +13,7 @@ Start with the directory layout, then use the setting reference for the behavior
 | Backlog, preferences, and memory | [Backlog backend](#backlog-backend-taskstoml--configbacklog-backend), [external memory tiers](#external-memory-tiers-memory-layering-section), [record export](#record-export-configrecord-export-root), and [startup memory budget](#startup-memory-budget-configstartup-memory-budget) |
 | Supervision and presentation | [Pi supervision branch](#pi-supervision-branch), [Calm preference](#calm-preference-configcalm), and [Pi tool-time cap](#pi-tool-time-cap) |
 | Merging green yolo pull requests without a turn | [Merge on green](#merge-on-green) |
+| Which home on this machine owns each project | [Project ownership](#project-ownership) |
 | Per-run overrides and tuning | [Environment variables](#environment-variables) |
 
 ## FM_HOME
@@ -1464,6 +1465,41 @@ Any other line shape, a tier outside `P0` to `P3`, a project named twice, or an 
 `bin/fm-tasks-axi.sh ready` then refuses and names the line, while the digest prints the error under its ready heading and keeps the backlog's order.
 A tier orders dispatch only, and dependencies, holds, time gates, and [project capacity](#project-capacity-configproject-capacity) still decide whether an item can be dispatched.
 [`bin/fm-project-tiers-lib.sh`](../bin/fm-project-tiers-lib.sh) owns the parse and the order.
+
+## Project ownership
+
+When one machine runs more than one Firstmate home, the ownership record says which home owns each project.
+The record lives outside every home, so all homes on the machine read the same file:
+`$XDG_CONFIG_HOME/firstmate/project-owners`, which is `~/.config/firstmate/project-owners` when `XDG_CONFIG_HOME` is unset.
+`FM_PROJECT_OWNERS_FILE` names a different file, for tests and lab homes.
+
+```text
+# which home owns each project
+website /home/me/firstmate
+orc /home/me/Projects/firstmate-second
+```
+
+Each line is a project name, then the absolute path of the home that owns it.
+The project name is the clone's directory name under `projects/`, and may contain spaces but no `/`.
+Blank lines and lines beginning with `#` are ignored.
+Homes are compared by physical path, so a symlinked spelling of a home is the same home.
+
+Without the file, every home behaves as if it owned every project.
+A project the record does not name also stays open to every home.
+For a project another home owns, this home refuses three things and names the owning home and the handoff command:
+
+- `bin/fm-spawn.sh` refuses a fresh spawn, before it writes any record.
+- `bin/fm-tasks-axi.sh add` refuses an item whose `--repo`, `--prefix`, or `<project>-<number>` ID names the project.
+- `bin/fm-tasks-axi.sh ready` moves the project's items out of the ready table into a `refused_other_home` table, so the queue drain, the ready-capacity heartbeat, and the session-start digest never dispatch them here.
+
+A malformed line, a project named twice, or an unreadable file refuses every spawn, backlog add, and ready listing until it is fixed, rather than guessing which home owns a project.
+The session-start digest lists the other homes and the projects each owns, and reports an unreadable record.
+
+To hand work to the owning home, run `bin/fm-handoff.sh <project> "<title>" --body-file <file>`.
+It saves the proposal as a note in the owning home's inbox with `bin/fm-inbox.sh`, and never writes that home's backlog.
+The owning home files the proposal into its own backlog when it handles the note.
+A retry of the same proposal replays the note already saved instead of saving a second one.
+[`bin/fm-project-owner-lib.sh`](../bin/fm-project-owner-lib.sh) owns the record's parse and the refusals.
 
 ## Crew dispatch profiles (config/crew-dispatch.json)
 

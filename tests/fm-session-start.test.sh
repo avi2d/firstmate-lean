@@ -1776,6 +1776,40 @@ EOF
   pass "the startup ready listing puts higher project tiers first before its bound and reports a malformed tier file"
 }
 
+test_digest_names_other_homes_and_keeps_their_projects_out_of_ready() {
+  local rec root home fakebin out rows other
+  rec=$(new_world other-homes)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_tasks_axi_compact "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  write_long_body_backlog "$home/data/backlog.md"
+  other="${home%/home}/other-home"
+  mkdir -p "$other"
+  rows=$(printf '%s\n' 'site-1,queued,ship,shared-site,Theirs' 'tool-1,queued,ship,own-tool,Mine' \
+    'docs-1,queued,ship,docs,Also theirs')
+  printf 'shared-site %s\ndocs %s\nown-tool %s\n' "$other" "$other" "$home" > "${home%/home}/owners"
+
+  out=$(FM_PROJECT_OWNERS_FILE="${home%/home}/owners" FM_FAKE_TASKS_AXI_READY_ROWS=$rows \
+    run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_contains "$out" "$other: shared-site, docs" "the digest did not list the other home and the projects it owns"
+  assert_not_contains "$out" "$home: own-tool" "the digest listed this home as another home"
+  assert_equals "tool-1" "$(printf '%s\n' "$out" | ready_ids)" "the digest offered another home's project as ready work"
+
+  out=$(FM_PROJECT_OWNERS_FILE="${home%/home}/absent" FM_FAKE_TASKS_AXI_READY_ROWS=$rows \
+    run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_not_contains "$out" "Other Firstmate homes" "with no ownership record the digest still printed an other-homes block"
+  assert_equals "site-1 tool-1 docs-1" "$(printf '%s\n' "$out" | ready_ids)" "with no ownership record the digest dropped ready work"
+
+  printf 'shared-site\n' > "${home%/home}/owners"
+  out=$(FM_PROJECT_OWNERS_FILE="${home%/home}/owners" FM_FAKE_TASKS_AXI_READY_ROWS=$rows \
+    run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_contains "$out" "ownership record unreadable:" "the digest did not report a malformed ownership record"
+  pass "the digest lists other homes with their projects and leaves their projects out of ready work"
+}
+
 test_backlog_compact_manual_backend_skips_indented_bodies() {
   local rec root home fakebin out
   rec=$(new_world backlog-compact-manual)
@@ -2783,6 +2817,7 @@ test_backlog_compact_tasks_axi_omits_bodies_and_keeps_metadata
 test_backlog_queued_bound_discloses_its_remainder
 test_backlog_blocked_bound_discloses_its_remainder_and_never_bounds_held
 test_backlog_ready_queued_orders_by_project_tier
+test_digest_names_other_homes_and_keeps_their_projects_out_of_ready
 test_backlog_compact_manual_backend_skips_indented_bodies
 test_backlog_compact_tasks_axi_unavailable_uses_manual_fallback
 test_fleet_digest_empty_fleet

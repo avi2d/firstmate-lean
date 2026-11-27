@@ -135,3 +135,5 @@ The shared no-mistakes gate lifecycle boundary is summarized in [architecture.md
 | `fm-harness.sh`          | Detect the running harness, resolve crew or secondmate harness, model, and effort, and validate the native-only `ultra` effort |
 | `fm-lock.sh`             | Per-home firstmate session lock                                                      |
 | `fm-inbox.sh`            | The user's out-of-band capture surface: queue a note (optionally idempotent by request id), announce or repair its wake, record a durable primary reply, and emit bounded receipts and primary-readiness JSON |
+| `fm-handoff.sh`          | Hand a task proposal for a project another home owns to that home's inbox, never to its backlog |
+| `fm-project-owner-lib.sh` | Read the machine-wide project ownership record and refuse spawn, backlog add, and ready dispatch of a project another home owns |
