@@ -829,8 +829,8 @@ doctor --fix --session lab-x
 expect_code 0 "$DOCTOR_RC" "--fix --session lab-x did not leave that session's server running"
 assert_contains "$DOCTOR_OUT" 'fix herdr-server=applied: started the herdr server for session lab-x' \
   "--fix did not start the session it was given"
-assert_grep '^lab-x$' "$CASE_STATE/herdr-sessions" "no herdr call addressed session lab-x"
-assert_no_grep '^fm-remote$' "$CASE_STATE/herdr-sessions" \
+grep -qx lab-x "$CASE_STATE/herdr-sessions" || fail "no herdr call addressed session lab-x"
+assert_no_regex '^fm-remote$' "$CASE_STATE/herdr-sessions" \
   "a doctor given --session lab-x still drove the default fm-remote session"
 pass "--session points every herdr check and repair at that session, not the default one"
 
