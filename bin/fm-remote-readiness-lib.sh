@@ -1,22 +1,6 @@
 #!/usr/bin/env bash
-# fm-remote-readiness-lib.sh - the execution-home readiness checks.
-#
-# Source this file and call:
-#   fm_remote_readiness_ensure <bin-dir> <route> [backend]
-#
-# It runs bin/fm-remote-doctor.sh on that route's configured host, and when the
-# read-only run reports any gap it runs the doctor again with --fix and then a
-# third read-only time. That last read-only run is the verdict, so a repair is
-# never trusted on its own word. bin/fm-remote-doctor.sh remains the single
-# owner of every check, every repair, and every message; nothing here restates
-# them.
-#
-#
-# Returns 0 when the host is ready, 1 when a gap remains, and 255 when SSH could
-# not complete. 255 means unknown remote completion, so a caller preserves its
-# route and reconciles on the same host instead of treating it as a refusal.
-# FM_REMOTE_READINESS_OUT always holds the output of the last run, which carries
-# the check lines, the remaining human: gaps, and their exact operator actions.
+# fm_remote_readiness_ensure <bin-dir> <route> [backend] [herdr-session]: 0 ready, 1 a gap remains, 255 SSH did not complete.
+# The verdict is a read-only doctor run after any repair, and FM_REMOTE_READINESS_OUT holds its output.
 
 # Consumed by the sourcing caller, so every assignment reads as unused here.
 # shellcheck disable=SC2034
@@ -31,38 +15,39 @@ fm_remote_readiness_probe() { # <bin-dir> <route> [doctor-args...]
   return "$rc"
 }
 
-fm_remote_readiness_ensure() { # <bin-dir> <route> [backend]
-  local bin_dir=$1 id=$2 backend=${3:-any} rc
-  local -a doctor_args=()
+fm_remote_readiness_ensure() { # <bin-dir> <route> [backend] [herdr-session]
+  local bin_dir=$1 id=$2 backend=${3:-any} session=${4:-} rc
+  local -a doctor_args=() session_args=()
   case "$backend" in
     any) ;;
     herdr) doctor_args=(--backend herdr) ;;
     *) echo "error: unsupported remote backend '$backend'" >&2; return 1 ;;
   esac
+  [ -z "$session" ] || session_args=(--session "$session")
 
-  fm_remote_readiness_probe "$bin_dir" "$id" ${doctor_args[@]+"${doctor_args[@]}"}
+  fm_remote_readiness_probe "$bin_dir" "$id" ${doctor_args[@]+"${doctor_args[@]}"} ${session_args[@]+"${session_args[@]}"}
   rc=$?
   if [ "$rc" -eq 2 ] && [ "$backend" = herdr ]; then
-    # A remote still on the herdr-only doctor refuses the flag entirely; bare
-    # is the same request there.
-    fm_remote_readiness_probe "$bin_dir" "$id"
+    # A remote still on the herdr-only doctor refuses --backend entirely, and
+    # the request without it is the same there.
+    fm_remote_readiness_probe "$bin_dir" "$id" ${session_args[@]+"${session_args[@]}"}
     rc=$?
   fi
   [ "$rc" -ne 0 ] || return 0
   [ "$rc" -ne 255 ] || return 255
 
-  fm_remote_readiness_probe "$bin_dir" "$id" --fix ${doctor_args[@]+"${doctor_args[@]}"}
+  fm_remote_readiness_probe "$bin_dir" "$id" --fix ${doctor_args[@]+"${doctor_args[@]}"} ${session_args[@]+"${session_args[@]}"}
   rc=$?
   if [ "$rc" -eq 2 ] && [ "$backend" = herdr ]; then
-    fm_remote_readiness_probe "$bin_dir" "$id" --fix
+    fm_remote_readiness_probe "$bin_dir" "$id" --fix ${session_args[@]+"${session_args[@]}"}
     rc=$?
   fi
   [ "$rc" -ne 255 ] || return 255
 
-  fm_remote_readiness_probe "$bin_dir" "$id" ${doctor_args[@]+"${doctor_args[@]}"}
+  fm_remote_readiness_probe "$bin_dir" "$id" ${doctor_args[@]+"${doctor_args[@]}"} ${session_args[@]+"${session_args[@]}"}
   rc=$?
   if [ "$rc" -eq 2 ] && [ "$backend" = herdr ]; then
-    fm_remote_readiness_probe "$bin_dir" "$id"
+    fm_remote_readiness_probe "$bin_dir" "$id" ${session_args[@]+"${session_args[@]}"}
     rc=$?
   fi
   [ "$rc" -ne 255 ] || return 255

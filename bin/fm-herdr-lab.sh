@@ -399,7 +399,7 @@ fm_herdr_lab_provision() { # <session>
   else
     fm_herdr_lab_prepare "$name" || return 1
   fi
-  # Same detach as fm_backend_herdr_cli's server branch.
+  # Same detach as fm_backend_herdr_server_exec.
   HERDR_SESSION="$name" perl -MPOSIX=setsid -e 'setsid() >= 0 or exit 1; exec @ARGV' \
     herdr server --session "$name" >/dev/null 2>&1 &
   server_pid=$!

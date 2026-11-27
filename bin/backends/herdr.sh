@@ -361,6 +361,20 @@ fm_backend_herdr_workspace_label() {
   printf 'firstmate'
 }
 
+# Replaces the calling shell with the session's server, so call it only in a
+# child of your own.
+fm_backend_herdr_server_exec() {  # <session> [server-args...]
+  local session=$1 client_bin=herdr
+  shift
+  if [ "${FM_BACKEND_HERDR_CLIENT_SESSION:-}" = "$session" ]; then
+    client_bin=$(fm_backend_herdr_bin)
+  fi
+  export HERDR_SESSION="$session"
+  # macOS has no setsid(1); perl POSIX detaches on both.
+  exec perl -MPOSIX=setsid -e 'setsid() >= 0 or exit 1; exec @ARGV' \
+    "$client_bin" server "$@" --session "$session"
+}
+
 # fm_backend_herdr_cli: run `herdr <args...>` scoped to <session>, setting
 # BOTH the HERDR_SESSION env var AND appending a trailing `--session <name>`
 # CLI flag. Verified empirically (docs/herdr-backend.md "Session targeting: the
@@ -388,9 +402,8 @@ fm_backend_herdr_cli() {  # <session> <herdr-subcommand-and-args...>
   # The long-lived `server` launch is exec'd straight through: buffering its
   # stderr would hold this call open for the server's whole lifetime.
   if [ "${1:-}" = server ]; then
-    # macOS has no setsid(1); perl POSIX detaches on both.
-    HERDR_SESSION="$session" perl -MPOSIX=setsid -e 'setsid() >= 0 or exit 1; exec @ARGV' \
-      "$client_bin" "$@" --session "$session"
+    shift
+    (fm_backend_herdr_server_exec "$session" "$@")
     return $?
   fi
   failed_bin=$client_bin
@@ -1810,7 +1823,9 @@ fm_backend_herdr_server_ensure() {  # <session>
   (
     unset FM_HOME FM_ROOT_OVERRIDE FM_STATE_OVERRIDE FM_DATA_OVERRIDE FM_PROJECTS_OVERRIDE FM_CONFIG_OVERRIDE \
       CURSOR_AGENT CURSOR_INVOKED_AS CLAUDECODE PI_CODING_AGENT FM_PI_HARNESS GROK_AGENT FM_SUPERVISION_MODEL
-    fm_backend_herdr_cli "$session" server </dev/null >/dev/null 2>&1 &
+    # The background child must exec into the server: a forked shell holds bash's
+    # saved copies of a redirected caller's stdout and stderr, and only exec closes them.
+    fm_backend_herdr_server_exec "$session" </dev/null >/dev/null 2>&1 &
   ) || return 1
   for i in $(seq 1 20); do
     running=$(fm_backend_herdr_cli "$session" status --json 2>/dev/null | jq -r '.server.running // false' 2>/dev/null)

@@ -17,6 +17,9 @@ This home keeps the backlog, the task records, the status stream, and every deci
    The entrypoint accepts encoded arguments for tracked Firstmate commands, not shell command strings.
    The host needs Herdr, the selected worker tool, and access to the project origins.
 3. Seed the route with `bin/fm-remote-home-seed.sh --exec`.
+   The seed checks the host for the Herdr session that `--session` names, `fm-remote` when it is left out.
+   Run the seed from the home that keeps the route, with `FM_HOME` unset or naming that home.
+   When the seed runs from a home's own checkout and `FM_HOME` names a different home's checkout, it refuses before it writes or dials anything.
    [Execution home routes](configuration.md#execution-home-routes) describes the record and its markers.
 4. Annotate each placed project with `host=<route>` in `data/projects.md`.
    `fm-project-mode.sh --placement <project>` reads that annotation.
@@ -32,6 +35,7 @@ Linux runs a detached supervisor per root, and macOS loads a separate Aqua Launc
 A different route that uses the same code root uses the same runner.
 
 Run `bin/fm-on.sh <route> fm-remote-doctor.sh --fix` to check the runner and install the root's `~/.local/bin/fm-remote-entrypoint-<key>.sh` link.
+Add `--session NAME` when the route's Herdr session is not `fm-remote`.
 The key is the SHA-256 digest of the canonical code root.
 Doctor does not replace an existing entrypoint link or modify the shared `~/.local/bin/fm-remote-entrypoint.sh` link that older callers use.
 

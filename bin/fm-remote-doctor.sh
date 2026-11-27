@@ -21,19 +21,14 @@ FM_ROOT="${FM_ROOT_OVERRIDE:-$(CDPATH='' cd "$SCRIPT_DIR/.." && pwd -P)}"
 REQUIRED_TOOLS=()
 HARNESS_TOOLS=(pi pi-signed)
 OPTIONAL_TOOLS=(no-mistakes gh)
-LAUNCH_AGENT_LABEL=dev.firstmate.herdr.fm-remote
 # The dedicated remote-secondmate session. The user's interactive Herdr work
 # remains in the separate default session, which this readiness check never
 # requires or changes.
 HERDR_SESSION_NAME=fm-remote
-LAUNCH_AGENT_DIR="${HOME:-}/Library/LaunchAgents"
-LAUNCH_AGENT_PLIST="$LAUNCH_AGENT_DIR/$LAUNCH_AGENT_LABEL.plist"
-LAUNCH_AGENT_LOG_DIR="${HOME:-}/Library/Logs"
-LAUNCH_AGENT_LOG="$LAUNCH_AGENT_LOG_DIR/$LAUNCH_AGENT_LABEL.log"
 ENTRYPOINT_LINK=
 
 usage() {
-  printf '%s\n' 'Usage: bin/fm-on.sh <home-id|ssh-alias> fm-remote-doctor.sh [--fix] [--backend herdr|any]'
+  printf '%s\n' 'Usage: bin/fm-on.sh <home-id|ssh-alias> fm-remote-doctor.sh [--fix] [--backend herdr|any] [--session NAME]'
   exit 2
 }
 
@@ -49,6 +44,11 @@ while [ "$#" -gt 0 ]; do
     --backend=*)
       case "${1#--backend=}" in herdr | any) DOCTOR_BACKEND=${1#--backend=} ;; *) usage ;; esac
       ;;
+    --session)
+      shift
+      case "${1:-}" in '' | *[!A-Za-z0-9._-]*) usage ;; esac
+      HERDR_SESSION_NAME=$1
+      ;;
     --worker-tool-probe)
       [ "${FM_REMOTE_JOB_ACTIVE:-}" = 1 ] || { printf 'error: worker tool probe requires the remote job worker\n' >&2; exit 64; }
       MODE='worker-tool-probe'
@@ -57,6 +57,12 @@ while [ "$#" -gt 0 ]; do
   esac
   shift
 done
+
+LAUNCH_AGENT_LABEL=dev.firstmate.herdr.$HERDR_SESSION_NAME
+LAUNCH_AGENT_DIR="${HOME:-}/Library/LaunchAgents"
+LAUNCH_AGENT_PLIST="$LAUNCH_AGENT_DIR/$LAUNCH_AGENT_LABEL.plist"
+LAUNCH_AGENT_LOG_DIR="${HOME:-}/Library/Logs"
+LAUNCH_AGENT_LOG="$LAUNCH_AGENT_LOG_DIR/$LAUNCH_AGENT_LABEL.log"
 
 if [ "$DOCTOR_BACKEND" = any ]; then
   if command -v herdr >/dev/null 2>&1; then
