@@ -14,6 +14,9 @@
 #   fm-procevent-lavish.sh poll <artifact.html> [--agent-reply-file <path>]
 #   fm-procevent-lavish.sh deliver-reply poll <artifact.html> --agent-reply-file <path>
 #
+# arm        Register the opened board's listener and print its board-url: the
+#            board's saved session URL, carried on the execution home's
+#            config/lavish-axi-supervisor-address when one is configured.
 # classify   Print the lifecycle state a handler should act on: feedback, ended,
 #            waiting, disconnected, missing, or unknown.
 # read       Print a structured presentation of one already-captured result so a
@@ -159,6 +162,8 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-procevent-lib.sh
 . "$SCRIPT_DIR/fm-procevent-lib.sh"
+# shellcheck source=bin/fm-lavish-address-lib.sh
+. "$SCRIPT_DIR/fm-lavish-address-lib.sh"
 
 die() { printf 'error: %s\n' "$1" >&2; exit 1; }
 usage() { sed -n '2,/^set -u$/p' "${BASH_SOURCE[0]}" | sed '$d; s/^# \{0,1\}//'; exit 2; }
@@ -188,7 +193,7 @@ lavish_session_endpoint() {  # <state-json> <artifact>
     $host =~ s/^\[|\]$//g;
     $host ne "0.0.0.0" && $host ne "::" && $port >= 1 && $port <= 65535
       or die "invalid saved Lavish server address\n";
-    print "$host\n$port\n";
+    print "$host\n$port\n$url\n";
   ' "$1" "$2"
 }
 
@@ -196,8 +201,7 @@ apply_session_host() {  # <artifact>
   local endpoint
   endpoint=$(lavish_session_endpoint "${LAVISH_AXI_STATE_DIR:-$HOME/.lavish-axi}/state.json" "$1") \
     || die "cannot resolve the board server from its Lavish session: $1"
-  LAVISH_AXI_HOST=${endpoint%$'\n'*}
-  LAVISH_AXI_PORT=${endpoint##*$'\n'}
+  { IFS= read -r LAVISH_AXI_HOST; IFS= read -r LAVISH_AXI_PORT; } <<< "$endpoint"
   export LAVISH_AXI_HOST LAVISH_AXI_PORT
 }
 
@@ -284,8 +288,14 @@ cmd_source_id() {
   fi
 }
 
+print_board_url() {  # <session-url>
+  printf 'board-url: %s\n' "$(fm_lavish_supervisor_url "$1")"
+  [ "$FM_LAVISH_SUPERVISOR_SCOPE" != unconfigured ] \
+    || printf 'note: this board URL is on the execution host'"'"'s own Lavish server, which the supervisor'"'"'s machine may not reach; this execution home has no config/lavish-axi-supervisor-address\n'
+}
+
 cmd_arm() {
-  local artifact='' task='' reply_file='' id real owner listening state_dir
+  local artifact='' task='' reply_file='' id real owner listening state_dir endpoint session_url
   local -a listener=()
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -315,8 +325,10 @@ cmd_arm() {
   real=$(perl -MCwd=realpath -e '$p = realpath($ARGV[0]); defined($p) or exit 1; print "$p\n"' "$artifact" 2>/dev/null) \
     || die "cannot resolve the artifact path: $artifact"
   state_dir=$(board_state_dir "$id") || exit 1
-  lavish_session_endpoint "$state_dir/state.json" "$real" >/dev/null 2>&1 \
+  endpoint=$(lavish_session_endpoint "$state_dir/state.json" "$real" 2>/dev/null) \
     || die "no open Lavish session for $real; open the board with \`lavish-axi $real\` before arming"
+  session_url=$(sed -n 3p <<< "$endpoint")
+  fm_lavish_supervisor_address_load "$FM_HOME" "${FM_CONFIG_OVERRIDE:-$FM_HOME/config}" || exit 1
   listener=("$SCRIPT_DIR/fm-procevent-lavish.sh" poll "$real" --state-dir "$state_dir")
   [ -z "$reply_file" ] || listener+=(--agent-reply-file "$reply_file")
   if [ -n "$task" ]; then
@@ -338,6 +350,7 @@ cmd_arm() {
     printf 'still-listening: %s\n' "$id"
     printf 'artifact: %s\n' "$real"
     [ -z "$task" ] || printf 'owner-task: %s\n' "$task"
+    print_board_url "$session_url"
     printf 'note: an earlier listener is still live and serving this board; this registration takes effect only after the source is retired and armed again\n'
     exit 0
   fi
@@ -353,6 +366,7 @@ cmd_arm() {
   printf 'armed: %s\n' "$id"
   printf 'artifact: %s\n' "$real"
   [ -z "$task" ] || printf 'owner-task: %s\n' "$task"
+  print_board_url "$session_url"
 }
 
 cmd_deliver_reply() {

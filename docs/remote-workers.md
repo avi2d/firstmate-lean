@@ -20,6 +20,10 @@ This home keeps the backlog, the task records, the status stream, and every deci
    [Execution home routes](configuration.md#execution-home-routes) describes the record and its markers.
 4. Annotate each placed project with `host=<route>` in `data/projects.md`.
    `fm-project-mode.sh --placement <project>` reads that annotation.
+5. If workers on the host will open Lavish boards, make the host's Lavish server reachable from this machine, for example through a forwarded port.
+   Record that address with `--lavish-address HOST:PORT` on the seed.
+   Without it, a board URL a remote worker hands back names the host's own Lavish address, which this machine may not open.
+   [Supervisor Lavish address](configuration.md#supervisor-lavish-address-configlavish-axi-supervisor-address) describes the file and what it changes.
 
 ## Share an execution account
 

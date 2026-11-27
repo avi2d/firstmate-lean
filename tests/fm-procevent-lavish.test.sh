@@ -26,7 +26,7 @@ lavish_session() {
     };
     open my $out, ">", $path or die $!;
     print $out encode_json($state);
-  ' "$LAVISH_AXI_STATE_DIR/state.json" "$1" "http://127.0.0.1:14387/session/0123456789abcdef"
+  ' "$LAVISH_AXI_STATE_DIR/state.json" "$1" "${2:-http://127.0.0.1:14387/session/0123456789abcdef}"
 }
 
 LAVISH_BIN=$(fm_fakebin "$TMP_ROOT/lavish-stub")
@@ -93,10 +93,62 @@ set -e
 assert_contains "$(cat "$TMP_ROOT/opened-arm.out")" "armed: $UNOPENED_ID" \
   "arm did not report the attached board as armed"
 pass "a board opened after a refused arm attaches on the next arm"
+assert_contains "$(cat "$TMP_ROOT/opened-arm.out")" "board-url: http://127.0.0.1:14387/session/0123456789abcdef" \
+  "arm in an ordinary home did not print the board's own session URL"
+assert_not_contains "$(cat "$TMP_ROOT/opened-arm.out")" "note: this board URL" \
+  "arm in an ordinary home warned about an execution host"
+pass "arm in an ordinary home prints the saved session URL unchanged, not a rewritten one"
+
+arm_exec_board() {  # <name> <supervisor-address-or-empty>
+  local home="$TMP_ROOT/exec-$1" art="$TMP_ROOT/exec-$1.html"
+  new_home "$home"
+  : > "$home/.fm-exec-home"
+  if [ -n "$2" ]; then
+    mkdir -p "$home/config"
+    printf '%s\n' "$2" > "$home/config/lavish-axi-supervisor-address"
+  fi
+  printf '<h1>%s</h1>\n' "$1" > "$art"
+  lavish_session "$art" "http://127.0.0.1:4387/session/fedcba9876543210?token=t1"
+  PATH="$LAVISH_BIN:$PATH" FM_HOME="$home" \
+    "$ROOT/bin/fm-procevent-lavish.sh" arm "$art" \
+    > "$TMP_ROOT/exec-$1.out" 2> "$TMP_ROOT/exec-$1.err"
+}
+
+EXEC_SUPERVISOR_ADDRESS=127.0.0.1:24387
+arm_exec_board configured "$EXEC_SUPERVISOR_ADDRESS" \
+  || fail "arm in a configured execution home failed: $(cat "$TMP_ROOT/exec-configured.err")"
+assert_contains "$(cat "$TMP_ROOT/exec-configured.out")" \
+  "board-url: http://$EXEC_SUPERVISOR_ADDRESS/session/fedcba9876543210?token=t1" \
+  "arm in an execution home did not carry the board URL on the configured supervisor address"
+assert_not_contains "$(cat "$TMP_ROOT/exec-configured.out")" "127.0.0.1:4387" \
+  "arm in an execution home printed the host's own Lavish address"
+pass "arm in a configured execution home prints the supervisor address, not the host's own 4387"
+
+arm_exec_board unconfigured "" \
+  || fail "arm in an unconfigured execution home failed: $(cat "$TMP_ROOT/exec-unconfigured.err")"
+assert_contains "$(cat "$TMP_ROOT/exec-unconfigured.out")" \
+  "board-url: http://127.0.0.1:4387/session/fedcba9876543210?token=t1" \
+  "arm in an unconfigured execution home did not keep the saved session URL"
+assert_contains "$(cat "$TMP_ROOT/exec-unconfigured.out")" "note: this board URL is on the execution host's own Lavish server" \
+  "arm in an unconfigured execution home handed out the host's address without saying so"
+pass "arm in an unconfigured execution home keeps the host URL and warns, not silently"
+
+if arm_exec_board malformed "127.0.0.1:4387 extra"; then
+  fail "arm accepted a malformed config/lavish-axi-supervisor-address"
+fi
+assert_contains "$(cat "$TMP_ROOT/exec-malformed.err")" "config/lavish-axi-supervisor-address" \
+  "arm refused a malformed supervisor address without naming the file"
+assert_not_contains "$(cat "$TMP_ROOT/exec-malformed.out")" "armed:" \
+  "arm registered a board before rejecting a malformed supervisor address"
+pass "arm refuses a malformed supervisor address before registering, not with a bad URL"
 
 touch "$LAVISH_RELEASE"
 PATH="$LAVISH_BIN:$PATH" FM_HOME="$UNOPENED_HOME" \
   "$ROOT/bin/fm-procevent-lavish.sh" retire "$UNOPENED_ART" >/dev/null 2>&1 || true
+for exec_name in configured unconfigured; do
+  PATH="$LAVISH_BIN:$PATH" FM_HOME="$TMP_ROOT/exec-$exec_name" \
+    "$ROOT/bin/fm-procevent-lavish.sh" retire "$TMP_ROOT/exec-$exec_name.html" >/dev/null 2>&1 || true
+done
 
 SD_ROOT="$TMP_ROOT/state-dir"
 SD_HOME="$SD_ROOT/home"

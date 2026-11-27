@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Usage: fm-remote-home-seed.sh --exec [--summary TEXT] [--scope TEXT] [--session NAME]
+#   [--lavish-address HOST:PORT]
 #   <route> <ssh-alias> <remote-root> <remote-home> {<project>[=<origin-url>]...|--no-projects}
+# --lavish-address writes the execution home's config/lavish-axi-supervisor-address:
+# where this machine reaches the host's Lavish server. Without it the file is left as it is.
 # Seeding writes nothing under projects/ and needs no fleet sync first.
 #
 # Known provisioning failure rolls the registry back. SSH status 255 preserves
@@ -24,9 +27,11 @@ MAX_MANIFEST_BYTES=1048576
 . "$SCRIPT_DIR/fm-remote-readiness-lib.sh"
 # shellcheck source=bin/fm-project-origin-lib.sh
 . "$SCRIPT_DIR/fm-project-origin-lib.sh"
+# shellcheck source=bin/fm-lavish-address-lib.sh
+. "$SCRIPT_DIR/fm-lavish-address-lib.sh"
 
 die() { printf 'error: %s\n' "$1" >&2; exit 1; }
-usage() { sed -n '2,3p' "$0" | sed 's/^# //'; exit 2; }
+usage() { sed -n '2,6p' "$0" | sed 's/^# //'; exit 2; }
 encode() { base64 | tr -d '\n'; }
 safe_id() { case "$1" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac; }
 
@@ -58,16 +63,21 @@ trap cleanup EXIT
 EXEC_SUMMARY=
 EXEC_SCOPE=
 EXEC_SESSION=fm-remote
+LAVISH_ADDRESS=
 [ "${1:-}" = --exec ] || usage
 shift
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --summary|--scope|--session)
+    --summary|--scope|--session|--lavish-address)
       [ "$#" -ge 2 ] || die "$1 needs a value"
       case "$1" in
         --summary) EXEC_SUMMARY=$2 ;;
         --scope) EXEC_SCOPE=$2 ;;
         --session) EXEC_SESSION=$2 ;;
+        --lavish-address)
+          fm_lavish_address_valid "$2" || die "invalid Lavish address, expected host:port: $2"
+          LAVISH_ADDRESS=$2
+          ;;
       esac
       shift 2
       ;;
@@ -189,6 +199,7 @@ done
   printf 'schema=fm-remote-exec-home-provision.v1\n'
   printf 'id_b64=%s\n' "$(printf '%s' "$ID" | encode)"
   printf 'session_b64=%s\n' "$(printf '%s' "$EXEC_SESSION" | encode)"
+  [ -z "$LAVISH_ADDRESS" ] || printf 'lavish_address_b64=%s\n' "$(printf '%s' "$LAVISH_ADDRESS" | encode)"
   printf 'project_count=%s\n' "${#PROJECT_NAMES[@]}"
   cat "$TMP/project.records"
 } > "$TMP/manifest"
@@ -244,4 +255,7 @@ if [ "$PROVISION_RC" -ne 0 ]; then
   die "remote provisioning failed; registry restored"
 fi
 printf '%s\n' "$PROVISION_OUT"
+if [ -n "$LAVISH_ADDRESS" ] && ! grep -Fqx "lavish-address: $LAVISH_ADDRESS" <<< "$PROVISION_OUT"; then
+  die "the remote code root predates --lavish-address and did not record it; update that host and rerun the same seed"
+fi
 printf 'home=%s:%s\n' "$HOST" "$REMOTE_HOME"

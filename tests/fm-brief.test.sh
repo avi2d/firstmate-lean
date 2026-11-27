@@ -1068,6 +1068,47 @@ test_scout_board_address_rejects_the_remote_forward_for_local_boards() {
   pass "fm-brief.sh: scout board address reaches the serving machine instead of the remote forward"
 }
 
+test_execution_home_scout_board_address_is_the_supervisor_address() {
+  local base fakebin home brief supervisor_address=127.0.0.1:24387
+  base=$(fm_test_base_path_sans "${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}" lavish-axi)
+  home="$TMP_ROOT/board-address-exec/home"
+  mkdir -p "$home/data" "$home/config"
+  : > "$home/.fm-exec-home"
+  fakebin=$(fm_fakebin "$TMP_ROOT/board-address-exec")
+  fm_fake_version_tool "$fakebin" lavish-axi FM_FAKE_LAVISH_AXI_VERSION 0.1.81
+  PATH="$fakebin:$base" FM_HOME="$home" \
+    "$ROOT/bin/fm-brief.sh" exec-unconfigured alpha --scout >/dev/null \
+    || fail "unconfigured execution-home scout scaffold failed"
+  brief="$home/data/exec-unconfigured/brief.md"
+  assert_no_grep 'Mac-reachable board address' "$brief" \
+    "execution-home scout brief called the host's own Lavish address Mac-reachable"
+  assert_grep "this address is the execution host's own Lavish server" "$brief" \
+    "unconfigured execution-home scout brief did not warn that the board address is the host's"
+  printf '%s\n' "$supervisor_address" > "$home/config/lavish-axi-supervisor-address"
+  PATH="$fakebin:$base" FM_HOME="$home" \
+    "$ROOT/bin/fm-brief.sh" exec-configured alpha --scout >/dev/null \
+    || fail "configured execution-home scout scaffold failed"
+  brief="$home/data/exec-configured/brief.md"
+  assert_grep "supervisor-reachable board address $supervisor_address" "$brief" \
+    "execution-home scout brief ignored config/lavish-axi-supervisor-address"
+  assert_no_grep '127.0.0.1:4387' "$brief" \
+    "execution-home scout brief still named the host's own Lavish address"
+  printf 'not an address\n' > "$home/config/lavish-axi-supervisor-address"
+  if PATH="$fakebin:$base" FM_HOME="$home" \
+    "$ROOT/bin/fm-brief.sh" exec-malformed alpha --scout >/dev/null 2>&1; then
+    fail "execution-home scout scaffold accepted a malformed supervisor address"
+  fi
+  assert_absent "$home/data/exec-malformed/brief.md" \
+    "a malformed supervisor address still left a brief behind"
+  rm "$home/.fm-exec-home"
+  PATH="$fakebin:$base" FM_HOME="$home" \
+    "$ROOT/bin/fm-brief.sh" exec-ordinary alpha --scout >/dev/null \
+    || fail "an ordinary home read config/lavish-axi-supervisor-address"
+  assert_grep 'Mac-reachable board address 127.0.0.1:4387' "$home/data/exec-ordinary/brief.md" \
+    "an ordinary home took the execution-home supervisor address"
+  pass "fm-brief.sh: an execution home's scout board address is its supervisor address, not the host's 4387"
+}
+
 # The scout path still scaffolds a well-formed brief.
 test_scout_scaffold() {
   local brief
@@ -1807,6 +1848,7 @@ test_scout_scaffold
 test_scout_brief_requires_references_section
 test_scout_lavish_line_follows_presentation_floor
 test_scout_board_address_rejects_the_remote_forward_for_local_boards
+test_execution_home_scout_board_address_is_the_supervisor_address
 test_inbox_listing_command_is_safe_on_empty_inbox
 test_workers_wait_without_spending_turns
 test_wait_no_turns_absent_keeps_the_previous_brief

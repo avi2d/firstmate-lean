@@ -21,6 +21,8 @@
 #   data/<task-id>/report.md (no branch, no push, no PR) and the worktree is scratch.
 #   It offers the Lavish review loop only when `fm-bootstrap.sh lavish-compatible`
 #   confirms the legacy board-compatibility floor; otherwise it asks for a text report.
+#   In an execution home the board address is its config/lavish-axi-supervisor-address,
+#   or the host's own address with a warning that the supervisor may not reach it.
 #   --secondmate writes a persistent secondmate charter. The project list
 #   is cloned into the secondmate home, while the natural-language scope
 #   tells the main firstmate when to route work there; routine churn stays in its own home;
@@ -180,6 +182,8 @@ esac
 . "$SCRIPT_DIR/fm-role-lib.sh"
 # shellcheck source=bin/fm-worker-name-lib.sh
 . "$SCRIPT_DIR/fm-worker-name-lib.sh"
+# shellcheck source=bin/fm-lavish-address-lib.sh
+. "$SCRIPT_DIR/fm-lavish-address-lib.sh"
 PAUSED_VERB=${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}
 AGENT_RECHECK_TEXT=$(wait_overdue_text "$(wait_agent_recheck_secs)")
 IFS= read -r -d '' CREWMATE_PAUSE_INSTRUCTIONS <<EOF || true
@@ -656,6 +660,7 @@ fi
 
 if [ "$KIND" = scout ]; then
 if "$SCRIPT_DIR/fm-bootstrap.sh" lavish-compatible >/dev/null 2>&1; then
+    fm_lavish_supervisor_address_load "$FM_HOME" "$CONFIG" || exit 1
     BOARD_HOST=127.0.0.1
     if [ -e "$CONFIG/lavish-axi-host" ]; then
       [ -f "$CONFIG/lavish-axi-host" ] && [ -r "$CONFIG/lavish-axi-host" ] \
@@ -678,7 +683,16 @@ if "$SCRIPT_DIR/fm-bootstrap.sh" lavish-compatible >/dev/null 2>&1; then
     { [ "$BOARD_PORT" -ge 1 ] && [ "$BOARD_PORT" -le 65535 ]; } 2>/dev/null \
       || { echo "error: LAVISH_AXI_PORT must be a numeric TCP port" >&2; exit 1; }
     BOARD_ADDRESS=$BOARD_HOST:$BOARD_PORT
-  LAVISH_LINE='If your deliverable is a visual artifact the captain will review and iterate on, use the lavish-axi rule: arm your board with bin/fm-procevent-lavish.sh arm <artifact.html> --for <task-id>; never run lavish-axi poll yourself. Re-arm with the reply after each nonterminal round to acknowledge it, route the board feedback through your steering inbox, write needs-decision [key=board-review] with the live board URL on the Mac-reachable board address '"$BOARD_ADDRESS"' when the captain owes a decision, and stop at session_ended or an empty End without re-arming - acknowledge that final round with bin/fm-procevent.sh handled <source-id> <sequence> to conclude and retire your board. A worker inside the task sandbox never opens or arms a board: write the board page and declare needs-decision [key=board-handoff] naming the board path instead, then wait, and firstmate opens and arms it with bin/fm-lavish-board-handoff.sh while the captain answers still reach the steering inbox.'
+    if [ "$REMOTE" -eq 1 ]; then
+      BOARD_URL_RULE='with the live board URL on the board address the brief scaffolded on the execution host names'
+    else
+      case "$FM_LAVISH_SUPERVISOR_SCOPE" in
+        configured) BOARD_URL_RULE='with the live board URL on the supervisor-reachable board address '"$FM_LAVISH_SUPERVISOR_ADDRESS"', exactly as the board-url line of your arm output prints it,' ;;
+        unconfigured) BOARD_URL_RULE='with the live board URL on '"$BOARD_ADDRESS"', and say in that line that this address is the execution host'"'"'s own Lavish server, which the supervisor'"'"'s machine may not reach, because this execution home has no config/lavish-axi-supervisor-address,' ;;
+        *) BOARD_URL_RULE='with the live board URL on the Mac-reachable board address '"$BOARD_ADDRESS" ;;
+      esac
+    fi
+  LAVISH_LINE='If your deliverable is a visual artifact the captain will review and iterate on, use the lavish-axi rule: arm your board with bin/fm-procevent-lavish.sh arm <artifact.html> --for <task-id>; never run lavish-axi poll yourself. Re-arm with the reply after each nonterminal round to acknowledge it, route the board feedback through your steering inbox, write needs-decision [key=board-review] '"$BOARD_URL_RULE"' when the captain owes a decision, and stop at session_ended or an empty End without re-arming - acknowledge that final round with bin/fm-procevent.sh handled <source-id> <sequence> to conclude and retire your board. A worker inside the task sandbox never opens or arms a board: write the board page and declare needs-decision [key=board-handoff] naming the board path instead, then wait, and firstmate opens and arms it with bin/fm-lavish-board-handoff.sh while the captain answers still reach the steering inbox.'
 else
   LAVISH_LINE='Lavish is unavailable (lavish-axi is missing or below its supported version floor), so deliver your findings as a text report without Lavish, even for a visual deliverable.'
 fi

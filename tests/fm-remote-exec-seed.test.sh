@@ -120,6 +120,8 @@ pass "fm-remote-exec-seed: the registry records the route with its per-route ses
 [ -d "$REMOTE_HOME/.git" ] || fail "the execution home is not a Firstmate checkout"
 [ -e "$REMOTE_HOME/data/charter.md" ] && fail "the execution home scaffolded a charter it never reads"
 grep -q '^- scratch ' "$REMOTE_HOME/data/projects.md" || fail "the execution home lost its project record"
+[ -e "$REMOTE_HOME/config/lavish-axi-supervisor-address" ] \
+  && fail "a seed without --lavish-address wrote a supervisor Lavish address"
 pass "fm-remote-exec-seed: the provisioned home is headless, boardless, and bound to its session"
 
 out=$(FM_HOME="$PARENT" "$REMOTE_ROOT/bin/fm-on.sh" execone fm-remote-doctor.sh 2>"$TMP_ROOT/seed.err") \
@@ -152,6 +154,26 @@ seed --exec --session lab-x execone exec-alias "$REMOTE_ROOT" "$REMOTE_HOME" scr
   || fail "a same-route rerun stopped converging: $(cat "$TMP_ROOT/seed.err")"
 [ "$(grep -c '^- execone ' "$REG")" = 1 ] || fail "a same-route rerun duplicated the registry record"
 pass "fm-remote-exec-seed: a same-route rerun converges with a single registry record"
+
+SUPERVISOR_LAVISH=127.0.0.1:24387
+seed --exec --session lab-x --lavish-address "$SUPERVISOR_LAVISH" execone exec-alias "$REMOTE_ROOT" "$REMOTE_HOME" scratch \
+  > "$TMP_ROOT/seed.out" 2>"$TMP_ROOT/seed.err" \
+  || fail "a rerun with --lavish-address failed: $(cat "$TMP_ROOT/seed.err")"
+[ "$(cat "$REMOTE_HOME/config/lavish-axi-supervisor-address")" = "$SUPERVISOR_LAVISH" ] \
+  || fail "the execution home did not record the supervisor Lavish address"
+assert_contains "$(cat "$TMP_ROOT/seed.out")" "lavish-address: $SUPERVISOR_LAVISH" \
+  "the seed did not report the recorded supervisor Lavish address"
+seed --exec --session lab-x execone exec-alias "$REMOTE_ROOT" "$REMOTE_HOME" scratch > "$TMP_ROOT/seed.out" 2>"$TMP_ROOT/seed.err" \
+  || fail "a rerun without --lavish-address failed: $(cat "$TMP_ROOT/seed.err")"
+[ "$(cat "$REMOTE_HOME/config/lavish-axi-supervisor-address")" = "$SUPERVISOR_LAVISH" ] \
+  || fail "a rerun without --lavish-address dropped the recorded supervisor Lavish address"
+pass "fm-remote-exec-seed: --lavish-address records the supervisor address and a later rerun keeps it, not drops it"
+
+before=$(ssh_count)
+seed --exec --lavish-address 'not-a-port' execone exec-alias "$REMOTE_ROOT" "$REMOTE_HOME" scratch > "$TMP_ROOT/seed.out" 2>"$TMP_ROOT/seed.err" \
+  && fail "a malformed --lavish-address seeded instead of being refused"
+[ "$(ssh_count)" = "$before" ] || fail "a malformed --lavish-address dialed the host"
+pass "fm-remote-exec-seed: a malformed --lavish-address is refused before dialing"
 
 KINDHOME="$TMP_ROOT/doctor-kind"
 mkdir -p "$KINDHOME"

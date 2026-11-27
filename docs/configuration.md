@@ -1081,6 +1081,7 @@ Omit the session to use `fm-remote`.
 Seed a route with `bin/fm-remote-home-seed.sh --exec`.
 The command checks the host with the remote doctor, clones the requested projects, and records the Herdr session in `config/herdr-session`.
 It writes `.fm-exec-home` and sets `config/backlog-backend` to `manual`.
+Pass `--lavish-address HOST:PORT` to record where this machine reaches the host's Lavish server, as described in [Supervisor Lavish address](#supervisor-lavish-address-configlavish-axi-supervisor-address).
 
 `bin/fm-on.sh` reads the route registry.
 Add `host=<route>` to a project record to run its workers there.
@@ -1239,10 +1240,29 @@ The optional local, gitignored `config/lavish-axi-host` contains one non-empty a
 
 Once a board exists, the process-event adapter derives the polling address from that board's own saved Lavish session instead; its header owns the lookup contract.
 When the file is absent, worker launches do not add a board address and retain the existing ambient-environment behavior.
-Scout briefs carry the board address that reaches a board served on the worker's own machine: the configured server address, or loopback when no address is configured, on the ambient `LAVISH_AXI_PORT` or the server's own `4387` default.
+Outside an execution home, scout briefs carry the board address that reaches a board served on the worker's own machine: the configured server address, or loopback when no address is configured, on the ambient `LAVISH_AXI_PORT` or the server's own `4387` default.
+An execution home's briefs follow [Supervisor Lavish address](#supervisor-lavish-address-configlavish-axi-supervisor-address) instead.
 
 Malformed or unreadable values refuse the launch before the worker starts.
 The address selects the existing shared server; it does not authorize starting or stopping the server, and the Lavish startup crash remains a vendor-tool concern.
+
+## Supervisor Lavish address (config/lavish-axi-supervisor-address)
+
+A board on an execution home is served by that host's own Lavish server, usually on its `127.0.0.1:4387`.
+The supervising home's machine cannot open that address, so a board URL handed back to the supervisor must name an address it can reach, such as a forwarded port.
+
+The optional local, gitignored `config/lavish-axi-supervisor-address` in an execution home holds that one `host:port` address, for example `127.0.0.1:14387`.
+Write it with `bin/fm-remote-home-seed.sh --exec --lavish-address HOST:PORT`; a later seed without the flag leaves the file as it is.
+Only a home with `.fm-exec-home` reads the file.
+
+| Execution home state | Scout brief board address | `fm-procevent-lavish.sh arm` output |
+| --- | --- | --- |
+| File present | The configured address | `board-url:` on the configured address, keeping the session path and query |
+| File absent | The host's own address, with a statement that the supervisor's machine may not reach it | `board-url:` unchanged, plus a `note:` line saying the same |
+| File malformed or unreadable | The scaffold stops before the brief is written | The arm stops before anything is registered |
+
+The address changes only the URL handed to the supervisor.
+The board listener still polls the host's own server from the board's saved session.
 
 ## Home brief include (config/brief-include.md)
 
@@ -2479,6 +2499,7 @@ A board a sandboxed worker declared with `needs-decision [key=board-handoff]` bu
 After opening the artifact as required above, the worker arms it with `bin/fm-procevent-lavish.sh arm <artifact.html> --for <task-id>` and never runs `lavish-axi poll` itself.
 
 `arm` prints `armed` only after the process-event owner confirms this registration generation's listener is running, and otherwise returns nonzero without that line.
+With `armed` or `still-listening` it prints `board-url:`, the board URL to hand the captain; in an execution home it follows [Supervisor Lavish address](#supervisor-lavish-address-configlavish-axi-supervisor-address).
 
 - The confirmation is a live claim, or a launch stamp that advanced without its run ending with no result, judged when the window bounded by `FM_PROCEVENT_LAUNCH_CONFIRM_SECONDS` closes, and a failed confirmation retires a source that never started unless `retire` refuses because something may still own it, in which case the registration stays for `reconcile` or a human.
 - An earlier registration's listener that releases the board inside the confirm window lets the new registration start, and `arm` then reports `armed` as usual.
