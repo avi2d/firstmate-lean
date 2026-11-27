@@ -653,6 +653,9 @@ test_adapter_followups_over_157_tasks_do_not_read_each_task() {
   elapsed=$(( $(date +%s) - start ))
   [ "$elapsed" -lt 90 ] || fail "four adapter follow-ups over 157 tasks took ${elapsed}s"
   assert_equals "proj-158 proj-159 proj-160 proj-161" "${ids[*]}" "the four follow-ups did not get the next free IDs"
+  out=$(node -e 'const tasks = require(process.argv[1]); console.log(tasks.find(task => task.id === "proj-159").body)' "$dir/store.json")
+  assert_contains "$out" "Follow-up id: proj-1-fu-0002" "the new follow-up marker used the legacy secret-like label"
+  assert_not_contains "$out" "Follow-up key:" "the new follow-up retained the legacy label"
   assert_equals 4 "$(adapter_calls "$dir" list)" "each follow-up add should list the backlog once"
   assert_equals 0 "$(adapter_calls "$dir" show)" "a follow-up add read tasks one at a time"
 

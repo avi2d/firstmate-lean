@@ -38,7 +38,7 @@ function markdownItems(file, key, marker) {
       current = match[1] ?? match[2];
       ids.push(current);
       if (current === key) replay = current;
-    } else if (current && marker && line === `  ${marker}`) {
+    } else if (current && marker && line.startsWith('  ') && hasFollowupMarker(line.slice(2), marker)) {
       replay = current;
     } else if (line && !line.startsWith('  ')) {
       current = undefined;
