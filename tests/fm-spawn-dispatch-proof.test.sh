@@ -39,6 +39,16 @@ SH
   printf '%s\n' "$home|$proj|$wt|$fakebin"
 }
 
+declare_signed_in_claude_account() {  # <home> <fakebin> <account>
+  mkdir -p "$1/claude-$3"
+  printf '%s %s\n' "$3" "$1/claude-$3" > "$1/config/claude-accounts"
+  cat > "$2/claude" <<'SH'
+#!/usr/bin/env bash
+[ "${1:-} ${2:-}" = 'auth status' ]
+SH
+  chmod +x "$2/claude"
+}
+
 read_proof_record() {
   IFS='|' read -r HOME_DIR PROJ_DIR WT_DIR FAKEBIN_DIR <<EOF
 $1
@@ -145,13 +155,14 @@ test_record_with_only_the_copied_opus_candidate_is_refused() {
   id=proof-opus-only-z7
   rec=$(make_proof_case proof-opus-only "$id")
   read_proof_record "$rec"
+  declare_signed_in_claude_account "$HOME_DIR" "$FAKEBIN_DIR" main
   cat > "$HOME_DIR/data/$id/dispatch-selection.md" <<'EOF'
 dispatch-selection:
 rule: rule_1
 candidate: pi:claude-bridge/opus-5-5 provider=claude remaining=80% spendPriority=20 runway=through_reset -> eligible
-chosen: --harness pi --model claude-bridge/opus-5-5
+chosen: --harness pi --model claude-bridge/opus-5-5 --claude-account main
 EOF
-  out=$(run_proof_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR" --harness pi --model claude-bridge/opus-5-5)
+  out=$(run_proof_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR" --harness pi --model claude-bridge/opus-5-5 --claude-account main)
   status=$?
   expect_code 1 "$status" "a record with only the copied Opus candidate should refuse: $out"
   assert_contains "$out" 'missing a candidate' "refusal should name the missing candidates"
