@@ -798,3 +798,40 @@ jobs:
           fi
           [ -n "$base" ] || { echo "::error::no commit older than 24 hours to start the secrets scan from"; exit 1; }
           bunx --package "@avi2dg/checks@$FM_CI_CHECKS_VERSION" checks-secrets "$base" HEAD
+
+  ci-summary:
+    name: CI summary
+    runs-on: ubuntu-24.04
+    needs:
+      - test-scope
+      - lint
+      - typecheck
+      - effect-runtime
+      - test-coverage
+      - tests-changed
+      - tests-portable-parallel-1
+      - tests-portable-parallel-2
+      - tests-portable-serial
+      - tests-herdr
+      - tests-timing-aggregate
+      - macos-stock-bash
+      - static
+    # Without always(), GitHub skips this job after a failed need, and a skip reads as passing.
+    if: ${{ always() }}
+    # Fast tier: one jq filter over the needs context.
+    timeout-minutes: 5
+    steps:
+      - name: Require every needed job to pass or be skipped by scope
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -eu
+          failed=$(printf '%s' "$NEEDS" | jq -r '
+            to_entries[]
+            | select(.value.result != "success" and .value.result != "skipped")
+            | "\(.key): \(.value.result)"')
+          if [ -n "$failed" ]; then
+            printf '%s\n' "$failed"
+            echo "::error::A needed CI job failed or was cancelled."
+            exit 1
+          fi

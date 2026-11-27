@@ -67,7 +67,7 @@ make_case() {  # <name> [task-id...]
 
 add_item() {  # <home> <id>
   [ "$HAVE_TASKS_AXI" = 1 ] || return 0
-  tasks-axi add "$2" "item for $2" --kind ship --file "$1/data/backlog.md" >/dev/null
+  tasks-axi add "$2" "item for $2" --kind ship --priority 2 --file "$1/data/backlog.md" >/dev/null
 }
 
 row_state() {  # <home> <id>
