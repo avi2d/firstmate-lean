@@ -10,6 +10,14 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 export FM_HOME FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" FM_CONFIG_OVERRIDE="$CONFIG"
 
 . "$ROOT/bin/fm-pr-lib.sh"
+. "$ROOT/bin/fm-classify-lib.sh"
+
+ship_reported_done() {
+  local status="$STATE/$1.status" verb
+  [ ! -L "$status" ] || return 1
+  status_line_verb "$(last_status_line "$status")" verb
+  [ "$verb" = "done" ]
+}
 
 finished() {
   local id=$1 meta="$STATE/$1.meta" kind rc
@@ -23,6 +31,7 @@ finished() {
       [ "$rc" -eq 1 ]
       ;;
     ship)
+      ship_reported_done "$id" || return 1
       fm_pr_metadata_identity_parse "$meta" || return 1
       case "$FM_PR_META_PROVIDER" in
         github)
@@ -39,7 +48,7 @@ finished() {
           ;;
         *) return 1 ;;
       esac
-      [ "$FM_PR_RECORD_MERGED" = true ]
+      [ "$FM_PR_RECORD_MERGED" = true ] && ship_reported_done "$id"
       ;;
     *) return 1 ;;
   esac

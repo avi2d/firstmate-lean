@@ -1617,7 +1617,7 @@ families_for_changed_path() {
       printf '%s\n' watcher-wake-lock
       printf '%s\n' "__script__:fm-procevent-quota.test.sh"
       ;;
-    bin/fm-teardown.sh)
+    bin/fm-teardown.sh|bin/fm-finished-cleanup.sh)
       printf '%s\n' pr-forge
       ;;
     bin/fm-pr-*|bin/fm-merge-local.sh|bin/fm-review-diff.sh|\
