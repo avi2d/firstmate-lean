@@ -75,6 +75,8 @@ command_name=$(perl -MMIME::Base64=decode_base64 -e 'print((split(/\0/, decode_b
 # execution-home wording is asserted below against the real binary; this
 # boundary owns only what the seed does with a ready verdict.
 if [ "$command_name" = fm-remote-doctor.sh ]; then
+  perl -MMIME::Base64=decode_base64 -e 'print join(" ", split(/\0/, decode_base64($ARGV[0]))), "\n"' "$argv_b64" \
+    >> "$FM_FAKE_DOCTOR_ARGV"
   printf 'ok: remote execution-home readiness confirmed on this host\n'
   exit 0
 fi
@@ -87,6 +89,7 @@ export FM_HOME="$PARENT"
 export FM_ROOT_OVERRIDE="$REMOTE_ROOT"
 export FM_SSH_BIN="$FAKEBIN/fake-ssh"
 export FM_FAKE_SSH_COUNT="$SSH_COUNT"
+export FM_FAKE_DOCTOR_ARGV="$TMP_ROOT/doctor.argv"
 export FM_FAKE_REMOTE_CWD="$REMOTE_ROOT/bin"
 export FM_FAKE_REMOTE_ENTRYPOINT="$REMOTE_ROOT/bin/fm-remote-entrypoint.sh"
 export FM_REMOTE_JOB_STATE_ROOT="$TMP_ROOT/remote-jobs"
@@ -100,6 +103,12 @@ seed --exec --session lab-x execone exec-alias "$REMOTE_ROOT" "$REMOTE_HOME" scr
 assert_contains "$(cat "$TMP_ROOT/seed.out")" "provisioned: $REMOTE_HOME projects=1" \
   "the seed did not report the provisioned execution home"
 pass "fm-remote-exec-seed: --exec seeds the route and reports the provisioned home"
+
+[ -s "$FM_FAKE_DOCTOR_ARGV" ] || fail "the seed ran no readiness doctor"
+if grep -v -e '--session lab-x' "$FM_FAKE_DOCTOR_ARGV" >/dev/null; then
+  fail "a readiness doctor run did not ask about session lab-x: $(cat "$FM_FAKE_DOCTOR_ARGV")"
+fi
+pass "fm-remote-exec-seed: the readiness doctor checks the seeded session, not the default one"
 
 REG="$PARENT/data/remote-homes.md"
 [ -f "$REG" ] || fail "the seed wrote no execution-home registry"
@@ -174,6 +183,25 @@ seed --exec --lavish-address 'not-a-port' execone exec-alias "$REMOTE_ROOT" "$RE
   && fail "a malformed --lavish-address seeded instead of being refused"
 [ "$(ssh_count)" = "$before" ] || fail "a malformed --lavish-address dialed the host"
 pass "fm-remote-exec-seed: a malformed --lavish-address is refused before dialing"
+
+OTHER_HOME="$TMP_ROOT/other-home"
+mkdir -p "$OTHER_HOME/bin" "$OTHER_HOME/data" "$REMOTE_ROOT/data"
+cp "$REMOTE_ROOT/bin/fm-remote-home-seed.sh" "$OTHER_HOME/bin/"
+before=$(ssh_count)
+FM_HOME="$OTHER_HOME" seed --exec otherid exec-alias "$REMOTE_ROOT" "$TMP_ROOT/remote-other-home" --no-projects \
+  > "$TMP_ROOT/seed.out" 2>"$TMP_ROOT/seed.err" \
+  && fail "a seed from a home checkout registered the route in the home FM_HOME names instead of being refused"
+assert_contains "$(cat "$TMP_ROOT/seed.err")" "FM_HOME is another home's checkout" "the refusal did not name the conflicting homes"
+[ -e "$OTHER_HOME/data/remote-homes.md" ] && fail "the refused seed wrote the other home's registry"
+[ -e "$REMOTE_ROOT/data/remote-homes.md" ] && fail "the refused seed wrote its own checkout's registry"
+[ "$(ssh_count)" = "$before" ] || fail "a seed refused for its home dialed the host"
+pass "fm-remote-exec-seed: FM_HOME naming another home's checkout is refused before anything is written or dialed"
+
+seed --exec --session lab-x execone exec-alias "$REMOTE_ROOT" "$REMOTE_HOME" scratch > "$TMP_ROOT/seed.out" 2>"$TMP_ROOT/seed.err" \
+  || fail "a home directory that is not a checkout was refused: $(cat "$TMP_ROOT/seed.err")"
+[ "$(grep -c '^- execone ' "$REG")" = 1 ] || fail "the seed into a plain home directory lost its single registry record"
+rmdir "$REMOTE_ROOT/data"
+pass "fm-remote-exec-seed: FM_HOME naming a plain home directory still seeds from a home checkout"
 
 KINDHOME="$TMP_ROOT/doctor-kind"
 mkdir -p "$KINDHOME"

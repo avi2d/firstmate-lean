@@ -105,6 +105,19 @@ done
 case "$REMOTE_HOME/" in "$REMOTE_ROOT/"*) die "remote home must not be inside the remote code root" ;; esac
 case "$REMOTE_ROOT/" in "$REMOTE_HOME/"*) die "remote code root must not be inside the remote home" ;; esac
 
+is_firstmate_checkout() { [ -f "$1/bin/fm-remote-home-seed.sh" ]; }
+is_operational_home() { [ -d "$1/data" ]; }
+refuse_home_of_another_checkout() {
+  [ -d "$FM_HOME" ] || return 0
+  local home_real root_real
+  home_real=$(cd "$FM_HOME" && pwd -P)
+  root_real=$(cd "$FM_ROOT" && pwd -P)
+  [ "$home_real" != "$root_real" ] || return 0
+  is_firstmate_checkout "$home_real" && is_operational_home "$root_real" || return 0
+  die "FM_HOME is another home's checkout ($FM_HOME), but this seed runs from a home of its own ($FM_ROOT). Unset FM_HOME to register the route in $FM_ROOT, or run $FM_HOME/bin/fm-remote-home-seed.sh to register it there."
+}
+refuse_home_of_another_checkout
+
 NO_PROJECTS=0
 PROJECT_NAMES=()
 PROJECT_ORIGINS=()
@@ -226,7 +239,7 @@ restore_registry() {
 # created on that host. The doctor runs through the same fixed entrypoint as
 # every later call, so it sees the exact PATH the remote home will run under.
 set +e
-fm_remote_readiness_ensure "$SCRIPT_DIR" "$ID"
+fm_remote_readiness_ensure "$SCRIPT_DIR" "$ID" any "$EXEC_SESSION"
 PREFLIGHT_RC=$?
 set -e
 if [ "$PREFLIGHT_RC" -ne 0 ]; then

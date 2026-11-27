@@ -272,6 +272,9 @@ SH
 #!/usr/bin/env bash
 set -u
 running=$(cat "$FM_FAKE_HERDR_RUNNING" 2>/dev/null || printf 'false')
+session= prev=
+for arg in "$@"; do [ "$prev" != --session ] || session=$arg; prev=$arg; done
+printf '%s\n' "$session" >> "$FM_FAKE_STATE/herdr-sessions"
 case "${1:-} ${2:-}" in
   "status --json")
     if [ -f "$FM_FAKE_STATE/herdr-delay" ]; then
@@ -290,6 +293,10 @@ case "${1:-} ${2:-}" in
   "server "*|"server ")
     env > "$FM_FAKE_STATE/herdr-server.env"
     printf 'true\n' > "$FM_FAKE_HERDR_RUNNING"
+    if [ -f "$FM_FAKE_STATE/herdr-server-stays" ]; then
+      printf '%s\n' "$$" > "$FM_FAKE_STATE/herdr-server.pid"
+      exec /bin/sleep 60
+    fi
     ;;
 esac
 exit 0
@@ -811,6 +818,51 @@ assert_contains "$DOCTOR_OUT" 'fix herdr-server=applied:' "--fix did not report 
 assert_contains "$DOCTOR_OUT" 'check herdr-server=ok:' "the started server was not confirmed by the re-check"
 [ ! -s "$CASE_LAUNCHCTL_LOG" ] || fail "the linux path invoked launchctl"
 pass "a non-darwin host skips launch agents and starts its herdr server directly"
+
+# --- --session points every herdr check and repair at that session ----------
+
+new_case Linux with-herdr no-gui
+doctor --session lab-x
+assert_contains "$DOCTOR_OUT" 'check herdr-server=fixable: the herdr server for session lab-x is not running' \
+  "the doctor did not check the session it was given"
+doctor --fix --session lab-x
+expect_code 0 "$DOCTOR_RC" "--fix --session lab-x did not leave that session's server running"
+assert_contains "$DOCTOR_OUT" 'fix herdr-server=applied: started the herdr server for session lab-x' \
+  "--fix did not start the session it was given"
+grep -qx lab-x "$CASE_STATE/herdr-sessions" || fail "no herdr call addressed session lab-x"
+assert_no_regex '^fm-remote$' "$CASE_STATE/herdr-sessions" \
+  "a doctor given --session lab-x still drove the default fm-remote session"
+pass "--session points every herdr check and repair at that session, not the default one"
+
+# --- --fix returns while the server it started keeps running ----------------
+
+new_case Linux with-herdr no-gui
+touch "$CASE_STATE/herdr-server-stays"
+(
+  doctor --fix
+  printf '%s\n' "$DOCTOR_OUT" > "$CASE_STATE/doctor.out"
+  printf '%s\n' "$DOCTOR_RC" > "$CASE_STATE/doctor.rc"
+) &
+FIX_PID=$!
+waited=0
+while [ ! -f "$CASE_STATE/doctor.rc" ] && [ "$waited" -lt 300 ]; do
+  sleep 0.1
+  waited=$((waited + 1))
+done
+STAYING_SERVER_PID=$(cat "$CASE_STATE/herdr-server.pid" 2>/dev/null || true)
+stop_staying_server() { [ -z "$STAYING_SERVER_PID" ] || kill "$STAYING_SERVER_PID" 2>/dev/null || true; }
+if [ ! -f "$CASE_STATE/doctor.rc" ]; then
+  stop_staying_server
+  wait "$FIX_PID" 2>/dev/null || true
+  fail "doctor --fix never returned while the herdr server it started kept running"
+fi
+wait "$FIX_PID" || true
+[ "$(cat "$CASE_STATE/doctor.rc")" = 0 ] \
+  || { stop_staying_server; fail "--fix did not start the staying server: $(cat "$CASE_STATE/doctor.out")"; }
+{ [ -n "$STAYING_SERVER_PID" ] && kill -0 "$STAYING_SERVER_PID" 2>/dev/null; } \
+  || fail "the server --fix started did not outlive the doctor"
+stop_staying_server
+pass "--fix returns to its caller while the herdr server it started keeps running"
 
 # --- on linux --fix hands XDG_RUNTIME_DIR to the herdr server ----------------
 
