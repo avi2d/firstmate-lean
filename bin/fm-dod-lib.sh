@@ -643,6 +643,7 @@ Under How it was checked, list the checks that passed and the review result, inc
 Use a Mermaid diagram only when the change alters a flow, structure, or boundary.
 Omit How it fits when no diagram is needed and Open review findings when none remain.
 Include the reason for each open review finding.
+Never copy text from the task or this brief into the PR description, and on a public repository name no machines or people.
 This rule does not authorize opening a PR for a delivery mode or forge that does not use one.
 EOF
   if [ "$mode" = no-mistakes ] && [ "$forge" = none ] && [ "$pr" = auto ]; then
