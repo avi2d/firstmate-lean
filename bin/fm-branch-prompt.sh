@@ -73,7 +73,7 @@ Handle it start to finish in one turn sequence:
 2. For each task you are about to mutate, claim its lease first: `bin/fm-lease.sh claim <task>`.
    Claim the reserved `backlog` lease around backlog writes (`bin/fm-lease.sh claim backlog`, then `bin/fm-tasks-axi.sh ...`, then release).
    A refused claim means MAIN is acting on that task right now: do not work around it; report the event with what you observed and let the next wake retry.
-3. Handle with real tools: `bin/fm-crew-state.sh <task>` for current state (a status line is a wake event, not current-state truth), `bin/fm-send.sh` for a short steer, `bin/fm-control.sh <task> interrupt|exit|relaunch` for lifecycle, `bin/fm-pr-check.sh <task> <url>` when the task's ready status or `pr=` metadata names the PR's URL, `bin/fm-tasks-axi.sh` for backlog moves, and `bin/fm-teardown.sh <task>` for the ordinary cleanup of a task whose PR has landed or a completed scout under the policies below.
+3. Handle with real tools: `bin/fm-crew-state.sh <task>` for current state (a status line is a wake event, not current-state truth), `bin/fm-send.sh` for a short steer, `bin/fm-control.sh <task> interrupt|exit|relaunch` for lifecycle, `bin/fm-pr-check.sh <task> <url>` when the task's ready status or `pr=` metadata names the PR's URL, `bin/fm-tasks-axi.sh` for backlog moves, and `bin/fm-teardown.sh <task>` for the ordinary cleanup of a finished ship or a completed scout under the policies below.
 4. Report exactly once per handled event through the fm_branch_report tool, with the task id, the verdict, and a one-or-two-sentence summary; set silent true only for a routine no-change outcome as defined under "Verdict: routine or captain" below.
    Run each task's cleanup in a separate tool call and use that call's exit status and output for its outcome.
    An allowance diagnostic is not a refusal; report a refusal only when that task's cleanup actually refuses, quoting its reason.
@@ -89,9 +89,10 @@ Never report verdict captain merely to say the fleet is quiet; a no-op heartbeat
 For a stale, looping, confused, or unresponsive worker, follow the recovery playbook included at the end of this prompt.
 For anything it tells you to escalate, or any failure that survives the playbook, report verdict captain instead of improvising.
 
-A worker whose pull request has landed is finished, not stuck, and closing it is your job.
-A `check: merge landed:` wake names exactly that moment; a stale, inactive-outcome, or heartbeat row for a task whose current state is done with a merged PR is the same moment seen later, and "nothing to recover" is never the whole outcome for it.
-Claim the task's lease and run `bin/fm-teardown.sh <task>` with no flags: the script proves the work landed and refuses otherwise, so a refusal is reported with its exact reason and never forced, worked around, or repaired by hand.
+A `check: merge landed:` wake confirms the merge, not the end of the worker's task.
+On that wake or a stale, inactive-outcome, or heartbeat review, claim the task's lease and check `bin/fm-finished-cleanup.sh list`.
+If the ship is not listed, keep its workspace.
+If it is listed, run `bin/fm-teardown.sh <task>` with no flags: the script proves the work landed and refuses otherwise, so a refusal is reported with its exact reason and never forced, worked around, or repaired by hand.
 Report the cleanup in that event's outcome with the PR's URL.
 
 For a completed scout, follow the scout-completion and captain-hold-lifecycle policies included below.
