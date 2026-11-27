@@ -201,7 +201,7 @@ workflow_jobs() {
 # must join a tier, so no one-off timeout value appears outside these lists.
 LINT_TIER_JOBS='lint'
 STATIC_TIER_JOBS='static'
-FAST_TIER_JOBS='test-scope effect-runtime test-coverage tests-timing-aggregate typecheck'
+FAST_TIER_JOBS='ci-summary test-scope effect-runtime test-coverage tests-timing-aggregate typecheck'
 NORMAL_TIER_JOBS='tests-changed tests-portable-parallel-1 tests-portable-parallel-2 tests-portable-serial macos-stock-bash'
 HEAVY_TIER_JOBS='tests-herdr'
 ALL_TIER_JOBS="$LINT_TIER_JOBS $STATIC_TIER_JOBS $FAST_TIER_JOBS $NORMAL_TIER_JOBS $HEAVY_TIER_JOBS"
@@ -244,8 +244,8 @@ test_each_scope_runs_exactly_its_jobs() {
   for event in schedule workflow_dispatch push pull_request; do
     case "$event" in
       schedule|workflow_dispatch) scope=full; want=$(printf '%s\n' "$all" | grep -vx tests-changed) ;;
-      push) scope=checks; want=$(printf '%s\n' lint static test-coverage test-scope typecheck | LC_ALL=C sort) ;;
-      pull_request) scope=changed; want=$(printf '%s\n' lint tests-changed test-scope | LC_ALL=C sort) ;;
+      push) scope=checks; want=$(printf '%s\n' ci-summary lint static test-coverage test-scope typecheck | LC_ALL=C sort) ;;
+      pull_request) scope=changed; want=$(printf '%s\n' ci-summary lint tests-changed test-scope | LC_ALL=C sort) ;;
     esac
     actual=$(jobs_running_under "$event" '' "$scope" | LC_ALL=C sort) || fail "could not resolve the job conditions for $event"
     [ "$actual" = "$want" ] || fail "$event ($scope scope) must run exactly these jobs"$'\n'"ran: $(printf '%s' "$actual" | tr '\n' ' ')"$'\n'"wanted: $(printf '%s' "$want" | tr '\n' ' ')"
