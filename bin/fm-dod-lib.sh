@@ -634,6 +634,23 @@ $(fm_main_at_merge_line "$base_name" "A merge conflict is no exception: while th
     dpr_main_line="$(fm_main_at_merge_line "$base_name" "The one exception is a merge conflict the PR shows: merge $base_name into your branch, resolve the conflict, and push.")
 "
   fi
+  cat <<'EOF'
+# PR description
+When this work has a PR, write its description in plain sentences with these headings in order: Why, What changed, How it fits, How it was checked, and Open review findings.
+Under Why, explain the problem in one or two sentences.
+Under What changed, list one bullet per commit subject.
+Under How it was checked, list the checks that passed and the review result, including findings fixed and left open or that none were found.
+Use a Mermaid diagram only when the change alters a flow, structure, or boundary.
+Omit How it fits when no diagram is needed and Open review findings when none remain.
+Include the reason for each open review finding.
+Never copy text from the task or this brief into the PR description, and on a public repository name no machines or people.
+This rule does not authorize opening a PR for a delivery mode or forge that does not use one.
+EOF
+  if [ "$mode" = no-mistakes ] && [ "$forge" = none ] && [ "$pr" = auto ]; then
+    cat <<'EOF'
+After the pipeline opens the PR, rewrite its body to this layout with `gh pr edit` and keep any text the pipeline needs.
+EOF
+  fi
   case "$mode:$forge" in
     direct-PR:gerrit)
       cat <<EOF

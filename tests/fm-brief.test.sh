@@ -213,6 +213,15 @@ test_ship_modes_generate_clean_briefs() {
     assert_grep "{FIRSTMATE_SPEC}" "$brief" "$id: brief missing the {FIRSTMATE_SPEC} placeholder"
     assert_grep "## Captain's intent" "$brief" "$id: brief missing Captain's intent subsection"
     assert_grep "## Firstmate spec" "$brief" "$id: brief missing Firstmate spec subsection"
+    assert_grep 'Why, What changed, How it fits, How it was checked, and Open review findings' "$brief" "$id: brief missing PR description headings"
+    assert_grep 'Mermaid diagram only when the change alters a flow, structure, or boundary' "$brief" "$id: brief missing diagram condition"
+    assert_grep 'Omit How it fits when no diagram is needed and Open review findings when none remain' "$brief" "$id: brief missing omission conditions"
+    assert_grep 'plain sentences' "$brief" "$id: brief missing plain-sentence rule"
+    assert_grep 'Never copy text from the task or this brief into the PR description, and on a public repository name no machines or people.' "$brief" "$id: brief missing PR text privacy rule"
+    if [ "$mode" = no-mistakes ]; then
+      assert_grep 'gh pr edit' "$brief" "$id: brief missing pipeline PR rewrite"
+      assert_grep 'keep any text the pipeline needs' "$brief" "$id: brief missing pipeline text preservation"
+    fi
     assert_grep 'never a bare number such as "PR 108"' "$brief" "$id: brief missing the full-PR-URL rule"
     assert_grep "mid-task \`working:\` line (including setup complete) is nonterminal" "$brief" \
       "$id: brief missing nonterminal working:/setup-complete gate protection"
