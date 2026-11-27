@@ -1657,6 +1657,9 @@ families_for_changed_path() {
     bin/fm-fleet-snapshot.sh|bin/fm-fleet-view.sh)
       printf '%s\n' snapshot-bearings
       ;;
+    bin/fm-backlog-md/task-id.cjs|bin/fm-backlog-md/tasks-axi-add.cjs)
+      printf '%s\n' "__script__:fm-tasks-axi.test.sh"
+      ;;
     bin/fm-install-herdr.sh|bin/fm-install-treehouse.sh|bin/fm-herdr-ci-cleanup.sh)
       printf '%s\n' pure-contract-unit
       # Pin or cleanup changes also select the real-Herdr family so the required

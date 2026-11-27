@@ -36,11 +36,12 @@ function followupMarker(key, mint, json) {
   if (!mint || !json || !/^[A-Za-z0-9._-]+$/.test(key)) {
     throw new Error('--followup-key requires a slug key, --mint, and --json');
   }
-  return `Follow-up key: ${key}`;
+  return `Follow-up id: ${key}`;
 }
 
 function hasFollowupMarker(body, marker) {
-  return body.split(/\r?\n/).includes(marker);
+  const legacy = marker.replace(/^Follow-up id: /, 'Follow-up key: ');
+  return body.split(/\r?\n/).some(line => line === marker || line === legacy);
 }
 
 module.exports = { assignTaskId, followupMarker, hasFollowupMarker };
