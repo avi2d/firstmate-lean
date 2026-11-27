@@ -40,13 +40,15 @@ $2
 EOF
 }
 
-test_bare_future_date_is_not_silently_deferred() {
+test_bare_date_does_not_raise_before_utc_day_ends() {
   local dir state items
   dir=$(make_case wait-bare-date); state="$dir/state"
-  printf 'paused: waiting | owner=captain | recheck=2099-01-01\n' > "$state/t.status"
-  items=$(scan "$state") || fail "the scan failed on a bare date"
-  assert_contains "$(reasons "$items")" "wait overdue: t paused waiting on captain, recheck 2099-01-01 passed" "a bare date deferred the wait"
-  pass "a bare date is overdue even when its day is in the future"
+  printf 'paused: waiting | owner=captain | recheck=2026-11-28\n' > "$state/t.status"
+  items=$(scan_wait_declarations "$state" 1795910399) || fail "the scan failed before the UTC day ended"
+  [ -z "$items" ] || fail "a bare date was raised before its UTC day ended: $items"
+  items=$(scan_wait_declarations "$state" 1795910400) || fail "the scan failed at the next UTC midnight"
+  assert_contains "$(reasons "$items")" "wait overdue: t paused waiting on captain, recheck 2026-11-28 passed 0m ago" "a bare date was not raised at the next UTC midnight"
+  pass "a bare date becomes overdue at the next UTC midnight"
 }
 
 test_accepted_shape_quiet_before_recheck() {
@@ -560,7 +562,7 @@ EOF
   pass "a wait on no-mistakes whose run is parked at a gate reaches firstmate and the worker at the bound"
 }
 
-test_bare_future_date_is_not_silently_deferred
+test_bare_date_does_not_raise_before_utc_day_ends
 
 test_accepted_shape_quiet_before_recheck
 test_refused_shape_flagged
