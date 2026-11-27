@@ -48,11 +48,10 @@ LOG="${FM_HERDR_LOG:?}"
 RESP="${FM_HERDR_RESPONSES:?}"
 COUNT_FILE="$RESP/.count"
 next=$(( $(cat "$COUNT_FILE" 2>/dev/null || echo 0) + 1 ))
-{
-  printf 'HERDR_SESSION=%s' "${HERDR_SESSION:-}"
-  for a in "$@"; do printf '\x1f%s' "$a"; done
-  printf '\n'
-} >> "$LOG"
+# One printf per line: concurrent callers share this log, and split writes interleave.
+line="HERDR_SESSION=${HERDR_SESSION:-}"
+for a in "$@"; do line+=$'\x1f'"$a"; done
+printf '%s\n' "$line" >> "$LOG"
 if [ "${1:-}" = status ] && [ "${2:-}" = --json ] && [ "${FM_HERDR_SCRIPT_STATUS:-0}" != 1 ]; then
   printf '{"client":{"version":"0.7.1","protocol":14},"server":{"running":true}}\n'
   exit 0
@@ -210,11 +209,10 @@ make_herdr_container_stateful_fakebin() {  # <dir> -> echoes fakebin dir
 set -u
 LOG="${FM_HERDR_LOG:?}"
 MARKER="${FM_HERDR_SERVER_MARKER:?}"
-{
-  printf 'HERDR_SESSION=%s' "${HERDR_SESSION:-}"
-  for a in "$@"; do printf '\x1f%s' "$a"; done
-  printf '\n'
-} >> "$LOG"
+# One printf per line: concurrent callers share this log, and split writes interleave.
+line="HERDR_SESSION=${HERDR_SESSION:-}"
+for a in "$@"; do line+=$'\x1f'"$a"; done
+printf '%s\n' "$line" >> "$LOG"
 case "${1:-} ${2:-}" in
   "status --json")
     if [ -e "$MARKER" ]; then
@@ -310,11 +308,10 @@ make_herdr_statefake() {  # <dir> -> echoes fakebin dir; seeds an empty state fi
 set -u
 LOG="${FM_HERDR_LOG:?}"
 STATE="${FM_FAKE_HERDR_STATE:?}"
-{
-  printf 'HERDR_SESSION=%s' "${HERDR_SESSION:-}"
-  for a in "$@"; do printf '\x1f%s' "$a"; done
-  printf '\n'
-} >> "$LOG"
+# One printf per line: concurrent callers share this log, and split writes interleave.
+line="HERDR_SESSION=${HERDR_SESSION:-}"
+for a in "$@"; do line+=$'\x1f'"$a"; done
+printf '%s\n' "$line" >> "$LOG"
 
 jq_state() { jq "$@" "$STATE"; }
 save() { local tmp="$STATE.tmp.$$"; cat > "$tmp" && mv "$tmp" "$STATE"; }
@@ -6276,7 +6273,10 @@ make_herdr_eventfake() {  # <dir> -> echoes fakebin dir
 #!/usr/bin/env bash
 set -u
 LOG="${FM_HERDR_LOG:-/dev/null}"
-{ printf 'HERDR_SESSION=%s' "${HERDR_SESSION:-}"; for a in "$@"; do printf '\x1f%s' "$a"; done; printf '\n'; } >> "$LOG"
+# One printf per line: concurrent callers share this log, and split writes interleave.
+line="HERDR_SESSION=${HERDR_SESSION:-}"
+for a in "$@"; do line+=$'\x1f'"$a"; done
+printf '%s\n' "$line" >> "$LOG"
 cmd=${1:-}; sub=${2:-}
 case "$cmd $sub" in
   "status --json")
