@@ -731,8 +731,8 @@ if [ "${1:-}" = --handling-delivered ]; then
 fi
 printf 'arm=%s\n' "$$" >> "${FM_ARM_LOG:?}"
 count=$(grep -c '^arm=' "$FM_ARM_LOG")
-printf 'watcher: started pid=%s (beacon fresh) recovery-generation=before-close-%s\n' "$$" "$count"
 if [ "$count" -eq 1 ]; then
+  printf 'watcher: started pid=%s (beacon fresh) recovery-generation=before-close-%s\n' "$$" "$count"
   printf 'actionable-emitted\n' >> "$FM_ARM_LOG"
   printf 'signal: actionable output before predecessor close\n'
   sleep 0.5
@@ -740,6 +740,9 @@ if [ "$count" -eq 1 ]; then
   exit 0
 fi
 trap 'exit 0' TERM INT
+sleep 1
+printf 'successor-ready\n' >> "$FM_ARM_LOG"
+printf 'watcher: started pid=%s (beacon fresh) recovery-generation=before-close-%s\n' "$$" "$count"
 while [ ! -e "$FM_STOP_FILE" ] && [ -e "$0" ]; do sleep 0.02; done
 SH
   chmod +x "$repo/bin/fm-watch-arm.sh"
@@ -770,17 +773,21 @@ writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
 const mod = await import(pathToFileURL(process.env.PLUGIN).href);
 mod.default(pi);
 await tool.execute("initial-arm", {}, undefined, undefined, {});
-await new Promise((resolve) => setTimeout(resolve, 1200));
+for (let i = 0; i < 250 && prompts.length === 0; i += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 20));
+}
+if (prompts.length === 0) failNow("the extension never delivered the actionable wake");
 const rows = existsSync(process.env.FM_ARM_LOG)
   ? readFileSync(process.env.FM_ARM_LOG, "utf8").trim().split("\n")
   : [];
 const armIndexes = rows.map((row, index) => row.startsWith("arm=") ? index : -1).filter((index) => index >= 0);
 const closeIndex = rows.indexOf("predecessor-closed");
+const readyIndex = rows.indexOf("successor-ready");
 const deliveryIndex = rows.indexOf("delivery");
 if (armIndexes.length !== 2) failNow(`expected a successor after the predecessor close: ${rows.join(" | ")}`);
-if (closeIndex < 0 || deliveryIndex < 0) failNow(`missing close or delivery evidence: ${rows.join(" | ")}`);
+if (closeIndex < 0 || readyIndex < 0 || deliveryIndex < 0) failNow(`missing close, readiness or delivery evidence: ${rows.join(" | ")}`);
 if (armIndexes[1] < closeIndex) failNow(`successor started before predecessor close: ${rows.join(" | ")}`);
-if (deliveryIndex < armIndexes[1]) failNow(`wake was delivered before successor startup: ${rows.join(" | ")}`);
+if (deliveryIndex < readyIndex) failNow(`wake was delivered before the successor was ready: ${rows.join(" | ")}`);
 if (prompts.length !== 1 || !prompts[0].includes("signal: actionable output before predecessor close")) {
   failNow(`wrong actionable wake: ${prompts.join(" | ")}`);
 }
@@ -789,7 +796,7 @@ process.exit(0);
 EOF
   )
   status=$?
-  expect_code 0 "$status" "Pi actionable output must wait for predecessor close before successor restoration"
+  expect_code 0 "$status" "Pi actionable output must wait for predecessor close before successor restoration: $out"
   [ -z "$out" ] || fail "Pi actionable-before-close test printed output: $out"
   pass "Pi actionable output waits for predecessor close before successor restoration"
 }
