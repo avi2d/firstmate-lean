@@ -10,6 +10,8 @@ MAX_MANIFEST_BYTES=1048576
 
 # shellcheck source=bin/fm-project-origin-lib.sh
 . "$SCRIPT_DIR/fm-project-origin-lib.sh"
+# shellcheck source=bin/fm-lavish-address-lib.sh
+. "$SCRIPT_DIR/fm-lavish-address-lib.sh"
 
 die() { printf 'error: %s\n' "$1" >&2; exit 1; }
 
@@ -67,6 +69,7 @@ rollback() {
       restore_owned_file .fm-exec-home || true
       restore_owned_file config/backlog-backend || true
       restore_owned_file config/herdr-session || true
+      restore_owned_file config/lavish-axi-supervisor-address || true
       restore_owned_file data/projects.md || true
       [ "$CREATED_BACKLOG" -eq 0 ] || rm -f -- "$FM_HOME/data/backlog.md"
     fi
@@ -86,6 +89,7 @@ MARKER=.fm-exec-home
 ID_B64=$(manifest_value "$TMP/manifest" id_b64 || true)
 CHARTER_B64=$(manifest_value "$TMP/manifest" charter_b64 || true)
 SESSION_B64=$(manifest_value "$TMP/manifest" session_b64 || true)
+LAVISH_ADDRESS_B64=$(manifest_value "$TMP/manifest" lavish_address_b64 || true)
 COUNT=$(manifest_value "$TMP/manifest" project_count || true)
 base64_decode_to "$ID_B64" "$TMP/id" || die "manifest id is not valid base64"
 [ -z "$CHARTER_B64" ] || die "execution-home manifest must not carry a charter"
@@ -94,6 +98,12 @@ if [ -n "$SESSION_B64" ]; then
   base64_decode_to "$SESSION_B64" "$TMP/session" || die "manifest session is not valid base64"
   SESSION=$(cat "$TMP/session")
   case "$SESSION" in ''|*[!A-Za-z0-9._-]*) die "manifest carries an unsafe Herdr session name" ;; esac
+fi
+LAVISH_ADDRESS=
+if [ -n "$LAVISH_ADDRESS_B64" ]; then
+  base64_decode_to "$LAVISH_ADDRESS_B64" "$TMP/lavish-address" || die "manifest Lavish address is not valid base64"
+  LAVISH_ADDRESS=$(cat "$TMP/lavish-address")
+  fm_lavish_address_valid "$LAVISH_ADDRESS" || die "manifest carries an invalid Lavish address"
 fi
 ID=$(cat "$TMP/id")
 safe_id "$ID" || die "manifest carries an unsafe route id"
@@ -141,7 +151,7 @@ if [ -e "$FM_HOME" ] || [ -L "$FM_HOME" ]; then
   done
   mkdir -p "$TMP/before/data"
   mkdir -p "$TMP/before/config"
-  owned_files=(data/projects.md .fm-exec-home config/backlog-backend config/herdr-session)
+  owned_files=(data/projects.md .fm-exec-home config/backlog-backend config/herdr-session config/lavish-axi-supervisor-address)
   for rel in "${owned_files[@]}"; do
     existing="$FM_HOME/$rel"
     if [ -e "$existing" ] || [ -L "$existing" ]; then
@@ -245,6 +255,10 @@ printf 'manual\n' > "$FM_HOME/config/backlog-backend.tmp.$$"
 mv -f -- "$FM_HOME/config/backlog-backend.tmp.$$" "$FM_HOME/config/backlog-backend"
 printf '%s\n' "$SESSION" > "$FM_HOME/config/herdr-session.tmp.$$"
 mv -f -- "$FM_HOME/config/herdr-session.tmp.$$" "$FM_HOME/config/herdr-session"
+if [ -n "$LAVISH_ADDRESS" ]; then
+  printf '%s\n' "$LAVISH_ADDRESS" > "$FM_HOME/config/lavish-axi-supervisor-address.tmp.$$"
+  mv -f -- "$FM_HOME/config/lavish-axi-supervisor-address.tmp.$$" "$FM_HOME/config/lavish-axi-supervisor-address"
+fi
 cp "$PROJECT_REG" "$FM_HOME/data/projects.md.tmp.$$"
 mv -f -- "$FM_HOME/data/projects.md.tmp.$$" "$FM_HOME/data/projects.md"
 printf '%s\n' "$ID" > "$FM_HOME/$MARKER.tmp.$$"
@@ -254,3 +268,4 @@ release_provision_lock
 trap - EXIT
 rm -rf -- "$TMP"
 printf 'provisioned: %s projects=%s\n' "$FM_HOME" "$COUNT"
+[ -z "$LAVISH_ADDRESS" ] || printf 'lavish-address: %s\n' "$LAVISH_ADDRESS"
