@@ -5902,6 +5902,7 @@ test_automatic_cleanup_preserves_dirty_merged_worker() {
   local case_dir out
   case_dir=$(make_case auto-dirty)
   write_meta "$case_dir" direct-PR ship
+  printf '%s\n' 'done [at=100]: ready' > "$case_dir/state/task-x1.status"
   printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
   add_gh_pr_merged_for_head "$case_dir" "$(git -C "$case_dir/wt" rev-parse HEAD)"
   printf '%s\n' dirty > "$case_dir/wt/uncommitted"
@@ -5918,6 +5919,7 @@ test_automatic_cleanup_retires_merged_worker() {
   local case_dir out
   case_dir=$(make_case auto-merged)
   write_meta "$case_dir" direct-PR ship
+  printf '%s\n' 'done [at=100]: ready' > "$case_dir/state/task-x1.status"
   printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
   add_gh_pr_merged_for_head "$case_dir" "$(git -C "$case_dir/wt" rev-parse HEAD)"
   mv "$case_dir/fakebin/herdr" "$case_dir/fakebin/herdr-base"
@@ -5940,10 +5942,27 @@ SH
   pass "automatic cleanup retires a merged worker"
 }
 
+test_automatic_cleanup_keeps_merged_worker_paused_after_done() {
+  local case_dir out
+  case_dir=$(make_case auto-paused-after-merge)
+  write_meta "$case_dir" direct-PR ship
+  printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
+  printf '%s\n' 'done [at=100]: PR ready' 'paused [at=101]: awaiting merge decision' > "$case_dir/state/task-x1.status"
+  add_gh_pr_merged_for_head "$case_dir" "$(git -C "$case_dir/wt" rev-parse HEAD)"
+  printf '%s\n' 'paused [at=102]: workflow on main in progress | owner=CI' >> "$case_dir/state/task-x1.status"
+  out=$(FM_HOME="$case_dir" FM_STATE_OVERRIDE="$case_dir/state" FM_DATA_OVERRIDE="$case_dir/data" \
+    FM_CONFIG_OVERRIDE="$case_dir/config" PATH="$case_dir/fakebin:$PATH" \
+    "$ROOT/bin/fm-finished-cleanup.sh" sweep 2>&1) || fail "automatic cleanup scan failed: $out"
+  assert_present "$case_dir/state/task-x1.meta" "automatic cleanup retired a worker waiting on its post-merge step: $out"
+  assert_present "$case_dir/wt" "automatic cleanup removed the paused worker's worktree: $out"
+  pass "automatic cleanup keeps a merged worker paused after done"
+}
+
 test_automatic_cleanup_keeps_unmerged_worker() {
   local case_dir out
   case_dir=$(make_case auto-unmerged)
   write_meta "$case_dir" direct-PR ship
+  printf '%s\n' 'done [at=100]: ready' > "$case_dir/state/task-x1.status"
   printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
   add_gh_branch_pr_in_state "$case_dir" OPEN
   out=$(FM_HOME="$case_dir" FM_STATE_OVERRIDE="$case_dir/state" FM_DATA_OVERRIDE="$case_dir/data" \
@@ -5981,6 +6000,7 @@ test_automatic_cleanup_retires_reviewed_scout() {
 
 test_automatic_cleanup_preserves_dirty_merged_worker
 test_automatic_cleanup_retires_merged_worker
+test_automatic_cleanup_keeps_merged_worker_paused_after_done
 test_automatic_cleanup_keeps_unmerged_worker
 test_automatic_cleanup_keeps_scout_without_reviewed_decisions
 test_automatic_cleanup_retires_reviewed_scout
