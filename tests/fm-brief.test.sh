@@ -217,6 +217,7 @@ test_ship_modes_generate_clean_briefs() {
     assert_grep 'Mermaid diagram only when the change alters a flow, structure, or boundary' "$brief" "$id: brief missing diagram condition"
     assert_grep 'Omit How it fits when no diagram is needed and Open review findings when none remain' "$brief" "$id: brief missing omission conditions"
     assert_grep 'plain sentences' "$brief" "$id: brief missing plain-sentence rule"
+    assert_grep 'Never copy text from the task or this brief into the PR description, and on a public repository name no machines or people.' "$brief" "$id: brief missing PR text privacy rule"
     if [ "$mode" = no-mistakes ]; then
       assert_grep 'gh pr edit' "$brief" "$id: brief missing pipeline PR rewrite"
       assert_grep 'keep any text the pipeline needs' "$brief" "$id: brief missing pipeline text preservation"
