@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# fm_remote_readiness_ensure <bin-dir> <route> [backend] [herdr-session]: 0 ready, 1 a gap remains, 255 SSH did not complete.
+# fm_remote_readiness_ensure <bin-dir> <route> [backend] [herdr-session] [repair|check]: 0 ready, 1 a gap remains, 255 SSH did not complete.
 # The verdict is a read-only doctor run after any repair, and FM_REMOTE_READINESS_OUT holds its output.
 
 # Consumed by the sourcing caller, so every assignment reads as unused here.
@@ -16,7 +16,8 @@ fm_remote_readiness_probe() { # <bin-dir> <route> [doctor-args...]
 }
 
 fm_remote_readiness_ensure() { # <bin-dir> <route> [backend] [herdr-session]
-  local bin_dir=$1 id=$2 backend=${3:-any} session=${4:-} rc
+  local bin_dir=$1 id=$2 backend=${3:-any} session=${4:-} mode=${5:-repair} rc
+  case "$mode" in repair|check) ;; *) return 1 ;; esac
   local -a doctor_args=() session_args=()
   case "$backend" in
     any) ;;
@@ -35,6 +36,7 @@ fm_remote_readiness_ensure() { # <bin-dir> <route> [backend] [herdr-session]
   fi
   [ "$rc" -ne 0 ] || return 0
   [ "$rc" -ne 255 ] || return 255
+  [ "$mode" != check ] || return 1
 
   fm_remote_readiness_probe "$bin_dir" "$id" --fix ${doctor_args[@]+"${doctor_args[@]}"} ${session_args[@]+"${session_args[@]}"}
   rc=$?
