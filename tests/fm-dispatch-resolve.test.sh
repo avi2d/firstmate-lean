@@ -2621,7 +2621,7 @@ test_subquo_floor_respects_reset_and_rejects_cross_account_or_stale_evidence() (
   assert_absent "$LOG/clauth.calls" "matching named accounts do not read clauth quota"
   assert_absent "$LOG/quota-axi.calls" "preference order does not need the legacy scalar"
 
-  local absent returned window absent_candidate returned_candidate
+  local window absent_candidate returned_candidate
   for window in five-hour weekly; do
     jq --arg window "$window" '.accounts[1].observation.windows |= map(select(.id != $window))' "$snapshot" > "$snapshot.absent"
     jq --arg window "$window" '.accounts[1].observation.windows |= map(if .id == $window then {id: $window, percentLeft: null, resetsAt: null, status: "not_returned"} else . end)' "$snapshot" > "$snapshot.returned"
