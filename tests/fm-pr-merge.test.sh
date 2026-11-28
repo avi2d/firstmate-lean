@@ -4251,6 +4251,42 @@ test_github_red_checks_refuse_and_allow_red_waives_named() {
   pass "fm-pr-merge refuses red GitHub checks and waives only a named --allow-red check"
 }
 
+test_github_multiple_red_waivers_do_not_refuse_named_checks() {
+  local case_dir head
+  head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  case_dir=$(make_case github-multiple-red-waivers)
+  add_gh_mocks "$case_dir" "$head"
+  write_github_rollup_json "$case_dir" "$head" \
+    "$(check_run e2e-mac COMPLETED FAILURE)" \
+    "$(check_run checks COMPLETED FAILURE)" \
+    "$(check_run test COMPLETED SUCCESS)"
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/82 \
+    --allow-red e2e-mac --allow-red checks > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "multiple waivers should merge: $(cat "$case_dir/stderr")"
+  assert_logged_gh_merge "$case_dir" 82 example/repo --squash
+  pass "separate waivers cover both red checks"
+}
+
+test_github_multiple_red_waivers_do_not_cover_unnamed_check() {
+  local case_dir head rc
+  head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  case_dir=$(make_case github-multiple-red-unwaived)
+  add_gh_mocks "$case_dir" "$head"
+  write_github_rollup_json "$case_dir" "$head" \
+    "$(check_run e2e-mac COMPLETED FAILURE)" \
+    "$(check_run checks COMPLETED FAILURE)" \
+    "$(check_run test COMPLETED SUCCESS)"
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/83 \
+    --allow-red e2e-mac --allow-red unrelated > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "an unwaived red check must refuse"
+  assert_grep "check 'checks' is not green" "$case_dir/stderr" "the unwaived check must be named"
+  assert_no_grep 'pr merge' "$case_dir/gh.log" "merge must not run with an unwaived check"
+  pass "separate waivers do not cover an unnamed red check"
+}
+
 # A draft cannot be merged, and neither can a pull request whose draft state the
 # forge did not report as a boolean; both refuse before any merge call.
 test_github_draft_or_unreadable_draft_state_refuses() {
@@ -4987,19 +5023,7 @@ test_allow_red_requires_one_separate_name() {
   assert_no_grep 'pr merge' "$case_dir/gh.log" \
     "github-allow-red-equals: gh pr merge ran for the equals alias"
 
-  case_dir=$(make_case github-allow-red-duplicate)
-  mkdir -p "$case_dir/wt"
-  add_gh_mocks "$case_dir" "$head"
-  write_github_red_json "$case_dir" "$head" lint
-  set +e
-  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/88 \
-    --allow-red lint --allow-red unit > "$case_dir/stdout" 2> "$case_dir/stderr"
-  rc=$?
-  set -e
-  expect_code 2 "$rc" "github-allow-red-duplicate: duplicate waiver must be refused"
-  assert_no_grep 'pr merge' "$case_dir/gh.log" \
-    "github-allow-red-duplicate: gh pr merge ran for duplicate waivers"
-  pass "fm-pr-merge accepts exactly one separately named red-check waiver"
+  pass "fm-pr-merge requires a separate red-check waiver name"
 }
 
 
@@ -5538,6 +5562,8 @@ test_github_does_not_refuse_a_merged_pull_request_after_branch_update
 test_github_does_not_refuse_an_already_merged_pull_request
 test_github_behind_updates_and_rechecks_before_merge
 test_github_red_checks_refuse_and_allow_red_waives_named
+test_github_multiple_red_waivers_do_not_refuse_named_checks
+test_github_multiple_red_waivers_do_not_cover_unnamed_check
 test_github_draft_or_unreadable_draft_state_refuses
 test_github_head_behind_base_refuses
 test_github_disjoint_behind_merge_arms_ci_without_mutating_the_branch
