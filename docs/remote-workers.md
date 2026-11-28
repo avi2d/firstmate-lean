@@ -28,6 +28,36 @@ This home keeps the backlog, the task records, the status stream, and every deci
    Without it, a board URL a remote worker hands back names the host's own Lavish address, which this machine may not open.
    [Supervisor Lavish address](configuration.md#supervisor-lavish-address-configlavish-axi-supervisor-address) describes the file and what it changes.
 
+## Restrict the agents route's SSH key
+
+On the execution host, use a dedicated unprivileged account and a separate key for the supervisor.
+Keep the code checkout, wrapper, and their parent directories owned by root and unwritable by the worker account.
+Keep the execution home separate from the code checkout.
+
+Install the wrapper as root from the protected checkout:
+
+```sh
+install -d -o root -g root -m 0755 /usr/local/libexec
+install -o root -g root -m 0755 /opt/firstmate-agents/bin/fm-agents-ssh.sh /usr/local/libexec/fm-agents-ssh
+git config --system --add safe.directory /opt/firstmate-agents
+```
+
+The wrapper needs `/bin/bash` and `/usr/bin/python3`.
+Use a shell for the account that does not read worker-writable startup files during a forced command.
+Do not let SSH clients supply environment variables that affect shell startup or program loading.
+
+If the server uses `/etc/ssh/authorized_keys/agent` for this account, add this line to that root-owned file:
+
+```text
+restrict,command="/usr/local/libexec/fm-agents-ssh /opt/firstmate-agents /home/agent/firstmate-exec" ssh-ed25519 <supervisor-public-key>
+```
+
+Use the same canonical code root and execution home in the supervisor's route.
+The execution home's parent must exist, but provisioning can create the home itself.
+The wrapper accepts doctor, provisioning, worker control, status polling, and task report reads.
+It rejects interactive SSH, other Firstmate commands, and arguments outside the route's allowlist.
+This restricts the SSH key, not the worker's access to files or credentials within its own account.
+
 ## Share an execution account
 
 Each code root has its own remote job queue, worker lock, and log.
