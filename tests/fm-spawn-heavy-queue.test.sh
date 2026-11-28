@@ -215,6 +215,27 @@ test_remote_relaunch_whose_orc_fails_stops_with_orcs_error_instead_of_relaunchin
   pass "a remote relaunch whose orc fails stops with orc's error instead of relaunching without the stand-ins"
 }
 
+test_local_override_and_unrouted_projects_start_locally() {
+  local placement id out status
+  for placement in override unrouted; do
+    id="local-$placement"
+    make_case "$placement" "$id"
+    if [ "$placement" = override ]; then
+      printf '%s\n' '- project [direct-PR host=unavailable] - project' > "$HOME_DIR/data/projects.md"
+      out=$(run_case_spawn "$id" "$PROJ_DIR" --scout --local)
+    else
+      printf '%s\n' '- project [direct-PR] - project' > "$HOME_DIR/data/projects.md"
+      out=$(run_case_spawn "$id" "$PROJ_DIR" --scout)
+    fi
+    status=$?
+    expect_code 0 "$status" "$placement must start locally: $out"
+    [ -s "$LAUNCH_LOG" ] || fail "$placement did not launch a local worker: $out"
+    assert_no_grep 'remote_host=' "$HOME_DIR/state/$id.meta" "$placement must not create a remote worker record"
+  done
+  pass "explicit local override and unrouted projects launch locally"
+}
+
+test_local_override_and_unrouted_projects_start_locally
 test_ship_and_scout_resolve_bun_to_the_standin_not_the_ambient_path
 test_failing_orc_launches_unchanged_with_one_note_instead_of_refusing
 test_folder_that_does_not_exist_is_not_put_on_the_path

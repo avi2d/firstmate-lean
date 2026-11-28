@@ -8,7 +8,8 @@
 #   --relaunch starts a replacement agent in the task's recorded worktree and endpoint.
 #   A pair list re-runs this script once per pair with the shared flags.
 #   docs/scripts.md and docs/configuration.md own the flags and config files.
-# Exits 75 when project capacity is full and the task stays queued.
+#   --local overrides a project host route for a fresh local worker.
+# Exits 75 when project capacity or the execution host is full and the task stays queued.
 # On success prints: spawned <id> harness=<name> kind=<ship|scout> [mode=<mode> yolo=<on|off>] window=<target> worktree=<path>
 set -eu
 
@@ -548,75 +549,6 @@ else
   fi
 fi
 
-
-# Mirrors admit_heavy_gates: a machine that reports room is one its admit accepts.
-spawn_choose_machine() {  # <route> <host> <project>
-  local route=$1 host=$2 project=$3 room_config out rc rload rlimit rfree rheavy_limit why pick
-  local lok=0 rok=0 rmeasured=0 use_remote=0 remote_room=0 equal_room=0
-  local lfree=0 lheavy_limit=0 lload=0 llimit=1 lwhy='' rwhy='' figures
-  room_config=$(fm_project_capacity_config_dir "$FM_HOME" "$CONFIG") || return 1
-  if fm_host_room "$STATE" "$ID" "$room_config"; then
-    lfree=$FM_HOST_ROOM_FREE
-    lheavy_limit=$FM_HOST_ROOM_HEAVY_LIMIT
-    lload=$FM_HOST_ROOM_LOAD
-    llimit=$FM_HOST_ROOM_LOAD_LIMIT
-    if [ "$lfree" -gt 0 ] && awk -v a="$FM_HOST_ROOM_LOAD" -v b="$FM_HOST_ROOM_LOAD_LIMIT" 'BEGIN { exit !(a < b) }'; then
-      lok=1
-    else
-      lwhy="load $FM_HOST_ROOM_LOAD of $FM_HOST_ROOM_LOAD_LIMIT, $lfree heavy slot(s) free"
-    fi
-  else
-    lwhy=$FM_HOST_ROOM_ERROR
-  fi
-  rc=0
-  out=$("$SCRIPT_DIR/fm-on.sh" "$route" fm-remote-worker-control.sh admit "$ID" "$project" </dev/null 2>&1) || rc=$?
-  if [ "$rc" -eq 0 ]; then
-    rok=1
-    rload=$(printf '%s\n' "$out" | sed -n 's/.* load=\([^ ]*\).*/\1/p')
-    rlimit=$(printf '%s\n' "$out" | sed -n 's/.* load_limit=\([^ ]*\).*/\1/p')
-    rfree=$(printf '%s\n' "$out" | sed -n 's/.* heavy_free=\([0-9]*\).*/\1/p')
-    rheavy_limit=$(printf '%s\n' "$out" | sed -n 's/.* heavy_limit=\([0-9]*\).*/\1/p')
-    if [ -n "$rload" ] && [ -n "$rlimit" ] && [ -n "$rfree" ]; then
-      rmeasured=1
-      if [ "$rfree" -le 0 ] || ! awk -v a="$rload" -v b="$rlimit" 'BEGIN { exit !(a < b) }'; then
-        rok=0
-        rwhy="load $rload of $rlimit, $rfree heavy slot(s) free"
-      fi
-    fi
-  else
-    rwhy=$(printf '%s\n' "$out" | head -n 1)
-    rwhy=${rwhy:-no answer from $host}
-  fi
-  if [ "$lok" = 1 ] && [ "$rok" = 1 ] && [ "$rmeasured" = 1 ]; then
-    if [ -n "$rheavy_limit" ] && [ "$rheavy_limit" -gt 0 ]; then
-      [ "$((rfree * lheavy_limit))" -le "$((lfree * rheavy_limit))" ] || remote_room=1
-      [ "$((rfree * lheavy_limit))" -ne "$((lfree * rheavy_limit))" ] || equal_room=1
-      figures="heavy slots free $lfree/$lheavy_limit here and $rfree/$rheavy_limit on $host"
-    else
-      [ "$rfree" -le "$lfree" ] || remote_room=1
-      [ "$rfree" -ne "$lfree" ] || equal_room=1
-      figures="heavy slots free $lfree here and $rfree on $host (host limit unavailable)"
-    fi
-    if [ "$remote_room" = 1 ] || { [ "$equal_room" = 1 ] && awk -v r="$rload" -v rl="$rlimit" -v l="$lload" -v ll="$llimit" 'BEGIN { exit !(r * ll < l * rl) }'; }; then
-      use_remote=1
-    fi
-    why="$figures; load $lload/$llimit here and $rload/$rlimit on $host"
-  elif [ "$lok" = 1 ] && [ "$rok" = 1 ]; then
-    why="$host reported no room figures"
-  elif [ "$lok" = 1 ]; then
-    why="$host refused: $rwhy"
-  elif [ "$rok" = 1 ]; then
-    use_remote=1
-    why="this machine refused: $lwhy"
-  else
-    printf 'machine: neither machine has room: this machine (%s); %s (%s); task %s stays queued\n' "$lwhy" "$host" "$rwhy" "$ID" >&2
-    return "$FM_MAC_LOAD_DEFER_EXIT"
-  fi
-  pick="this machine"
-  [ "$use_remote" = 0 ] || pick=$host
-  printf 'machine: %s picked - %s\n' "$pick" "$why" >&2
-  [ "$use_remote" = 1 ]
-}
 
 remote_launch_unconfirmed() {
   local meta=$1 tmp=$2 reason=$3 line
@@ -1428,25 +1360,9 @@ if [ "$RELAUNCH" -eq 0 ] && [ "$LOCAL_OVERRIDE" -eq 0 ] && [ "${#POS[@]}" -ge 2 
   if [ -n "$remote_placement" ]; then
     remote_host=$(fm_remote_registry_field "$DATA/remote-homes.md" "$remote_placement" host 2>/dev/null || true)
     [ -n "$remote_host" ] || { echo "error: no execution-home route for $remote_placement" >&2; exit 1; }
-    if [ -d "$PROJECTS/$remote_project" ]; then
-      machine_rc=0
-      spawn_choose_machine "$remote_placement" "$remote_host" "$remote_project" || machine_rc=$?
-      case "$machine_rc" in
-        0) ;;
-        "$FM_MAC_LOAD_DEFER_EXIT") exit "$machine_rc" ;;
-        *) remote_placement= ;;
-      esac
-    fi
-  fi
-  if [ -n "$remote_placement" ]; then
     remote_rc=0
     spawn_remote_worker "$remote_placement" "$remote_project" "$remote_host" || remote_rc=$?
-    [ "$remote_rc" -eq 75 ] && [ -d "$PROJECTS/$remote_project" ] || exit "$remote_rc"
-    if [ "$SPAWN_TASK_LOCK_HELD" = 1 ]; then
-      SPAWN_TASK_LOCK_HELD=0
-      fm_lock_release "$SPAWN_TASK_LOCK" || true
-    fi
-    echo "machine: this machine picked - $remote_host deferred the launch after the room check; launching here" >&2
+    exit "$remote_rc"
   fi
 fi
 if [ "$RELAUNCH" -eq 0 ]; then

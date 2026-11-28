@@ -1086,7 +1086,7 @@ Pass `--lavish-address HOST:PORT` to record where this machine reaches the host'
 
 `bin/fm-on.sh` reads the route registry.
 Add `host=<route>` to a project record to run its workers there.
-[Remote workers](remote-workers.md) covers setup, steering, and cleanup.
+[Remote workers](remote-workers.md) covers placement, the local override, setup, steering, and cleanup.
 
 ## Harness support
 
