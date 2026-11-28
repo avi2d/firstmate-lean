@@ -120,6 +120,10 @@ seed --exec --session lab-x execone exec-alias "$REMOTE_ROOT" "$REMOTE_HOME" scr
   || fail "the execution-home seed failed: $(cat "$TMP_ROOT/seed.err")"
 assert_contains "$(cat "$TMP_ROOT/seed.out")" "provisioned: $REMOTE_HOME projects=1" \
   "the seed did not report the provisioned execution home"
+assert_contains "$(cat "$TMP_ROOT/seed.out")" "session: lab-x" \
+  "the healthy seed omitted the target lab session"
+assert_not_contains "$(cat "$TMP_ROOT/seed.out")" "fm-remote" \
+  "the healthy seed reported the fleet session"
 pass "fm-remote-exec-seed: --exec seeds the route and reports the provisioned home"
 
 [ -s "$FM_FAKE_DOCTOR_ARGV" ] || fail "the seed ran no readiness doctor"
