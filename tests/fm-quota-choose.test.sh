@@ -627,4 +627,23 @@ ok "schema 6 TOON with the accountKey column is accepted"
 [ "$(wc -l < "$CALLS" | tr -d '[:space:]')" = 1 ] || fail "helper took an additional quota snapshot"
 ok "helper reuses the captured quota snapshot"
 
+jq -n '
+  def iso: todateiso8601 | sub("Z$"; ".000Z");
+  (now | floor) as $now |
+  {version: "subquo.v1", writtenAt: ($now | iso), accounts: [{id: "default", provider: "codex", observation: {
+    status: "fresh", source: "provider", observedAt: ($now | iso), validUntil: ($now + 120 | iso),
+    windows: [{id: "weekly", scope: "all", percentLeft: 73, resetsAt: ($now + 172800 | iso)}]
+  }}]}
+' > "$LAB/subquo-absent.json"
+jq '.accounts[0].observation.windows += [{id: "five-hour", percentLeft: null, resetsAt: null, status: "not_returned"}]' \
+  "$LAB/subquo-absent.json" > "$LAB/subquo-not-returned.json"
+absent=$(call_choose --snapshot "$LAB/subquo-absent.json" --provider codex --candidate pi:default) || fail "absent five-hour window was rejected"
+returned=$(call_choose --snapshot "$LAB/subquo-not-returned.json" --provider codex --candidate pi:default) || fail "not_returned five-hour window was rejected"
+[ "$absent" = "pi default" ] && [ "$returned" = "$absent" ] || fail "not_returned changed the candidate: $absent vs $returned"
+jq '.accounts[0].observation.windows[1].percentLeft = 0' "$LAB/subquo-not-returned.json" > "$LAB/subquo-invalid-not-returned.json"
+if call_choose --snapshot "$LAB/subquo-invalid-not-returned.json" --provider codex --candidate pi:default >/dev/null 2>&1; then
+  fail "not_returned with a percentage was accepted"
+fi
+ok "not_returned matches an absent window and rejects contradictory data"
+
 printf '# all fm-quota-choose tests passed\n'

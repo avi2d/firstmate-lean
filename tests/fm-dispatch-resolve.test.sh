@@ -2621,6 +2621,26 @@ test_subquo_floor_respects_reset_and_rejects_cross_account_or_stale_evidence() (
   assert_absent "$LOG/clauth.calls" "matching named accounts do not read clauth quota"
   assert_absent "$LOG/quota-axi.calls" "preference order does not need the legacy scalar"
 
+  local window absent_candidate returned_candidate
+  for window in five-hour weekly; do
+    jq --arg window "$window" '.accounts[1].observation.windows |= map(select(.id != $window))' "$snapshot" > "$snapshot.absent"
+    jq --arg window "$window" '.accounts[1].observation.windows |= map(if .id == $window then {id: $window, percentLeft: null, resetsAt: null, status: "not_returned"} else . end)' "$snapshot" > "$snapshot.returned"
+    SUBQUO_FIXTURE="$snapshot.absent" FAKE_CURL_RESPONSE="$ACCOUNT_RESPONSE" run code out err "$BRIEF"
+    expect_code 0 "$code" "absent $window remains eligible"
+    absent_candidate=$(printf '%s\n' "$out" | grep 'account=main  provider=claude')
+    assert_contains "$absent_candidate" 'lacks a 5h or 7d window' "absent $window discloses uncertainty"
+    assert_contains "$absent_candidate" '-> eligible' "absent $window remains eligible"
+    if [ "$window" = five-hour ]; then
+      assert_contains "$absent_candidate" 'remaining=90%' "weekly headroom is retained"
+    else
+      assert_contains "$absent_candidate" 'remaining=10%' "five-hour headroom is retained"
+    fi
+    SUBQUO_FIXTURE="$snapshot.returned" FAKE_CURL_RESPONSE="$ACCOUNT_RESPONSE" run code out err "$BRIEF"
+    expect_code 0 "$code" "not_returned $window remains eligible"
+    returned_candidate=$(printf '%s\n' "$out" | grep 'account=main  provider=claude')
+    assert_equals "$absent_candidate" "$returned_candidate" "not_returned $window must not change eligibility or headroom"
+  done
+
   jq '.accounts = []' "$snapshot" > "$snapshot.empty"
   reset_log
   SUBQUO_FIXTURE="$snapshot.empty" FAKE_CURL_RESPONSE="$ACCOUNT_RESPONSE" run code out err "$BRIEF"

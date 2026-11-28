@@ -20,8 +20,9 @@ function validObservation(observation, writtenAt) {
       Date.parse(observation.observedAt) > writtenAt) return false;
   const { windows } = observation;
   if (!Array.isArray(windows) || windows.length === 0 || !windows.every((window) =>
-    record(window) && label(window.id) && label(window.scope) && percent(window.percentLeft) &&
-    (window.resetsAt === null || timestamp(window.resetsAt))) || !unique(windows)) return false;
+    record(window) && label(window.id) && (window.status === "not_returned"
+      ? (!Object.hasOwn(window, "scope") || label(window.scope)) && window.percentLeft === null && window.resetsAt === null
+      : label(window.scope) && percent(window.percentLeft) && (window.resetsAt === null || timestamp(window.resetsAt)))) || !unique(windows)) return false;
   if (observation.status === "stale") return observation.code === null || failure(observation.code);
   return observation.status === "fresh" && timestamp(observation.validUntil) &&
     Date.parse(observation.validUntil) === deadline(observation) && writtenAt < deadline(observation);
@@ -58,7 +59,7 @@ function providerRow({ id, provider, observation }, now) {
     return { ...identity, unavailable: "stale" };
   }
 
-  const windows = observation.windows.map(({ id: name, scope, percentLeft, resetsAt }) => ({
+  const windows = observation.windows.filter(({ status }) => status !== "not_returned").map(({ id: name, scope, percentLeft, resetsAt }) => ({
     id: name, scope, percentRemaining: percentLeft,
     percentUsed: percentLeft === null ? null : 100 - percentLeft, resetsAt,
   }));
