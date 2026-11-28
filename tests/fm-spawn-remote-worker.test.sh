@@ -192,6 +192,14 @@ choose_run() {  # <home> <task-id> <local-load> <remote-load> <remote-free> [rem
     bash "$FAKE_ROOT/bin/fm-spawn.sh" "$id" "$h/projects/alpha" --scout --harness pi 2>&1
 }
 
+h=$(choose_home routed-full)
+rc=0
+out=$(choose_run "$h" routed-full 2.8 26 0 1) || rc=$?
+[ "$rc" -eq 75 ] || fail "a full route with a local clone did not stay queued (rc=$rc): $out"
+[ ! -e "$h/state/routed-full.meta" ] || fail "a full route started a local worker: $out"
+FM_HOME="$h" "$ROOT/bin/fm-tasks-axi.sh" list --state queued | grep -F 'routed-full' >/dev/null || fail "a full route removed its task from the queue"
+pass "a full route does not start a worker on a machine with a clone"
+
 h=$(choose_home refused-here)
 out=$(choose_run "$h" refused-here 2.8 26 0 1) || true
 printf '%s\n' "$out" | grep -F 'machine: this machine picked' >/dev/null || fail "a host that refused on load took a launch while this machine had room: $out"
