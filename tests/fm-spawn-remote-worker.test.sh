@@ -192,116 +192,23 @@ choose_run() {  # <home> <task-id> <local-load> <remote-load> <remote-free> [rem
     bash "$FAKE_ROOT/bin/fm-spawn.sh" "$id" "$h/projects/alpha" --scout --harness pi 2>&1
 }
 
-h=$(choose_home refused-here)
-out=$(choose_run "$h" refused-here 2.8 26 0 1) || true
-printf '%s\n' "$out" | grep -F 'machine: this machine picked' >/dev/null || fail "a host that refused on load took a launch while this machine had room: $out"
-[ ! -e "$h/launch-args" ] || fail "a launch was sent to a host that refused on load: $out"
-pass "a launch is not sent to a host that refused on load while this machine has room"
-
-overloaded_host_picked_local() {
-  printf '%s\n' "$1" | grep -F 'machine: this machine picked - testhost refused: load 68.51 of 16' >/dev/null
-}
-REAL_AWK=$(command -v awk)
-BAD_AWK="$TMP_ROOT/bad-awk"
-mkdir -p "$BAD_AWK"
-cat > "$BAD_AWK/awk" <<'SH'
-#!/usr/bin/env bash
-case " $* " in
-  *' -v a=68.51 -v b=16 '*|*' -v a=10 -v b=10 '*) exit 0 ;;
-esac
-exec "$FM_TEST_REAL_AWK" "$@"
-SH
-chmod +x "$BAD_AWK/awk"
-h=$(choose_home wrong-overloaded-pick)
-printf '@heavy-limit 6\n@load-limit 10\n' > "$h/config/project-capacity"
-printf 'kind=ship\n' > "$h/state/holder.meta"
-out=$(PATH="$BAD_AWK:$PATH" FM_TEST_REAL_AWK="$REAL_AWK" FM_TEST_REMOTE_LIMIT_FIELD=' heavy_limit=4' choose_run "$h" wrong-overloaded-pick 8 68.51 4) || fail "the deliberately wrong host pick failed to launch: $out"
-[ -e "$h/launch-args" ] || fail "the deliberately wrong comparison did not pick the overloaded host: $out"
-if overloaded_host_picked_local "$out"; then fail "the overload check accepted a deliberately wrong host pick: $out"; fi
-pass "the overload check rejects a deliberately wrong host pick"
-
-h=$(choose_home overloaded-host)
-printf '@heavy-limit 6\n@load-limit 10\n' > "$h/config/project-capacity"
-printf 'kind=ship\n' > "$h/state/holder.meta"
-out=$(FM_TEST_REMOTE_LIMIT_FIELD=' heavy_limit=4' choose_run "$h" overloaded-host 8 68.51 4) || true
-overloaded_host_picked_local "$out" || fail "an overloaded host beat the local machine on free slots: $out"
-[ ! -e "$h/launch-args" ] || fail "an overloaded host received a launch: $out"
-pass "an overloaded host does not beat a local machine with room"
-
-both_overloaded_deferred() {
-  [ "$1" -eq 75 ] && printf '%s\n' "$2" | grep -F 'neither machine has room' >/dev/null
-}
-h=$(choose_home wrong-both-overloaded)
-printf '@load-limit 10\n' > "$h/config/project-capacity"
+h=$(choose_home routed-full)
 rc=0
-out=$(PATH="$BAD_AWK:$PATH" FM_TEST_REAL_AWK="$REAL_AWK" choose_run "$h" wrong-both-overloaded 10 16 6) || rc=$?
-printf '%s\n' "$out" | grep -F 'machine: this machine picked' >/dev/null || fail "the deliberately wrong comparison did not proceed locally: $out"
-if both_overloaded_deferred "$rc" "$out"; then fail "the deferral check accepted a deliberately wrong local pick: $out"; fi
-pass "the deferral check rejects a deliberately wrong local pick"
+out=$(choose_run "$h" routed-full 2.8 26 0 1) || rc=$?
+[ "$rc" -eq 75 ] || fail "a full route with a local clone did not stay queued (rc=$rc): $out"
+[ ! -e "$h/state/routed-full.meta" ] || fail "a full route started a local worker: $out"
+FM_HOME="$h" "$ROOT/bin/fm-tasks-axi.sh" list --state queued | grep -F 'routed-full' >/dev/null || fail "a full route removed its task from the queue"
+pass "a full route does not start a worker on a machine with a clone"
 
-h=$(choose_home both-overloaded)
-git init -q "$h/projects/alpha"
-printf '@load-limit 10\n' > "$h/config/project-capacity"
-rc=0
-out=$(choose_run "$h" both-overloaded 10 16 6) || rc=$?
-both_overloaded_deferred "$rc" "$out" || fail "two overloaded machines did not defer with exit 75 (rc=$rc): $out"
-[ ! -e "$h/launch-args" ] && [ ! -e "$h/state/both-overloaded.meta" ] || fail "two overloaded machines launched a worker: $out"
-FM_HOME="$h" "$ROOT/bin/fm-tasks-axi.sh" list --state queued | grep -F 'both-overloaded' >/dev/null || fail "two overloaded machines removed the task from the queue"
-pass "two machines at their load limits defer rather than launch"
-
-h=$(choose_home more-room-there)
-printf '@heavy-limit 6\n' > "$h/config/project-capacity"
-printf 'kind=ship\n' > "$h/state/holder.meta"
-out=$(choose_run "$h" more-room-there 2.8 1.0 99) || fail "a launch to the host with more room failed: $out"
-printf '%s\n' "$out" | grep -F 'machine: testhost picked' >/dev/null || fail "the host with more room was not picked: $out"
-assert_grep 'remote_host=testhost' "$h/state/more-room-there.meta" "the launch with more room did not land on that host"
-pass "a launch with more room on the host route is not kept on this machine"
-
-h=$(choose_home relative-room-there)
-printf '@heavy-limit 6\n' > "$h/config/project-capacity"
-printf 'kind=ship\n' > "$h/state/holder.meta"
-out=$(FM_TEST_REMOTE_LIMIT_FIELD=' heavy_limit=4' choose_run "$h" relative-room-there 9.97 1.0 4) || fail "host with more relative room refused: $out"
-printf '%s\n' "$out" | grep -F 'machine: testhost picked - heavy slots free 5/6 here and 4/4 on testhost' >/dev/null || fail "absolute free slots overrode the host's greater relative room: $out"
-pass "five free slots of six do not beat four of four on the host"
-
-h=$(choose_home relative-load-there)
-printf '@heavy-limit 6\n@load-limit 10\n' > "$h/config/project-capacity"
-out=$(FM_TEST_REMOTE_LIMIT_FIELD=' heavy_limit=4' choose_run "$h" relative-load-there 2.8 4.47 4) || fail "host with lower relative load refused: $out"
-printf '%s\n' "$out" | grep -F 'machine: testhost picked' >/dev/null || fail "rounding hid the host's lower relative load: $out"
-pass "equal free shares use the unrounded load shares"
-
-h=$(choose_home legacy-room-here)
-printf '@heavy-limit 6\n' > "$h/config/project-capacity"
-printf 'kind=ship\n' > "$h/state/holder.meta"
-out=$(FM_TEST_REMOTE_LIMIT_FIELD='' choose_run "$h" legacy-room-here 2.8 1.0 4) || true
-printf '%s\n' "$out" | grep -F 'machine: this machine picked - heavy slots free 5 here and 4 on testhost (host limit unavailable)' >/dev/null || fail "a host without a heavy limit did not use the absolute comparison: $out"
-pass "a host without a heavy limit falls back to absolute free slots"
-
-h=$(choose_home more-room-here)
-out=$(choose_run "$h" more-room-here 2.8 1.0 0) || true
-printf '%s\n' "$out" | grep -F 'machine: this machine picked' >/dev/null || fail "a launch went to a host with no free heavy slot: $out"
-[ ! -e "$h/launch-args" ] || fail "a launch was sent to a host with no free heavy slot: $out"
-pass "a launch is not sent to a host with no free heavy slot while this machine has room"
-
-h=$(choose_home refused-by-load-here)
-out=$(choose_run "$h" refused-by-load-here 20 1.0 6) || fail "the host with room did not take a launch this machine refused on load: $out"
-printf '%s\n' "$out" | grep -F 'machine: testhost picked' >/dev/null || fail "the host with room was not picked: $out"
-assert_grep 'remote_host=testhost' "$h/state/refused-by-load-here.meta" "the launch refused here did not land on the host with room"
-pass "a launch this machine refuses on load moves to the host that has room instead of deferring"
-
-h=$(choose_home no-room-anywhere)
-out=$(choose_run "$h" no-room-anywhere 20 26 0 1) || true
-printf '%s\n' "$out" | grep -F 'machine: neither machine has room' >/dev/null || fail "a launch with no room on either machine did not say so: $out"
-[ ! -e "$h/launch-args" ] && [ ! -e "$h/state/no-room-anywhere.meta" ] || fail "a launch with no room anywhere reached the host that refused: $out"
-pass "a launch with no room on either machine is not sent to the host that refused"
+h=$(choose_home remote-preferred)
+out=$(choose_run "$h" remote-preferred 1 10 1) || fail "routed launch failed: $out"
+assert_grep 'remote_host=testhost' "$h/state/remote-preferred.meta" "local load displaced the configured route"
+pass "a configured route wins even when the local machine has more room"
 
 h=$(choose_home launch-deferred)
-printf '@heavy-limit 6\n' > "$h/config/project-capacity"
-printf 'kind=ship\n' > "$h/state/holder.meta"
 rc=0
 out=$(choose_run "$h" launch-deferred 2.8 1.0 99 0 1) || rc=$?
-printf '%s\n' "$out" | grep -F 'machine: testhost picked' >/dev/null || fail "the host with room was not chosen before its launch deferred: $out"
-printf '%s\n' "$out" | grep -F 'launching here' >/dev/null || fail "a launch the host deferred did not fall back to this machine: $out"
-[ "$rc" -ne 75 ] || fail "a launch the host deferred exited 75 without trying this machine: $out"
-! grep -qs 'remote_host=testhost' "$h/state/launch-deferred.meta" || fail "a launch the host deferred was recorded as launched there: $out"
-pass "a launch the host defers after the room check is handed back to this machine instead of exiting 75"
+[ "$rc" -eq 75 ] || fail "a host launch deferral fell back locally (rc=$rc): $out"
+[ ! -e "$h/state/launch-deferred.meta" ] || fail "a deferred launch left a worker record"
+FM_HOME="$h" "$ROOT/bin/fm-tasks-axi.sh" list --state queued | grep -F 'launch-deferred' >/dev/null || fail "a deferred launch left the queue"
+pass "a confirmed host launch deferral stays queued with a local clone"
