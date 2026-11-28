@@ -4278,7 +4278,7 @@ test_github_multiple_red_waivers_do_not_cover_unnamed_check() {
     "$(check_run test COMPLETED SUCCESS)"
   set +e
   run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/83 \
-    --allow-red e2e-mac --allow-red checks > "$case_dir/stdout" 2> "$case_dir/stderr"
+    --allow-red e2e-mac --allow-red unrelated > "$case_dir/stdout" 2> "$case_dir/stderr"
   rc=$?
   set -e
   expect_code 1 "$rc" "an unwaived red check must refuse"
