@@ -269,6 +269,7 @@ if [ "$PROVISION_RC" -ne 0 ]; then
   die "remote provisioning failed; registry restored"
 fi
 printf '%s\n' "$PROVISION_OUT"
+[ "$PREFLIGHT_MODE" != check ] || printf 'session: %s\n' "$EXEC_SESSION"
 if [ -n "$LAVISH_ADDRESS" ] && ! grep -Fqx "lavish-address: $LAVISH_ADDRESS" <<< "$PROVISION_OUT"; then
   die "the remote code root predates --lavish-address and did not record it; update that host and rerun the same seed"
 fi

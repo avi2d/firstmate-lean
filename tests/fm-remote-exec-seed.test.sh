@@ -122,7 +122,7 @@ assert_contains "$(cat "$TMP_ROOT/seed.out")" "provisioned: $REMOTE_HOME project
   "the seed did not report the provisioned execution home"
 assert_contains "$(cat "$TMP_ROOT/seed.out")" "session: lab-x" \
   "the healthy seed omitted the target lab session"
-assert_not_contains "$(cat "$TMP_ROOT/seed.out")" "fm-remote" \
+assert_not_contains "$(cat "$TMP_ROOT/seed.out")" "session: fm-remote" \
   "the healthy seed reported the fleet session"
 pass "fm-remote-exec-seed: --exec seeds the route and reports the provisioned home"
 
