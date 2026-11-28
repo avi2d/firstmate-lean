@@ -6,6 +6,7 @@ set -eu
 
 usage() {
   sed -n '2,${/^#/!q;p;}' "$0" | sed 's/^# \{0,1\}//'
+  printf '%s\n' 'Repeat --allow-red <check-name> to waive each named GitHub check.'
 }
 
 case "${1:-}" in
@@ -112,7 +113,6 @@ while [ "$#" -gt 0 ]; do
       ;;
     --allow-red)
       [ -n "${2:-}" ] || { echo "error: --allow-red requires a check name" >&2; exit 2; }
-      [ "${#ALLOW_RED[@]}" -eq 0 ] || { echo "error: --allow-red may be specified only once" >&2; exit 2; }
       ALLOW_RED+=("$2")
       shift 2
       ;;
@@ -168,13 +168,7 @@ if [ -n "$EXPECTED_HEAD" ] && ! fm_pr_head_valid "$EXPECTED_HEAD"; then
   echo "error: --expected-head requires a full lowercase commit sha" >&2
   exit 2
 fi
-# --allow-red names one check run to waive, which only GitHub's per-check
-# reading can match. GitLab and Forgejo each collapse their checks into a
-# single head verdict - a head pipeline status and a combined commit status -
-# so there is no per-check name to waive there; GitLab's only waiver is the
-# whole-pipeline absence --allow-no-pipeline covers. Refuse the combination
-# rather than accept a flag that would be silently dropped into a refusal the
-# caller cannot explain.
+# GitLab and Forgejo report aggregate verdicts, not per-check names.
 if [ "${#ALLOW_RED[@]}" -gt 0 ]; then
   case "$PROVIDER" in
     gitlab)
@@ -885,12 +879,21 @@ github_required_checks_missing() {
   ' 2>/dev/null || return 1
 }
 
+red_check_is_waived() {
+  local check
+  [ "${#ALLOW_RED[@]}" -gt 0 ] || return 1
+  for check in "${ALLOW_RED[@]}"; do
+    [ "$check" != "$1" ] || return 0
+  done
+  return 1
+}
+
 # Pre-merge conditions from a live PR view, base requirements, and head producers.
 # Sets FM_PR_MERGE_HEAD to the verified head on success. Returns 3, rather than
 # the usual 1, when mergeable=UNKNOWN is the only failing condition, so the
 # caller can retry a still-computing mergeability read instead of refusing.
 github_verify_mergeable() {
-  local json fields line red failed name covered behind commits missing unreported producers runs pending
+  local json fields line red failed name behind commits missing unreported producers runs pending
   local total=0 named=0 refusals='' mergeable_refusal=''
   local state='' draft='' mergeable='' merge_state='' live_head='' base=''
   FM_PR_GITHUB_BEHIND=false
@@ -974,7 +977,7 @@ FIELDS
   fi
   while IFS= read -r name; do
     [ -n "$name" ] || continue
-    [ "${#ALLOW_RED[@]}" -eq 0 ] || [ "${ALLOW_RED[0]}" != "$name" ] || continue
+    red_check_is_waived "$name" && continue
     FM_PR_GITHUB_CHECKS_FAILED=true
   done <<EOF
 $failed
@@ -1028,13 +1031,7 @@ EOF
   uncovered=''
   while IFS= read -r name; do
     [ -n "$name" ] || continue
-    covered=0
-    if [ "${#ALLOW_RED[@]}" -gt 0 ]; then
-      for check in "${ALLOW_RED[@]}"; do
-        [ "$check" = "$name" ] && covered=1
-      done
-    fi
-    [ "$covered" -eq 1 ] || {
+    red_check_is_waived "$name" || {
       refusals="$refusals  - check '$name' is not green
 "
       uncovered="${uncovered:+$uncovered, }$name"
