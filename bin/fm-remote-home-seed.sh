@@ -63,6 +63,7 @@ trap cleanup EXIT
 EXEC_SUMMARY=
 EXEC_SCOPE=
 EXEC_SESSION=fm-remote
+PREFLIGHT_MODE=repair
 LAVISH_ADDRESS=
 [ "${1:-}" = --exec ] || usage
 shift
@@ -73,7 +74,7 @@ while [ "$#" -gt 0 ]; do
       case "$1" in
         --summary) EXEC_SUMMARY=$2 ;;
         --scope) EXEC_SCOPE=$2 ;;
-        --session) EXEC_SESSION=$2 ;;
+        --session) EXEC_SESSION=$2; PREFLIGHT_MODE=check ;;
         --lavish-address)
           fm_lavish_address_valid "$2" || die "invalid Lavish address, expected host:port: $2"
           LAVISH_ADDRESS=$2
@@ -239,7 +240,7 @@ restore_registry() {
 # created on that host. The doctor runs through the same fixed entrypoint as
 # every later call, so it sees the exact PATH the remote home will run under.
 set +e
-fm_remote_readiness_ensure "$SCRIPT_DIR" "$ID" any "$EXEC_SESSION"
+fm_remote_readiness_ensure "$SCRIPT_DIR" "$ID" any "$EXEC_SESSION" "$PREFLIGHT_MODE"
 PREFLIGHT_RC=$?
 set -e
 if [ "$PREFLIGHT_RC" -ne 0 ]; then
