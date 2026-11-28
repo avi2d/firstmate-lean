@@ -77,6 +77,12 @@ command_name=$(perl -MMIME::Base64=decode_base64 -e 'print((split(/\0/, decode_b
 if [ "$command_name" = fm-remote-doctor.sh ]; then
   perl -MMIME::Base64=decode_base64 -e 'print join(" ", split(/\0/, decode_base64($ARGV[0]))), "\n"' "$argv_b64" \
     >> "$FM_FAKE_DOCTOR_ARGV"
+  if [ "${FM_FAKE_LAB_MISSING:-0}" = 1 ]; then
+    case " $(tail -n 1 "$FM_FAKE_DOCTOR_ARGV") " in
+      *" --fix "*) printf 'changed\n' > "$FM_FAKE_FLEET_STATE"; exit 0 ;;
+      *) printf 'missing session lab-missing\n'; exit 1 ;;
+    esac
+  fi
   printf 'ok: remote execution-home readiness confirmed on this host\n'
   exit 0
 fi
@@ -97,6 +103,18 @@ export FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux
 
 seed() { "$REMOTE_ROOT/bin/fm-remote-home-seed.sh" "$@" 2>"$TMP_ROOT/seed.err"; }
 ssh_count() { cat "$SSH_COUNT" 2>/dev/null || echo 0; }
+
+export FM_FAKE_FLEET_STATE="$TMP_ROOT/fleet.state"
+printf 'unchanged\n' > "$FM_FAKE_FLEET_STATE"
+export FM_FAKE_LAB_MISSING=1
+seed --exec --session lab-missing missing exec-alias "$REMOTE_ROOT" "$TMP_ROOT/missing-home" --no-projects > "$TMP_ROOT/missing.out" \
+  && fail "a missing lab session was repaired instead of refused"
+unset FM_FAKE_LAB_MISSING
+[ "$(cat "$FM_FAKE_FLEET_STATE")" = unchanged ] || fail "a missing lab session changed the fleet session"
+assert_contains "$(cat "$TMP_ROOT/seed.err")" "missing session lab-missing" "the refusal omitted the lab session"
+[ ! -e "$TMP_ROOT/missing-home" ] || fail "a missing lab session was provisioned"
+: > "$FM_FAKE_DOCTOR_ARGV"
+pass "fm-remote-exec-seed: a missing lab session refuses without repairing the fleet"
 
 seed --exec --session lab-x execone exec-alias "$REMOTE_ROOT" "$REMOTE_HOME" scratch > "$TMP_ROOT/seed.out" \
   || fail "the execution-home seed failed: $(cat "$TMP_ROOT/seed.err")"
